@@ -1,0 +1,15 @@
+/lib/flezha/flz_core_ffi.*
+/lib/flezha/[0-9]*/
+/ext/flz_core_ffi/target/
+# The tag in Cargo.toml decides the core's commit; a lock would pin it a second time.
+/ext/flz_core_ffi/Cargo.lock
+/ext/flz_core_ffi/Makefile
+/ext/flz_core_ffi/mkmf.log
+/pkg/
+/tmp/
+# If you run "COVERAGE=1 rake test", the coverage report ends up here.
+/coverage/
+# Fetched from a core release and checked against its manifest: the fake
+# controller, and the contract set the fixture tests resolve against.
+/.core/
+/contract/

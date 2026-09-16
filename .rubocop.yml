@@ -1,0 +1,18 @@
+# RuboCop is this gem's formatter, not its linter: only the Layout cops run, so
+# `rubocop -a` changes whitespace and never code. Pinned in flezha.gemspec.
+AllCops:
+  TargetRubyVersion: 3.3
+  DisabledByDefault: true
+  NewCops: disable
+  SuggestExtensions: false
+  Exclude:
+    - "pkg/**/*"
+    - "tmp/**/*"
+    - "contract/**/*"
+    - "ext/**/target/**/*"
+    - "**/vendor/**/*"
+Layout:
+  Enabled: true
+# A formatter cannot wrap a comment; width is a lint judgement, not layout.
+Layout/LineLength:
+  Enabled: false

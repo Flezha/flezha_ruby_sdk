@@ -22,7 +22,7 @@ Flezha::TestSupport.require_test_app("fixtures")
 # the language layer produces.
 class LocalModeCapabilitiesTest < Minitest::Test
   def setup
-    skip "needs the compiled veneer (scripts/build-ruby-sdk.sh)" unless Flezha::TestSupport.native?
+    skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
   end
 
   def test_graph_builder_a_declared_graph_is_built_and_run_with_no_controller

@@ -8,7 +8,7 @@ require_relative "test_helper"
 # that a blocking call really does let other Ruby threads run.
 class NativeTest < Minitest::Test
   def setup
-    skip "needs the compiled veneer (scripts/build-ruby-sdk.sh)" unless Flezha::TestSupport.native?
+    skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
   end
 
   def test_the_extension_speaks_the_schema_the_gem_was_built_against

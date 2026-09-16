@@ -33,7 +33,7 @@ class AuthoringTest < Minitest::Test
   # The submission needs a live core; without the compiled veneer the case says
   # so rather than passing vacuously.
   def validate(spec)
-    skip "needs the compiled veneer (scripts/build-ruby-sdk.sh)" unless Flezha::TestSupport.native?
+    skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
     Flezha::TestSupport.validate(spec)
   end

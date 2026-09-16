@@ -9,7 +9,7 @@
 # property of this file: FLEZHA_RUBY_EXECUTOR selects the thread pool (the
 # default) or the fiber scheduler, and the fixtures are identical under both.
 
-$LOAD_PATH.unshift(File.expand_path("../../../sdk/ruby/lib", __dir__))
+$LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 
 require "flezha"
 require_relative "conformance"

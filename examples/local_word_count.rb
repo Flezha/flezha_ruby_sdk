@@ -2,8 +2,8 @@
 
 # The two-procedure word count, run in this process with no controller.
 #
-#   scripts/build-ruby-sdk.sh
-#   ruby -Isdk/ruby/lib examples/ruby/local_word_count.rb
+#   rake compile
+#   ruby -Ilib examples/local_word_count.rb
 #
 # `Split` and `Tally` are ordinary procedures with nothing local-mode about
 # them: the same classes deploy against a controller unchanged. What local mode

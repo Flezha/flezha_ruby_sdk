@@ -43,7 +43,7 @@ class DispatchTest < Minitest::Test
   # an author declared and the core says which of them became edges, so a
   # dispatch over a graph needs a real context to have judged the record first.
   def wired_deps(operative)
-    skip "needs the compiled veneer (scripts/build-ruby-sdk.sh)" unless Flezha::TestSupport.native?
+    skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
     Flezha::TestSupport.validate(operative.spec)
     Flezha::TestSupport.deps(operative, @core)

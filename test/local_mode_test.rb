@@ -45,7 +45,7 @@ class LocalModeTest < Minitest::Test
   end
 
   def setup
-    skip "needs the compiled veneer (scripts/build-ruby-sdk.sh)" unless Flezha::TestSupport.native?
+    skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
   end
 
   # The scenario every core runs: the lines to feed, and the sink values.

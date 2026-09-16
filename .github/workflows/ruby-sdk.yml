@@ -1,0 +1,121 @@
+name: Ruby SDK
+
+# Three tiers and no controller, the format check, and the precompiled platform
+# gems. The fake controller and the contract set are fetched from a core
+# release and checked against its manifest; the native library is built from
+# the wrapper crate, which takes the core from its git tag.
+#
+# What this cannot prove is the capability vocabulary the controller owns:
+# persistence, effectively-once, correction, partitioning, workflows, liveness,
+# restarts. Those are end-to-end scenarios and they run in the core's tree,
+# against the commit it pins this repository at.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The core release every tier is proven against. It decides the fake
+  # controller and the contract set; `ext/flz_core_ffi/Cargo.toml` names the
+  # same tag for the library.
+  CORE_VERSION: "0.1.0"
+  CORE_RELEASE: https://github.com/flezha/flezha/releases/download/v0.1.0
+
+jobs:
+  # Unit, local mode and smoke, at both ends of the support window. 3.3 is the
+  # floor `Process.warmup` sets.
+  tiers:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ["3.3", "3.4"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # rb-sys runs bindgen over `ruby.h`, and bindgen needs clang's builtin
+      # headers; `extconf.rb` falls back to gcc's, and this is the direct way.
+      - name: Install libclang and its builtin headers
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+
+      - name: Run the three tiers
+        run: scripts/ci.sh --core "$CORE_RELEASE" --version "$CORE_VERSION"
+
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+
+      - name: Formatting
+        run: |
+          gem install --no-document rubocop -v "$(ruby -e 'puts Gem::Specification.load("flezha.gemspec").dependencies.find { |d| d.name == "rubocop" }.requirement')"
+          rubocop
+
+  # One gem per platform, carrying one library per supported Ruby minor, built
+  # in the rb-sys-dock image for that platform: `rake native:<platform> gem`
+  # against the wrapper crate.
+  platform-gems:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - x86_64-linux
+          - aarch64-linux
+          - x86_64-darwin
+          - arm64-darwin
+          - x64-mingw-ucrt
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+
+      - uses: oxidize-rb/actions/cross-gem@v1
+        id: cross-gem
+        with:
+          platform: ${{ matrix.platform }}
+          ruby-versions: "3.3,3.4"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flezha-${{ matrix.platform }}
+          path: ${{ steps.cross-gem.outputs.gem-path }}
+
+  # The point of a platform gem: it installs and runs where there is no cargo
+  # and no git.
+  install-without-a-toolchain:
+    runs-on: ubuntu-latest
+    needs: platform-gems
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: flezha-x86_64-linux
+          path: pkg
+
+      - name: Install and load it in an image with no cargo and no git
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/pkg:/pkg" ruby:3.4 bash -c '
+            rm -f "$(command -v git)"
+            ! command -v cargo && ! command -v git || { echo "this image has cargo or git; the test is void"; exit 1; }
+            gem install /pkg/*.gem --no-document
+            ruby -e "require \"flezha\"; Flezha::Core.create.free; puts \"the platform gem loads with no cargo and no git\""
+          '

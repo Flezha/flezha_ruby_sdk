@@ -25,6 +25,8 @@ Gem::Specification.new do |spec|
   spec.files = Dir[
     "lib/**/*.rb",
     "ext/**/*.rb",
+    "ext/**/Cargo.toml",
+    "ext/**/*.rs",
     "LICENSE*",
     "README.md",
     "THIRD_PARTY_NOTICES.md"
@@ -33,6 +35,9 @@ Gem::Specification.new do |spec|
   spec.extensions = ["ext/flz_core_ffi/extconf.rb"]
 
   spec.add_dependency "msgpack", "~> 1.7"
+  # What `extconf.rb` writes the source gem's Makefile with. A precompiled gem
+  # drops it, since nothing is built at install.
+  spec.add_dependency "rb_sys", "~> 0.9.130"
   # Exact versions, because CI installs what these lines name and nothing else
   # constrains the resolution. minitest must stay on 5.x: 6.0 moved
   # `minitest/mock` out into its own gem, and the suite's `Object#stub` is from
@@ -44,6 +49,7 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency "async", "2.45.0"
   spec.add_development_dependency "minitest", "5.25.4"
   spec.add_development_dependency "rake", "13.2.1"
+  spec.add_development_dependency "rake-compiler", "1.3.1"
   spec.add_development_dependency "rubocop", "1.90.0"
   # A coverage diff is what decides whether a test may be deleted, so the suite
   # has to be measurable and not only runnable. `COVERAGE=1 rake test` loads it.

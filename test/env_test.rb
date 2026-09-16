@@ -4,7 +4,7 @@ require "test_helper"
 
 # This runtime's reading of the shared parse fixture.
 class EnvTest < Minitest::Test
-  FIXTURE = File.expand_path("../../../test/fixtures/knob_parse_cases.txt", __dir__)
+  FIXTURE = Flezha::TestSupport.contract_file("test/fixtures/knob_parse_cases.txt")
 
   RULE = {
     "positive_int" => ->(raw) { Flezha::Env.parse_positive(raw) },

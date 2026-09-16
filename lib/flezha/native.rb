@@ -17,13 +17,23 @@ module Flezha
     class ForkError < Error; end
 
     def self.load_extension
-      # `lib/flezha/flz_core_ffi.<dlext>`; Ruby derives `Init_flz_core_ffi` from the
-      # basename, which is what the veneer exports.
-      require "flezha/flz_core_ffi"
+      # Ruby derives `Init_flz_core_ffi` from the basename, which is what the
+      # veneer exports. A precompiled gem carries one library per Ruby minor,
+      # under `lib/flezha/<minor>/`; a source build puts its one in `lib/flezha/`.
+      per_minor = "flezha/#{RUBY_VERSION[/\A\d+\.\d+/]}/flz_core_ffi"
+      begin
+        require per_minor
+      rescue LoadError => e
+        # Only an absent file falls through; one that is there and will not
+        # load is the error to report.
+        raise unless e.path == per_minor
+
+        require "flezha/flz_core_ffi"
+      end
     rescue LoadError => e
       raise Error,
             "the flezha native extension could not be loaded (#{e.message}). Install a " \
-            "precompiled platform gem, or build the source gem with a Rust toolchain."
+            "precompiled platform gem, or build the source gem with cargo and git."
     end
 
     # Create the process context, negotiating the activation schema version

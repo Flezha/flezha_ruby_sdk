@@ -41,19 +41,17 @@ and defaults to `default`: `bundle exec ruby runner.rb my_app`.
 
 ## Building from a checkout
 
-The gem is not on RubyGems yet. From the repository root, with the Ruby you will
-run the runner with, build a gem for this platform and install it once:
+The gem is not on RubyGems yet. From the SDK's repository root, with the Ruby
+you will run the runner with, build a gem for this platform and install it once:
 
 ```sh
-cd sdk/ruby
-rake native_gem
+rake native gem
 gem install pkg/flezha-0.1.0-*.gem
 ```
 
-`rake native_gem` compiles the SDK's native library, so it needs a Rust
-toolchain; `scripts/build-ruby-sdk.sh` names what else it looks for. Once the gem
-is installed, `bundle install` in this folder finds it, and once it is published
-the step goes away.
+`rake native gem` compiles the SDK's native library from the core's git tag, so
+it needs cargo and git. Once the gem is installed, `bundle install` in this
+folder finds it, and once it is published the step goes away.
 
 ## Where to go next
 
