@@ -123,16 +123,29 @@ class TestingTest < Minitest::Test
     assert_equal({ total: 7, seen: [2, 5] }, harness.state)
   end
 
-  def test_a_spawn_on_a_replayed_invocation_is_skipped
+  # A handle already resolved to what a controller would have answered.
+  def test_a_spawn_answers_a_resolved_handle_and_a_replay_skips_it
+    handles = []
     spawner = Class.new(Flezha::Procedure) do
       procedure_name "spawner"
-      def process(input, ctx) = ctx.spawn_workflow("i-1", "wf", input)
+
+      define_method(:process) do |input, ctx|
+        handles.replace([ctx.spawn_workflow("stateless_loop_workflow", input),
+                         ctx.spawn_workflow("stateless_loop_workflow", input, id: "w1")])
+        handles.map { |handle| handle.try_result.to_h }
+      end
     end
     harness = Flezha::Testing::Harness.new(spawner)
 
-    assert_equal "spawned", harness.feed("x").returned
-    assert_equal "skipped_on_replay", harness.feed("x", replay: true).returned,
+    unnamed, named = harness.feed("x").returned
+    assert_match(/\Astateless_loop-[a-z2-7]{16}\z/, unnamed[:id], "the controller's generated shape")
+    assert_equal :spawned, unnamed[:outcome]
+    assert_equal({ id: "w1", outcome: :spawned }, named)
+    assert_equal [{ id: "", outcome: :skipped_on_replay }, { id: "w1", outcome: :skipped_on_replay }],
+                 harness.feed("x", replay: true).returned,
                  "a spawn is an external effect; a replay must not issue it twice"
+    error = assert_raises(Flezha::Error) { handles.first.try_result }
+    assert_includes error.message, "released", "as live, a handle is read inside the invocation that made it"
   end
 
   def test_stable_id_is_replay_stable_within_an_invocation

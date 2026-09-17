@@ -161,7 +161,8 @@ module Flezha
         spec: registered.spec, node: node, outgoing: registered.outgoing[node.index],
         operative: activation[:operative], entity_key: activation[:entity_key],
         change_seq: activation[:change_seq], now: now, replay: replay,
-        state: registered.state_of(node, activation[:entity_key]), bridge: deps.bridge
+        state: registered.state_of(node, activation[:entity_key]), bridge: deps.bridge,
+        token: activation[:token]
       )
       begin
         [ctx, yield(ctx)]

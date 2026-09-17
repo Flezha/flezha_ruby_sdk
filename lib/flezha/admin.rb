@@ -3,6 +3,10 @@
 require "json"
 
 module Flezha
+  # What a start answered: the id the operative runs under, the generated one
+  # when the start named none, and `:started` or `:already_running`.
+  StartResult = Struct.new(:id, :outcome, keyword_init: true)
+
   # Administering the namespace this runner's connection proved, from ordinary
   # application code.
   #
@@ -21,13 +25,21 @@ module Flezha
       @core = core
     end
 
-    # Start an operative, on the specification `flz operative start` takes.
-    def start_operative(operative_id, factory_id, kind: nil, init_values: nil, opts: nil)
-      fields = { "id" => operative_id, "factory_id" => factory_id }
+    # Start an operative of `factory_id`, on the specification
+    # `flz operative start` takes, answering a `StartResult`.
+    #
+    # Without an `id` the controller generates one, so a start retried after a
+    # lost answer starts a second operative, and a second stream runs until it
+    # is stopped. With an `id`, a start of a running one leaves it untouched
+    # and answers `:already_running`.
+    def start_operative(factory_id, id: nil, kind: nil, init_values: nil, opts: nil)
+      fields = { "factory_id" => factory_id }
+      fields["id"] = id if id
       fields["kind"] = kind if kind
       fields["init_values"] = init_values if init_values
       fields["opts"] = opts if opts
-      call("Operative.start", fields)
+      answer = call("Operative.start", fields)
+      StartResult.new(id: answer.fetch("id"), outcome: answer.fetch("outcome").to_sym)
     end
 
     # Stop an operative, or the whole partition group it names.

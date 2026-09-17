@@ -107,6 +107,7 @@
       "schema_evolution_v2"
     ],
     "workflow": [
+      "spawn_requester",
       "echo_workflow",
       "commit_block_workflow",
       "sync_durable_workflow",

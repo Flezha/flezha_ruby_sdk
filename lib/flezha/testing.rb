@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require "json"
+require "securerandom"
+
 require_relative "builder"
 require_relative "codec"
 require_relative "dispatch"
@@ -30,6 +33,8 @@ module Flezha
     # What one invocation produced.
     Outcome = Struct.new(:outputs, :changes, :timers, :returned, keyword_init: true)
 
+    BASE32 = [*"a".."z", *"2".."7"].freeze
+
     class Harness
       attr_reader :log
 
@@ -57,6 +62,10 @@ module Flezha
         @deps = DispatchDeps.new(registry: nil, bridge: self, workflow_ctx: nil)
         @log = []
         @change_seq = 0
+        # Answers by handle, until the invocation that made them ends, as the
+        # core releases them.
+        @spawns = {}
+        @spawn_count = 0
       end
 
       # The entity's live state, as the dispatcher left it.
@@ -106,16 +115,29 @@ module Flezha
         true
       end
 
-      # The spawn bridge a `Ctx` asks. A harness has no controller, so a spawn
-      # answers what one would have and records nothing.
-      def spawn_workflow(*) = "spawned"
+      # The spawn bridge a `Ctx` asks. A harness has no controller, so a
+      # request resolves at once to what one would have answered: spawned
+      # under the given id or a generated-looking one, or skipped on a replay.
+      def spawn_request(_token, factory_id, id, _payload, _if_running, replay)
+        id = generated_id(factory_id) if id.empty? && !replay
+        outcome = replay ? "skipped_on_replay" : "spawned"
+        handle = @spawn_count += 1
+        @spawns[handle] = JSON.generate({ "id" => id, "outcome" => outcome })
+        handle
+      end
+
+      def spawn_result(handle, _timeout_ms)
+        @spawns.fetch(handle) { raise Error, "spawn handle #{handle} was released" }
+      end
 
       private
 
       def run(now, replay)
         activation = { operative: @operative, entity_key: @entity_key, change_seq: @change_seq }
-        ctx, returned = Dispatch.invoke(activation, @registered, @node, @deps, now, replay) do |c|
-          yield(c)
+        ctx, returned = begin
+          Dispatch.invoke(activation, @registered, @node, @deps, now, replay) { |c| yield(c) }
+        ensure
+          @spawns.clear
         end
         # A returned value is emitted, as `Dispatch.run_item` does per value.
         ctx.emit(returned) unless returned.nil?
@@ -129,6 +151,13 @@ module Flezha
       end
 
       def invoke(input, ctx) = @definition.instance.process(input, ctx)
+
+      # The controller's shape: the factory id trimmed so the whole id fits the
+      # 32-byte limit, then 16 base32 characters.
+      def generated_id(factory_id)
+        prefix = factory_id.byteslice(0, 15).scrub("").sub(/[-_]+\z/, "")
+        "#{prefix}-#{SecureRandom.alphanumeric(16, chars: BASE32)}"
+      end
 
       def decode_change(bytes)
         codec = @definition.change_codec

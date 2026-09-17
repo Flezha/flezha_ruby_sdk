@@ -43,4 +43,30 @@ module Flezha
   class NonRetryableError < Error
     def non_retryable? = true
   end
+
+  # Why a spawn reached no instance, raised by a read of its handle as the
+  # subclass naming the kind, and never by the spawn call itself.
+  class SpawnError < Error
+    # The id the request named; empty when it named none.
+    attr_reader :id
+
+    def initialize(id, message)
+      @id = id
+      super(message)
+    end
+
+    class AlreadyRunning < SpawnError; end
+    class FactoryUnknown < SpawnError; end
+    class Refused < SpawnError; end
+    class Timeout < SpawnError; end
+    class Unavailable < SpawnError; end
+
+    KINDS = {
+      already_running: AlreadyRunning, factory_unknown: FactoryUnknown, refused: Refused,
+      timeout: Timeout, unavailable: Unavailable
+    }.freeze
+
+    # The kind as the core words it, such as `:refused`.
+    def kind = KINDS.key(self.class)
+  end
 end

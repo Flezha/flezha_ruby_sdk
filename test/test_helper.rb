@@ -160,17 +160,23 @@ module Flezha
     # and a test that wants the handout contract drives a real context. Both
     # blocking calls answer on a signal, so no test waits on a clock.
     class FakeCore
-      attr_reader :events, :declarations, :completed, :abandoned, :polled
+      attr_reader :events, :declarations, :completed, :abandoned, :polled, :spawn_requests,
+                  :spawn_reads
 
       # `activations` are handed out in order; `starvations` is how many times
       # `wait_starvation` reports one before it starts timing out; `hold` runs
       # inside `complete`, which is where a test holds a worker without
-      # reaching through the dispatcher.
-      def initialize(activations: [], starvations: 0, hold: nil)
+      # reaching through the dispatcher; `spawns` are what `spawn_result`
+      # answers in order, the core's JSON or nil for pending.
+      def initialize(activations: [], starvations: 0, hold: nil, spawns: [])
         @pending = Thread::Queue.new
         activations.each { |activation| @pending.push(activation) }
         @starvations = starvations
         @hold = hold
+        @spawns = spawns.dup
+        @resolved = {}
+        @spawn_requests = []
+        @spawn_reads = []
         @events = []
         @declarations = []
         @completed = []
@@ -234,7 +240,24 @@ module Flezha
       end
 
       def abandon(token) = @lock.synchronize { @abandoned << token }
-      def spawn_workflow(*) = "spawned"
+
+      # A request answers the next handle number; a read answers the next
+      # scripted answer, and pending once they run out. As in the core, a
+      # handle that resolved answers every later read the same.
+      def spawn_request(*args)
+        @lock.synchronize do
+          @spawn_requests << args
+          @spawn_requests.size
+        end
+      end
+
+      def spawn_result(handle, timeout_ms)
+        @lock.synchronize do
+          @spawn_reads << [handle, timeout_ms]
+          @resolved[handle] ||= @spawns.shift
+        end
+      end
+
       def workflow_emit(*) = nil
       def workflow_recv(*) = nil
       def workflow_cancelled(*) = false

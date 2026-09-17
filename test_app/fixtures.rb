@@ -541,6 +541,38 @@ module Fixtures
     end
   end
 
+  # -- spawn_requester -----------------------------------------------------
+
+  # On each input, spawns `stateless_loop_workflow` once under a generated id
+  # and once under the input, and prints both results: a handle's answer is
+  # observable nowhere but in the procedure that read it.
+  class SpawnRequester < Flezha::Procedure
+    procedure_name "spawn_requester"
+
+    def process(input, ctx)
+      handles = {
+        "unnamed" => ctx.spawn_workflow("stateless_loop_workflow", input),
+        "named" => ctx.spawn_workflow("stateless_loop_workflow", input, id: input)
+      }
+      handles.each do |label, handle|
+        result = handle.wait
+        puts("spawn_result #{label} #{result.id} #{result.outcome}")
+      rescue Flezha::SpawnError => e
+        puts("spawn_result #{label} error #{e.kind}")
+      end
+      $stdout.flush
+      nil
+    end
+  end
+
+  class SpawnRequesterOperative < Flezha::StreamOperative
+    factory_id "spawn_requester"
+    channels do |c|
+      c.input("in", codec: :text).into(SpawnRequester)
+       .sink("out")
+    end
+  end
+
   # Every operative this app registers, in declaration order.
   ALL = [
     DoNothingOperative, BenchEchoOperative, CompareFilterOperative,
@@ -548,6 +580,6 @@ module Fixtures
     SugarDoNothingOperative, SugarStoreInputOperative, HybridChannelOperative,
     MergedInputOperative, TransformChainOperative, EntityStressOperative, *STATE,
     CandleOperative, PoisonProbeOperative, WedgeProbeOperative, SessionTimeoutOperative, *BOUNDED_MAILBOX,
-    PartitionRelayOperative, DynamicEntityOperative
+    PartitionRelayOperative, DynamicEntityOperative, SpawnRequesterOperative
   ].freeze
 end

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 require_relative "builder"
 require_relative "codec"
 require_relative "errors"
@@ -19,7 +21,8 @@ module Flezha
     attr_reader :changes, :outputs, :timers, :entity_key, :replay
 
     def initialize(spec:, node:, outgoing:, operative:, entity_key:, change_seq:,
-                   now:, replay:, state:, bridge:)
+                   now:, replay:, state:, bridge:, token:)
+      @token = token
       @spec = spec
       @node = node
       @outgoing = outgoing
@@ -123,13 +126,27 @@ module Flezha
       nil
     end
 
-    # Spawn or deliver to a workflow instance.
-    def spawn_workflow(instance_id, factory_id, payload, if_running: "deliver")
-      # A spawn is an external side effect. A replayed invocation must not
-      # issue it twice, and a timer must — a timer is internal state.
-      return "skipped_on_replay" if @replay
+    # Spawn a workflow instance of `factory_id` with `payload` as its first
+    # input, answering a `SpawnHandle` at once. With an `id` already running,
+    # `if_running: "deliver"` (the default) hands it `payload` instead, and
+    # `"error"` resolves to `SpawnError::AlreadyRunning`. A replayed invocation
+    # sends nothing and resolves to `:skipped_on_replay`.
+    #
+    # Without an `id` the controller generates one and always starts a new
+    # instance, so a spawn reissued after a lost or timed-out answer starts a
+    # second one, and a replayed invocation answers an empty id. Pass an id to
+    # start at most one instance, or to get the id back on replay.
+    def spawn_workflow(factory_id, payload, id: nil, if_running: nil)
+      if if_running && id.to_s.empty?
+        raise ArgumentError,
+              "#{@node.name}: spawn_workflow was given if_running without an id; if_running " \
+              "decides what a running instance named by id gets, and a spawn without an id " \
+              "always starts a new one"
+      end
 
-      @bridge.spawn_workflow(instance_id, factory_id, Codec.encode(payload), if_running.to_s)
+      handle = @bridge.spawn_request(@token, factory_id, id.to_s, Codec.encode(payload),
+                                     if_running.to_s, @replay)
+      SpawnHandle.new(@bridge, handle)
     end
 
     # The effect record for this item, as the core folds it.
@@ -240,6 +257,53 @@ module Flezha
 
         [key.to_s, value.to_s]
       end
+    end
+  end
+
+  # A spawn that reached an instance: the id it resolved to, the caller's or
+  # the generated one, and `:spawned`, `:delivered` or `:skipped_on_replay`.
+  SpawnResult = Struct.new(:id, :outcome, keyword_init: true)
+
+  # The answer to one spawn request, read inside the invocation that made it:
+  # a resolved handle answers every read the same until its invocation ends,
+  # when the core releases it and logs once a failure no read collected.
+  class SpawnHandle
+    # Long enough to reach the core's own deadline, which resolves the request
+    # as timed out thirty seconds after it was made.
+    WAIT_MS = 30_000
+
+    def initialize(bridge, handle)
+      @bridge = bridge
+      @handle = handle
+    end
+
+    # Wait for the answer: a `SpawnResult`, or raises the `SpawnError` naming
+    # why the spawn failed.
+    #
+    # The wait is in the core with the GVL released, as every waiting core
+    # call is, so under the fiber executor it holds the dispatch thread until
+    # the answer arrives. A fiber that yielded there instead would not be
+    # resumed until the executor's next activation.
+    def wait
+      result = read(WAIT_MS) until result
+      result
+    end
+
+    # The answer if it has arrived, without waiting: `nil` while pending, and
+    # otherwise what `wait` answers or raises.
+    def try_result = read(0)
+
+    private
+
+    def read(timeout_ms)
+      return unless (json = @bridge.spawn_result(@handle, timeout_ms))
+
+      answer = JSON.parse(json)
+      if (kind = answer["error"])
+        raise SpawnError::KINDS.fetch(kind.to_sym).new(answer["id"], answer["message"])
+      end
+
+      SpawnResult.new(id: answer["id"], outcome: answer["outcome"].to_sym)
     end
   end
 

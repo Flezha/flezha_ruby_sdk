@@ -48,7 +48,7 @@ class NativeTest < Minitest::Test
     end
     blocking = surface.select { |row| row[2] }.map(&:first)
     assert_equal %w[start local_feed local_next_output local_run_until_idle poll
-                    wait_starvation complete workflow_recv spawn_workflow admin_call], blocking
+                    wait_starvation complete workflow_recv spawn_result admin_call], blocking
   end
 
   # The guarded wrapper covers the whole surface. Without this, an entry point

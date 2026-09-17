@@ -22,7 +22,7 @@ runner.boot
 # terminal:
 #
 # admin = runner.admin
-# admin.start_operative("my_echo", "echo")
+# admin.start_operative("echo", id: "my_echo")
 # admin.enable_plugin("writer", {
 #   "id" => "writer",
 #   "provider" => "operative_file_sink",
