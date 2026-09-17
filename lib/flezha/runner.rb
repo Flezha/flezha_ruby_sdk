@@ -76,18 +76,6 @@ module Flezha
       self
     end
 
-    # The operative a registration call was handed: an operative class is
-    # itself, and a short-form procedure carries the one it generates. A
-    # procedure with no `sink` generates none, and saying so here keeps the
-    # refusal at the call the author wrote.
-    def operative_of(klass)
-      return klass unless klass.is_a?(Class) && klass < Procedure
-
-      klass.operative ||
-        raise(Error, "`#{klass}` is a procedure with no `sink`, so it declares no operative; " \
-                     "register the operative that wires it, or declare a `sink` on it")
-    end
-
     # Which executor dispatches: `:threads` (the default) or `:fibers`.
     def executor(kind, **options)
       @executor_kind = kind.to_sym
@@ -201,6 +189,18 @@ module Flezha
     end
 
     private
+
+    # The operative a registration call was handed: an operative class is
+    # itself, and a short-form procedure carries the one it generates. A
+    # procedure with no `sink` generates none, and saying so here keeps the
+    # refusal at the call the author wrote.
+    def operative_of(klass)
+      return klass unless klass.is_a?(Class) && klass < Procedure
+
+      klass.operative ||
+        raise(Error, "`#{klass}` is a procedure with no `sink`, so it declares no operative; " \
+                     "register the operative that wires it, or declare a `sink` on it")
+    end
 
     def declare_all
       # The verdict before the registration: the core judges the record and
