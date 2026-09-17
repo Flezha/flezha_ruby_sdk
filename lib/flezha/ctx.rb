@@ -156,8 +156,7 @@ module Flezha
         @outputs << workflow_output(channel, first, value) if first
       else
         channel.consumers.each do |edge|
-          output = edge_output(channel, edge, value, key, metadata)
-          @outputs << output if output
+          @outputs.concat(edge_outputs(channel, edge, value, key, metadata))
         end
       end
       @outputs << plugin_output(channel, value, key, metadata) if channel.sink
@@ -171,26 +170,24 @@ module Flezha
       }
     end
 
-    # One consumer's frame: its own transforms, its own key, its own clock.
-    def edge_output(channel, edge, value, key, metadata)
+    # One consumer's frames, with its own transforms, key and clock: none when
+    # a filter dropped the value, one per value when a flat_map fanned it.
+    def edge_outputs(channel, edge, value, key, metadata)
+      definition = @spec.procedures[edge.procedure].definition
       # Producer-side, in declaration order: the core routes on `(edge, key)`
       # and never evaluates a host closure.
-      transformed = Flezha.apply_transforms(edge.transforms, value)
-      return nil if transformed.equal?(DROPPED)
-
-      resolved = key || (edge.key_by && edge.key_by.call(transformed)) || @entity_key
-      definition = @spec.procedures[edge.procedure].definition
-      payload = Codec.encode(transformed)
-      {
-        target: "edge",
-        channel: channel.index,
-        consumer: edge.procedure,
-        plugin_channel: nil,
-        key: resolved,
-        event_time: definition.event_time? ? definition.event_time_of(transformed) : nil,
-        metadata: meta_list(metadata),
-        payload: payload
-      }
+      Flezha.apply_transforms(edge.transforms, value).map do |transformed|
+        {
+          target: "edge",
+          channel: channel.index,
+          consumer: edge.procedure,
+          plugin_channel: nil,
+          key: key || (edge.key_by && edge.key_by.call(transformed)) || @entity_key,
+          event_time: definition.event_time? ? definition.event_time_of(transformed) : nil,
+          metadata: meta_list(metadata),
+          payload: Codec.encode(transformed)
+        }
+      end
     end
 
     # The plugin frame, serialized once from the value as emitted: an edge's

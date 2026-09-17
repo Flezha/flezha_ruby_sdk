@@ -85,12 +85,13 @@ module Flezha
 
     # A payload as the handler sees it: the entry channel's decoder, or the
     # class codec for a payload between procedures, then its transforms in
-    # declaration order. `DROPPED` when a filter rejected it.
+    # declaration order. Empty when a filter rejected it, several values when
+    # a flat_map fanned it.
     #
     # One function for the two places a payload crosses in — an input item, and
     # a payload at the prepare crossing — so a filter cannot mean one thing on
     # one path and another on the other.
-    def value_of(channel, edge, payload)
+    def values_of(channel, edge, payload)
       decoded = channel&.decode ? channel.decode.call(payload) : Codec.decode(payload)
       Flezha.apply_transforms(edge&.transforms || [], decoded)
     end
@@ -175,14 +176,9 @@ module Flezha
       Array(activation[:items]).each do |item|
         now = item[:now] || 0
         begin
-          ctx, returned = invoke(activation, registered, node, deps, now, item[:replay] || false) do |c|
+          ctx, = invoke(activation, registered, node, deps, now, item[:replay] || false) do |c|
             run_item(registered, node, item, now, c)
           end
-
-          # A returned value is emitted; `nil` emits nothing, which is the
-          # warmup gate. A handler that emits through the context returns
-          # nothing, so the two spellings compose rather than conflict.
-          ctx.emit(returned) unless returned.nil?
           effects << ctx.effect(item[:consumed_offset])
         rescue StandardError => e
           # The backtrace is a host diagnostic, not a record: the verdict below
@@ -229,12 +225,36 @@ module Flezha
       untransformed =
         channel.nil? || channel.kind == :entry || registered.spec.structured_workflow?
       edge = untransformed ? edge_into(channel, node.index) : nil
-      input = value_of(channel, edge, item[:payload] || "".b)
-      # A filtered value is consumed and reaches no handler. It still produces
-      # an effect, so its offset advances and nothing is retried.
-      return nil if input.equal?(DROPPED)
+      values = values_of(channel, edge, item[:payload] || "".b)
+      values = values.select { |value| routes_to?(edge, definition, value, ctx.entity_key) } if edge
+      # A filtered value reaches no handler and a fanned one reaches it once
+      # per value. Either way the item is one effect, so its offset advances
+      # once and nothing is retried.
+      values.each do |input|
+        returned = definition.instance.process(input, ctx)
+        # A returned value is emitted; `nil` emits nothing, which is the
+        # warmup gate. A handler that emits through the context returns
+        # nothing, so the two spellings compose rather than conflict.
+        ctx.emit(returned) unless returned.nil?
+      end
+      nil
+    end
 
-      definition.instance.process(input, ctx)
+    # Whether one value of an untransformed payload belongs to this Entity.
+    # The crossing answered the keys of every value, so a fanned payload
+    # reaches each Entity it named whole, and each keeps only its own values.
+    def routes_to?(edge, definition, value, entity_key)
+      keys = entity_key && keys_of(edge, definition, value)
+      keys.nil? || keys.include?(entity_key)
+    end
+
+    # The Entity keys one value routes to: its edge's key, else the procedure's
+    # `entities_for`, else nil when neither names one. The prepare crossing
+    # and the delivery filter both read it, so they cannot disagree.
+    def keys_of(edge, definition, value)
+      if edge&.key_by then [edge.key_by.call(value).to_s]
+      elsif definition&.entities_for? then definition.entities_for(value).map(&:to_s)
+      end
     end
 
     def restore_fold(activation, registered, node)
@@ -269,20 +289,16 @@ module Flezha
 
       answers = request[:payloads].map do |payload|
         begin
-          value = value_of(channel, edge, payload)
+          values = values_of(channel, edge, payload)
           # A filtered payload answers no key. For a dynamic consumer that is
           # what tells the core not to route it at all — the drop happens
           # before an entity is minted rather than inside one.
-          next { keys: [] } if value.equal?(DROPPED)
+          next { keys: [] } if values.empty?
 
-          keys =
-            if !request[:want_keys] then []
-            elsif edge&.key_by then [edge.key_by.call(value).to_s]
-            elsif definition&.entities_for? then definition.entities_for(value).map(&:to_s)
-            else []
-            end
+          # A fanned payload answers every value's key, once each.
+          keys = request[:want_keys] ? values.flat_map { |value| keys_of(edge, definition, value) || [] }.uniq : []
           event_time =
-            request[:want_event_time] && definition&.event_time? ? definition.event_time_of(value) : nil
+            request[:want_event_time] && definition&.event_time? ? definition.event_time_of(values.first) : nil
           { keys: keys, event_time: event_time }
         rescue StandardError => e
           # A per-payload refusal enters the input channel's retry ladder; it

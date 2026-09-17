@@ -362,6 +362,76 @@ class AuthoringTest < Minitest::Test
     assert_equal true, klass.spec.effectively_once
     refute_includes Flezha::Graph.to_host_class_decl(klass.spec).keys, "effectively_once"
   end
+  # -- merge and the latest-document router -----------------------------------
+  #
+  # A merge is recorded, never judged: each source's mapping is its own edge
+  # transform, the key rides every source's chain after it, and the core names
+  # a merge of too few or repeated sources.
+
+  def tagged(tag) = ->(value) { { source: tag, value: value } }
+
+  def test_a_merge_wires_one_node_with_one_edge_per_source_each_under_its_own_mapping
+    target = pass_through("label")
+    klass = operative("merged") do |c|
+      c.merge.from(c.input("ticks"), &tagged("ticks")).from(c.input("quotes"), &tagged("quotes"))
+       .key_by { |value| value[:value] }.into(target)
+    end
+    validate(klass.spec)
+
+    assert_equal ["label"], klass.spec.procedures.map(&:name)
+    assert_equal [[0], [0]], klass.spec.channels.map { |channel| channel.consumers.map(&:procedure) }
+    ticks, quotes = klass.spec.channels.map { |channel| channel.consumers.first }
+    assert_equal [[{ source: "ticks", value: "x" }], [{ source: "quotes", value: "x" }]],
+                 [ticks, quotes].map { |edge| Flezha.apply_transforms(edge.transforms, "x") }
+    assert_equal %w[x x], [ticks, quotes].map { |edge| edge.key_by.call({ value: "x" }) }
+  end
+
+  def test_a_merge_of_one_source_is_refused_as_too_few_sources
+    klass = operative("merge_one") do |c|
+      c.merge.from(c.input("in")) { |value| value }.into(pass_through("plain"))
+    end
+
+    assert_includes refusal { validate(klass.spec) }.refusals, "MergeTooFewSources"
+  end
+
+  def test_a_merge_naming_one_source_twice_is_refused_as_a_duplicate_source
+    klass = operative("merge_twice") do |c|
+      source = c.input("in")
+      c.input("other")
+      c.merge.from(source) { |value| value }.from(source) { |value| value }.into(pass_through("plain"))
+    end
+
+    assert_includes refusal { validate(klass.spec) }.refusals, "DuplicateMergeSource"
+  end
+
+  def test_a_merge_source_already_wired_into_the_node_with_a_transform_is_refused
+    target = pass_through("plain")
+    klass = operative("merge_rewired") do |c|
+      ticks = c.input("ticks")
+      ticks.map { |value| value }.into(target)
+      c.merge.from(ticks) { |value| value }.from(c.input("quotes")) { |value| value }.into(target)
+    end
+
+    assert_includes refusal { validate(klass.spec) }.refusals, "EdgeAlreadyWired"
+  end
+
+  def test_the_latest_document_router_is_a_route_latest_node_and_the_named_form_names_it
+    klass = operative("routers") do |c|
+      trades = c.input("trades")
+      c.route_latest(c.input("config"), trades) { |trade| trade[:symbol] }.sink("routed")
+      c.route_latest_named(c.input("limits"), trades, "limits_router") { |trade| trade[:symbol] }
+       .sink("limited")
+    end
+    validate(klass.spec)
+
+    assert_equal [["route_latest", Flezha::RouteLatest], ["limits_router", Flezha::RouteLatest]],
+                 klass.spec.procedures.map { |node| [node.name, node.klass] }
+    # The traffic item's key is computed on its own edge, so the router never holds the item.
+    trades_edges = klass.spec.channels[0].consumers
+    assert_equal [[{ traffic: "A" }], [{ traffic: "A" }]],
+                 trades_edges.map { |edge| Flezha.apply_transforms(edge.transforms, { symbol: "A" }) }
+  end
+
   # -- channel codecs ---------------------------------------------------------
   #
   # A codec is resolved when the class is declared, into the two slots the

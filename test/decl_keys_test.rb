@@ -102,6 +102,27 @@ class DeclKeysTest < Minitest::Test
     assert_empty extra, "the Ruby builder emits #{extra.join(', ')}, which the core never learned"
   end
 
+  # A merge closes every source's chain in the core's link vocabulary: the
+  # source's own links, its mapping, the merge's key, then the merge naming
+  # the node and a group of its own per merge.
+  def test_a_merge_records_each_source_chain_in_the_cores_link_shape
+    klass = Class.new(Flezha::StreamOperative)
+    klass.factory_id "decl_keys_merge"
+    klass.channels do |c|
+      c.merge.from(c.input("a")) { |v| v }.from(c.input("b").flat_map { |v| [v] }) { |v| v }
+       .key_by(&:to_s).into(Downstream)
+      c.merge.from(c.input("c")) { |v| v }.from(c.input("d")) { |v| v }.into(Downstream, "other")
+    end
+    transform = { "link" => "transform" }
+    key = { "link" => "key" }
+    first = { "link" => "merge", "procedure" => 0, "group" => 0 }
+    second = { "link" => "merge", "procedure" => 1, "group" => 1 }
+
+    assert_equal [[[transform, key, first]], [[transform, transform, key, first]],
+                  [[transform, second]], [[transform, second]]],
+                 Flezha::Graph.to_host_class_decl(klass.spec)["channels"].map { |c| c["chains"] }
+  end
+
   # --- the keys a workflow class may not put on the wire --------------------
   #
   # `flz_core::host::register::refuse_workflow_facts` refuses

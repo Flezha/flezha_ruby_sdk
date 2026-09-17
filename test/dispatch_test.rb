@@ -56,6 +56,12 @@ class DispatchTest < Minitest::Test
   def answer(kind, **extra) = Flezha::Dispatch.answer(activation(kind, **extra), @deps)
   def input_item(payload, **extra) = Flezha::TestSupport.input_item(payload, **extra)
 
+  # One activation answered over a declared class of its own, with fresh state.
+  def answer_on(operative, **extra)
+    deps = wired_deps(operative)
+    Flezha::Dispatch.answer(Flezha::TestSupport.activation(factory: operative.factory_id, **extra), deps)
+  end
+
   def test_a_work_batch_answers_one_effect_per_item
     result = answer(:work, items: [input_item("2"), input_item("3")])
 
@@ -289,13 +295,8 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  def stamp_answer(payload, operative: StampOperative, factory: "stamp_op", items: nil)
-    deps = wired_deps(operative)
-    activation = Flezha::TestSupport.activation(
-      factory: factory, kind: :work, entity_key: "ek", change_seq: 5,
-      items: items || [input_item(payload)]
-    )
-    Flezha::Dispatch.answer(activation, deps)
+  def stamp_answer(payload, operative: StampOperative, items: nil)
+    answer_on(operative, entity_key: "ek", change_seq: 5, items: items || [input_item(payload)])
   end
 
   def meta_of(output) = output[:metadata].to_h
@@ -311,8 +312,7 @@ class DispatchTest < Minitest::Test
   end
 
   def test_a_non_keyed_plugin_emit_carries_no_stamps
-    plain, = stamp_answer("mixed", operative: MixedStampOperative,
-                                   factory: "mixed_stamp_op")[:effects][0][:outputs]
+    plain, = stamp_answer("mixed", operative: MixedStampOperative)[:effects][0][:outputs]
 
     assert_equal "plain_out", plain[:plugin_channel]
     assert_empty plain[:metadata]
@@ -396,17 +396,12 @@ class DispatchTest < Minitest::Test
     output[:target] == "plugin" ? JSON.parse(output[:payload]) : Flezha::Codec.decode(output[:payload])
   end
 
-  def emit_arm_outputs(operative, factory)
-    deps = wired_deps(operative)
-    activation = Flezha::TestSupport.activation(
-      factory: factory, kind: :work, entity_key: "ek", change_seq: 0,
-      items: [input_item("10")]
-    )
-    Flezha::Dispatch.answer(activation, deps)[:effects][0][:outputs]
+  def emit_arm_outputs(operative)
+    answer_on(operative, entity_key: "ek", items: [input_item("10")])[:effects][0][:outputs]
   end
 
   def test_a_structured_workflow_releases_one_untransformed_edge_output
-    outputs = emit_arm_outputs(WfEmitOperative, "wf_emit")
+    outputs = emit_arm_outputs(WfEmitOperative)
 
     assert_equal [["edge", 1, nil, 10], ["plugin", nil, "handoff", 10]],
                  outputs.map { |o|
@@ -420,7 +415,7 @@ class DispatchTest < Minitest::Test
     produced = []
     encode = Flezha::Codec.method(:encode)
     outputs = Flezha::Codec.stub(:encode, ->(value) { encode.call(value).tap { produced << _1 } }) do
-      emit_arm_outputs(WfEmitStreamOperative, "wf_emit_stream")
+      emit_arm_outputs(WfEmitStreamOperative)
     end
 
     outputs.select { |output| output[:target] == "edge" }.each do |output|
@@ -431,7 +426,7 @@ class DispatchTest < Minitest::Test
   end
 
   def test_the_same_graph_on_a_stream_class_releases_one_output_per_consumer
-    outputs = emit_arm_outputs(WfEmitStreamOperative, "wf_emit_stream")
+    outputs = emit_arm_outputs(WfEmitStreamOperative)
 
     assert_equal [["edge", 1, 11], ["edge", 2, 10], ["plugin", nil, 10]],
                  outputs.map { |o| [o[:target], o[:consumer], payload_of(o)] }
@@ -441,31 +436,26 @@ class DispatchTest < Minitest::Test
   # producer already applied the edge, so delivery applies nothing; a workflow
   # stage released the value raw, so delivery is the one application.
 
-  def delivered(operative, factory, procedure, payload)
+  def delivered(operative, procedure, payload)
     DELIVERED.clear
-    deps = wired_deps(operative)
-    activation = Flezha::TestSupport.activation(
-      factory: factory, kind: :work, procedure: procedure, entity_key: "ek",
-      items: [input_item(payload, channel: 1)]
-    )
-    result = Flezha::Dispatch.answer(activation, deps)
+    result = answer_on(operative, procedure: procedure, entity_key: "ek", items: [input_item(payload, channel: 1)])
     assert_equal "ok", result[:effects][0][:verdict]
     DELIVERED.dup
   end
 
   def test_a_stream_inter_proc_edge_applies_its_map_exactly_once
-    mapped = emit_arm_outputs(WfEmitStreamOperative, "wf_emit_stream")[0][:payload]
+    mapped = emit_arm_outputs(WfEmitStreamOperative)[0][:payload]
 
-    assert_equal [11], delivered(WfEmitStreamOperative, "wf_emit_stream", 1, mapped)
+    assert_equal [11], delivered(WfEmitStreamOperative, 1, mapped)
   end
 
   def test_a_workflow_consumer_applies_its_own_edge_exactly_once_at_delivery
-    released = emit_arm_outputs(WfEmitOperative, "wf_emit")[0][:payload]
+    released = emit_arm_outputs(WfEmitOperative)[0][:payload]
 
     # One released value reaches BOTH children — the driver's fan-out — and
     # each evaluates its own edge here.
-    assert_equal [11], delivered(WfEmitOperative, "wf_emit", 1, released)
-    assert_equal [10], delivered(WfEmitOperative, "wf_emit", 2, released)
+    assert_equal [11], delivered(WfEmitOperative, 1, released)
+    assert_equal [10], delivered(WfEmitOperative, 2, released)
   end
 
   # An entry naming no codec reads JSON, so plain text fails its decode: the
@@ -477,14 +467,174 @@ class DispatchTest < Minitest::Test
 
   def test_plain_text_into_an_entry_naming_no_codec_never_reaches_the_handler
     DELIVERED.clear
-    deps = wired_deps(JsonEntryOperative)
-    activation = Flezha::TestSupport.activation(
-      factory: "json_entry_op", kind: :work, items: [input_item('{"a":1}'), input_item("hello")]
-    )
-    effects = Flezha::Dispatch.answer(activation, deps)[:effects]
+    effects = answer_on(JsonEntryOperative, items: [input_item('{"a":1}'), input_item("hello")])[:effects]
 
     assert_equal %w[ok retryable], effects.map { |e| e[:verdict] }
     assert_includes effects[1][:message], "JSON::ParserError"
     assert_equal [{ a: 1 }], DELIVERED
+  end
+
+  # -- merge ----------------------------------------------------------------
+  #
+  # Two sources into one node, an entry and a procedure's output: each source
+  # runs its own mapping on its own edge, the entry's at delivery and the
+  # producer's as it emits, and the key is read off the mapped value.
+
+  class PassThrough < Flezha::Procedure
+    procedure_name "pass_through"
+    def process(input, _ctx) = input
+  end
+
+  class MergeLabel < Flezha::Procedure
+    procedure_name "merge_label"
+    def process(input, _ctx) = "#{input[:source]}:#{input[:payload]}"
+  end
+
+  MERGE_TAG = lambda do |source|
+    ->(payload) { { source: source, symbol: payload.split(":").first, payload: payload } }
+  end
+
+  class MergeOperative < Flezha::StreamOperative
+    factory_id "merge_op"
+    channels do |c|
+      ticks = c.input("ticks", codec: :text)
+      quotes = c.input("quotes", codec: :text).into(PassThrough, "merge_upstream")
+      c.merge.from(ticks, &MERGE_TAG.call("ticks")).from(quotes, &MERGE_TAG.call("quotes"))
+       .key_by { |value| value[:symbol] }.into(MergeLabel).sink("merged")
+    end
+  end
+
+  def test_two_merge_sources_reach_one_procedure_each_under_its_own_mapping_in_order
+    upstream = answer_on(MergeOperative, procedure: 0, entity_key: "AAPL", items: [input_item("AAPL:3", channel: 1)])
+    released = upstream[:effects][0][:outputs]
+    assert_equal [[1, "AAPL", { source: "quotes", symbol: "AAPL", payload: "AAPL:3" }]],
+                 released.map { |o| [o[:consumer], o[:key], Flezha::Codec.decode(o[:payload])] }
+
+    items = [
+      input_item("AAPL:1", channel: 0, consumed_offset: 1),
+      input_item("AAPL:2", channel: 0, consumed_offset: 2),
+      input_item(released.first[:payload], channel: 2, consumed_offset: 1)
+    ]
+    effects = answer_on(MergeOperative, procedure: 1, entity_key: "AAPL", items: items)[:effects]
+
+    assert_equal [["ticks:AAPL:1"], ["ticks:AAPL:2"], ["quotes:AAPL:3"]],
+                 effects.map { |effect| effect[:outputs].map { |output| output[:payload] } }
+  end
+
+  def test_a_merge_key_is_read_off_the_mapped_value_at_the_crossing
+    request = { channel: 0, payloads: ["MSFT:1".b], want_keys: true, want_event_time: false }
+    result = answer_on(MergeOperative, kind: :key_request, procedure: 1, entity_key: "AAPL", key_request: request)
+
+    assert_equal [["MSFT"]], result[:prepared].map { |answer| answer[:keys] }
+  end
+
+  # -- flat_map ---------------------------------------------------------------
+  #
+  # A fan is the list shape of the one transform fold, so it reaches the three
+  # places a chain runs: the handler, the key crossing and the emit.
+
+  class FanOperative < Flezha::StreamOperative
+    factory_id "fan_op"
+    channels do |c|
+      c.input("lines", codec: :text).flat_map { |line| line.split(",") }.into(PassThrough).sink("fanned")
+    end
+  end
+
+  class KeyedFanOperative < Flezha::StreamOperative
+    factory_id "keyed_fan_op"
+    channels do |c|
+      c.input("lines", codec: :text).flat_map { |line| line.split(",") }
+       .key_by { |value| value.split(":").first }.into(PassThrough).sink("fanned")
+    end
+  end
+
+  class EmitFanOperative < Flezha::StreamOperative
+    factory_id "emit_fan_op"
+    channels do |c|
+      c.input("lines", codec: :text).into(PassThrough, "fan_source")
+       .flat_map { |line| line.split(",") }.key_by { |value| value.split(":").first }.into(PassThrough)
+    end
+  end
+
+  def test_a_fan_of_three_runs_the_handler_three_times_under_one_effect
+    effects = answer_on(FanOperative, items: [input_item("a,b,c", consumed_offset: 7)])[:effects]
+
+    assert_equal 1, effects.size
+    assert_equal ["ok", 7, %w[a b c]],
+                 [effects[0][:verdict], effects[0][:consumed_offset], effects[0][:outputs].map { |o| o[:payload] }]
+  end
+
+  def test_a_fan_of_none_is_a_drop_that_still_consumes_its_offset
+    effects = answer_on(FanOperative, items: [input_item("", consumed_offset: 3)])[:effects]
+
+    assert_equal [["ok", 3, []]], effects.map { |e| [e[:verdict], e[:consumed_offset], e[:outputs]] }
+  end
+
+  def test_a_fan_followed_by_key_by_answers_every_key_at_the_crossing
+    request = { channel: 0, payloads: ["a:1,b:2,c:3".b, "".b], want_keys: true, want_event_time: false }
+    prepared = answer_on(KeyedFanOperative, kind: :key_request, key_request: request)[:prepared]
+
+    assert_equal [%w[a b c], []], prepared.map { |answer| answer[:keys] }
+  end
+
+  # The crossing answered every key, so the payload reaches each Entity whole:
+  # each keeps only the values keyed to it.
+  def test_each_entity_a_fanned_payload_reaches_runs_only_its_own_values
+    outputs = %w[a b].map do |key|
+      answer_on(KeyedFanOperative, entity_key: key, items: [input_item("a:1,b:2,a:3")])[:effects][0][:outputs]
+    end
+
+    assert_equal [%w[a:1 a:3], %w[b:2]], outputs.map { |frames| frames.map { |o| o[:payload] } }
+  end
+
+  class StaticFanLabel < PassThrough
+    procedure_name "static_fan_label"
+    entity_keys "a", "b"
+    ROUTES = { "both" => %w[a b], "none" => [] }.freeze
+    def entities_for(value) = ROUTES.fetch(value.split(":").first) { [value.split(":").first] }
+  end
+
+  class StaticFanOperative < Flezha::StreamOperative
+    factory_id "static_fan_op"
+    channels do |c|
+      c.input("lines", codec: :text).flat_map { |line| line.split(",") }.into(StaticFanLabel).sink("fanned")
+    end
+  end
+
+  # The same on a static consumer, where `entities_for` names the Entities: a
+  # value naming both reaches both, and one naming none reaches neither.
+  def test_each_static_entity_a_fanned_payload_reaches_runs_only_its_own_values
+    outputs = %w[a b].map do |key|
+      answer_on(StaticFanOperative, entity_key: key,
+                                    items: [input_item("a:1,b:2,both:9,none:0,a:3")])[:effects][0][:outputs]
+    end
+
+    assert_equal [%w[a:1 both:9 a:3], %w[b:2 both:9]], outputs.map { |frames| frames.map { |o| o[:payload] } }
+  end
+
+  def test_an_emit_through_a_fan_releases_one_keyed_frame_per_value
+    outputs = answer_on(EmitFanOperative, items: [input_item("a:1,b:2")])[:effects][0][:outputs]
+
+    assert_equal [%w[a a:1], %w[b b:2]], outputs.map { |o| [o[:key], Flezha::Codec.decode(o[:payload])] }
+  end
+
+  # -- the latest-document router, through the dispatcher ---------------------
+
+  class RouterOperative < Flezha::StreamOperative
+    factory_id "router_op"
+    channels do |c|
+      c.route_latest(c.input("config"), c.input("trades")) { |trade| trade[:symbol] }
+       .sink("routed", codec: :msgpack)
+    end
+  end
+
+  def test_a_declared_router_hands_each_key_the_document_once_on_its_own_traffic
+    document = '{"limit":5}'
+    items = [[0, document], [1, '{"symbol":"A"}'], [1, '{"symbol":"B"}'], [0, document],
+             [1, '{"symbol":"A"}']].map { |channel, payload| input_item(payload, channel: channel) }
+    effects = answer_on(RouterOperative, items: items)[:effects]
+
+    assert_equal [[], [["A", { limit: 5 }]], [["B", { limit: 5 }]], [], []],
+                 effects.map { |e| e[:outputs].map { |o| Flezha::Codec.decode(o[:payload]) } }
   end
 end

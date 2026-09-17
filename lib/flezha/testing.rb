@@ -117,7 +117,7 @@ module Flezha
         ctx, returned = Dispatch.invoke(activation, @registered, @node, @deps, now, replay) do |c|
           yield(c)
         end
-        # A returned value is emitted, exactly as `run_work` does it.
+        # A returned value is emitted, as `Dispatch.run_item` does per value.
         ctx.emit(returned) unless returned.nil?
         @log.concat(ctx.changes)
         @change_seq += ctx.changes.size

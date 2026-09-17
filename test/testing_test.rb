@@ -163,4 +163,34 @@ class TestingTest < Minitest::Test
   def test_the_harness_reports_a_string_and_a_map_exactly_as_emitted
     assert_equal [{ said: "hi" }, "echo: hi"], Flezha::Testing::Harness.new(Emitter).feed("hi").outputs
   end
+
+  # The packaged router, driven with the values its merge maps a document and a
+  # trade to.
+  def test_the_latest_document_router_hands_each_key_each_document_once
+    harness = Flezha::Testing::Harness.new(Flezha::RouteLatest)
+    document = { limit: 5 }
+    fed = [{ document: document }, { traffic: "A" }, { traffic: "B" }, { document: document }, { traffic: "A" }]
+
+    assert_equal [[], [["A", document]], [["B", document]], [], []],
+                 fed.map { |input| harness.feed(input).outputs }
+    assert_equal "route_latest", Flezha::RouteLatest.definition.name
+    assert_equal({ document: document, version: 1, delivered: { A: 1, B: 1 } }, harness.state)
+    assert harness.replay_equals!
+
+    harness.feed({ document: { limit: 6 } })
+    assert_equal [["A", { limit: 6 }]], harness.feed({ traffic: "A" }).outputs
+    assert harness.replay_equals!
+  end
+
+  # A Hash key decodes as a Symbol, so a snapshot restore must not make a key
+  # that already received the document owed it again.
+  def test_a_router_restored_from_a_snapshot_does_not_deliver_twice
+    harness = Flezha::Testing::Harness.new(Flezha::RouteLatest)
+    harness.feed({ document: "doc" })
+    harness.feed({ traffic: "A" })
+    harness.restore(snapshot: Flezha::Codec.encode(harness.state))
+
+    assert_empty harness.feed({ traffic: "A" }).outputs
+    assert_empty harness.feed({ document: "doc" }).changes
+  end
 end

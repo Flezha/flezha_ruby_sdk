@@ -30,12 +30,12 @@ module Conformance
   # The fixture, relative to the repository root the app is launched from.
   FIXTURE = "test/fixtures/reference_topologies.txt"
 
-  # The authoring surfaces this builder carries — the same list the app's
-  # `conformance.json` declares. A row needing anything else is skipped BY
-  # NAME, which is what makes the skip checkable. There is no merge terminator
-  # in this SDK; the class flag a typed builder cannot spell is a plain builder
-  # call here.
-  SURFACES = %w[branch workflow sync_durability].freeze
+  # The authoring surfaces this builder carries, read from the app's
+  # `conformance.json` so the skip and the manifest the gate reads are one
+  # statement. A row needing anything else is skipped BY NAME, which is what
+  # makes the skip checkable. The class flag a typed builder cannot spell is a
+  # plain builder call here.
+  SURFACES = JSON.parse(File.read(File.join(__dir__, "conformance.json"))).fetch("topology_surfaces").freeze
 
   # The two topologies the fixture cites rather than re-spells: this app's own
   # fixtures, the twins of its seven-column table.
@@ -120,8 +120,7 @@ module Conformance
       case verb
       when "entry" then @handles[arg] = builder.input(arg)
       when "branch" then branch(arg)
-      when "merge"
-        raise "this SDK carries no merge terminator; the row needs the `merge` surface"
+      when "merge" then merge(builder, arg)
       else dotted(builder, step)
       end
     end
@@ -139,6 +138,8 @@ module Conformance
       verb, arg = Conformance.split_call(link)
       case verb
       when "map" then edge.map { |value| value }
+      when "filter" then edge.filter { true }
+      when "flat_map" then edge.flat_map { |value| [value] }
       when "key" then edge.key_by(&:to_s)
       when "named" then edge.named(arg)
       when "keyed" then edge.keyed
@@ -157,6 +158,13 @@ module Conformance
     # result is that procedure's output channel, addressed by its role.
     def wire(edge, role)
       @handles[role] = edge.into(procedure_class(role))
+    end
+
+    # `merge(<role>, <x>, <x>…)`: one merge over the listed sources, each
+    # under the identity mapping, wired into the role's procedure as `into` is.
+    def merge(builder, arg)
+      role, *sources = arg.split(",").map(&:strip)
+      wire(sources.reduce(builder.merge) { |merge, source| merge.from(handle(source)) { |value| value } }, role)
     end
 
     # `branch(<x>, <n>)` — the branch sugar's arity. The arms are empty: what

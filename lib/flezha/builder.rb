@@ -3,15 +3,6 @@
 require_relative "errors"
 
 module Flezha
-  # What a `filter` yields for a value it rejects.
-  #
-  # A dropped value is not `nil` or `false` — both are values a handler may
-  # legitimately carry — so the marker is an object nothing else can produce.
-  # It stops the transform chain: the item is consumed without reaching a
-  # handler, and at the prepare crossing it answers no key, which is how the
-  # core learns not to route it.
-  DROPPED = Object.new.freeze
-
   # A procedure as the graph holds it, with its position in the declaration.
   # `output` is the one channel it produces on, created on first wiring.
   ProcNode = Struct.new(:index, :name, :klass, :definition, :output)
@@ -21,7 +12,7 @@ module Flezha
 
   # One fluent sequence declared off a channel handle, as the record carries
   # it: `links` in the order the author called them, for the core to judge.
-  # Every `map` / `filter` / `key_by` answers a new sequence over the previous,
+  # Every transform or `key_by` answers a new sequence over the previous,
   # which is what lets a shared prefix branch without the arms colliding;
   # `superseded` marks the prefix a later link built on, so only a tip reaches
   # the record. `edge` is the consumer an `into` sequence closes on, held aside
@@ -61,18 +52,20 @@ module Flezha
     def structured_workflow? = kind == :workflow && !channels.empty?
   end
 
-  # Run an edge's transform chain, stopping at the first drop.
+  # Run an edge's transform chain over one value and answer the values that
+  # come out of it. Every link answers the list one value becomes: none when a
+  # filter dropped it, one when it was mapped, several when a flat_map fanned
+  # it. A later link runs over every value an earlier one yielded, and a value
+  # that is itself an Array stays one value.
   #
   # One implementation for the three places a chain runs — an entry payload
   # before its handler, a payload at the prepare crossing, and an emit on its
   # way out — so a filter cannot mean one thing on one path and another
   # elsewhere.
   def self.apply_transforms(transforms, value)
-    transforms.each do |transform|
-      value = transform.call(value)
-      return DROPPED if value.equal?(DROPPED)
+    transforms.reduce([value]) do |values, transform|
+      values.flat_map { |current| transform.call(current) }
     end
-    value
   end
 
   # The fluent channel builder an operative's `channels` block receives.
@@ -90,6 +83,7 @@ module Flezha
       # The links each fluent sequence was declared with, in declaration
       # order. Recorded, never judged: the core reads them and answers.
       @chains = []
+      @merge_groups = 0
       @effectively_once_flag = false
       @checkpoint_ack_flag = false
       @checkpoint_outputs_value = :as_produced
@@ -171,6 +165,38 @@ module Flezha
         @factory_id, channel.name,
         "unknown codec `#{codec}`; a channel codec is one of #{Codec::CHANNEL_CODECS.join(', ')}"
       )
+    end
+
+    # Merge two or more sources into one procedure: see `Merge`.
+    def merge = Merge.new(self)
+
+    # The id that ties one merge's sources together in the record.
+    def next_merge_group
+      group = @merge_groups
+      @merge_groups += 1
+      group
+    end
+
+    # Turn an operative-wide document stream into per-key deliveries: every key
+    # seen on `traffic` receives each distinct document once, as
+    # `[key, document]`, on that key's own next traffic item. The block answers
+    # a traffic item's key.
+    #
+    # A key never seen in traffic receives nothing, and a key learns of a new
+    # document one traffic item late. Fanning a document out over a remembered
+    # key set instead would emit keys this member may no longer own after a
+    # rescale; a key its own traffic just reached is one it owns.
+    #
+    # Sugar over a merge into one packaged `RouteLatest` node named
+    # `route_latest`, so a second router in one operative names its own node
+    # with `route_latest_named`. Answers the router's output edge.
+    def route_latest(documents, traffic, &key) = route_latest_named(documents, traffic, nil, &key)
+
+    def route_latest_named(documents, traffic, node_name, &key)
+      merge
+        .from(documents) { |document| { document: document } }
+        .from(traffic) { |item| { traffic: key.call(item).to_s } }
+        .into(RouteLatest, node_name)
     end
 
     # The node for a procedure. Two unnamed mentions of one procedure are one
@@ -278,12 +304,18 @@ module Flezha
     def named(name) = with(channel_name: name.to_s)
 
     # Transform every value on this edge. Evaluated producer-side.
-    def map(&transform) = relink(TRANSFORM, transforms: transforms + [transform])
+    def map(&transform) = flat_map { |value| [transform.call(value)] }
 
     # Drop the values a predicate rejects, before this edge's key is computed.
     # A dropped value is consumed and reaches no handler.
-    def filter(&predicate)
-      relink(TRANSFORM, transforms: transforms + [->(value) { predicate.call(value) ? value : DROPPED }])
+    def filter(&predicate) = flat_map { |value| predicate.call(value) ? [value] : [] }
+
+    # Turn every value on this edge into the values the block answers, each
+    # keyed and delivered on its own. An empty answer drops the value. Every
+    # transform link is one of these: `map` and `filter` are its one-value and
+    # one-or-none cases.
+    def flat_map(&fan)
+      relink(TRANSFORM, transforms: transforms + [->(value) { fan.call(value).to_a }])
     end
 
     # Route by a computed key: the consumer becomes a dynamic keyed procedure.
@@ -310,6 +342,12 @@ module Flezha
     # Wire this edge into a procedure.
     def into(klass, node_name = nil)
       node = @builder.node_for(klass, node_name)
+      close_on(node, { "link" => "into", "procedure" => node.index })
+    end
+
+    # Close this edge's chain on a resolved node with `link`, and answer the
+    # node's output edge. The one body behind `into` and every merge source.
+    def close_on(node, link)
       # Creates this edge's channel and applies its pending options, before the
       # link that closes on it is recorded.
       channel
@@ -320,7 +358,7 @@ module Flezha
       # a re-declaration is the legal fan-in no-op or `EdgeAlreadyWired` is
       # answered there and nowhere here.
       @builder.link_chain(
-        @from, @pending[:chain], { "link" => "into", "procedure" => node.index },
+        @from, @pending[:chain], link,
         edge: ConsumerEdge.new(
           procedure: node.index, transforms: transforms, key_by: @pending[:key_by]
         )
@@ -418,6 +456,44 @@ module Flezha
       channel.retry_max = @pending[:retry_max] unless @pending[:retry_max].nil?
       channel.retry_backoff_ms = @pending[:retry_backoff_ms] unless @pending[:retry_backoff_ms].nil?
       channel.keyed = true if @pending[:keyed]
+    end
+  end
+
+  # Several sources into one procedure node, each lifted into the merged value
+  # by its own mapping. Recorded, never judged: a merge of one source, or of
+  # one source twice, is the core's to refuse.
+  class Merge
+    def initialize(builder)
+      @builder = builder
+      @sources = []
+      @keys = []
+    end
+
+    # One source and the block that maps its values into the merged value. The
+    # mapping is that source's own edge transform, after any the handle
+    # already carries, so it runs on the edge the core derives for the source.
+    def from(source, &mapping)
+      @sources << source.map(&mapping)
+      self
+    end
+
+    # Route the merged value by a computed key, evaluated on the mapped value.
+    def key_by(&key)
+      @keys << key
+      self
+    end
+
+    # Close every source on one node under one merge group, and answer the
+    # node's output edge.
+    def into(klass, node_name = nil)
+      node = @builder.node_for(klass, node_name)
+      link = { "link" => "merge", "procedure" => node.index, "group" => @builder.next_merge_group }
+      # The key rides each source's chain after its mapping; a second `key_by`
+      # is one more link, which the core refuses as it would on one edge.
+      @sources.each do |source|
+        @keys.reduce(source) { |edge, key| edge.key_by(&key) }.close_on(node, link)
+      end
+      Edge.new(@builder, [:procedure, node], {})
     end
   end
 end

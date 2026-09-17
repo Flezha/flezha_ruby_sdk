@@ -224,6 +224,58 @@ module Fixtures
     end
   end
 
+  # -- merged_input ----------------------------------------------------------
+  #
+  # Two entry channels merged into one procedure. Each source's mapping tags
+  # the value with the channel it came from, the merge keys on the symbol the
+  # mapping read, and the emitted line is `<source>:<payload>`.
+
+  MERGE_TAG = lambda do |source|
+    ->(payload) { { source: source, symbol: PREFIX.call(payload), payload: payload } }
+  end
+
+  class MergeLabel < Flezha::Procedure
+    procedure_name "merge_label_procedure"
+    dynamic_entities
+    def process(input, _ctx) = "#{input[:source]}:#{input[:payload]}"
+  end
+
+  class MergedInputOperative < Flezha::StreamOperative
+    factory_id "merged_input"
+    channels do |c|
+      c.merge
+       .from(c.input("ticks", codec: :text), &MERGE_TAG.call("ticks"))
+       .from(c.input("quotes", codec: :text), &MERGE_TAG.call("quotes"))
+       .key_by { |value| value[:symbol] }
+       .into(MergeLabel).keyed
+       .sink("merged")
+    end
+  end
+
+  # -- transform_chain -------------------------------------------------------
+  #
+  # Every value transform on one edge: `drop` is filtered out, a comma list
+  # fans out into one value per element, each is upper-cased and keyed on its
+  # prefix.
+
+  class TransformLabel < PassThrough
+    procedure_name "transform_label_procedure"
+    dynamic_entities
+  end
+
+  class TransformChainOperative < Flezha::StreamOperative
+    factory_id "transform_chain"
+    channels do |c|
+      c.input("trades", codec: :text)
+       .filter { |trade| trade != "drop" }
+       .flat_map { |trade| trade.split(",") }
+       .map(&:upcase)
+       .key_by { |trade| PREFIX.call(trade) }
+       .into(TransformLabel).keyed
+       .sink("transformed")
+    end
+  end
+
   # -- entity_stress -------------------------------------------------------
 
   STRESS_KEYS = %w[p0 p1 p2 p3 p4 p5 p6 p7].freeze
@@ -494,8 +546,8 @@ module Fixtures
     DoNothingOperative, BenchEchoOperative, CompareFilterOperative,
     StaticEntityOperative, SugarStaticEntityOperative, MixedOperative,
     SugarDoNothingOperative, SugarStoreInputOperative, HybridChannelOperative,
-    EntityStressOperative, *STATE, CandleOperative, PoisonProbeOperative,
-    WedgeProbeOperative, SessionTimeoutOperative, *BOUNDED_MAILBOX,
+    MergedInputOperative, TransformChainOperative, EntityStressOperative, *STATE,
+    CandleOperative, PoisonProbeOperative, WedgeProbeOperative, SessionTimeoutOperative, *BOUNDED_MAILBOX,
     PartitionRelayOperative, DynamicEntityOperative
   ].freeze
 end
