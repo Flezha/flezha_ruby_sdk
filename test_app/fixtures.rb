@@ -140,22 +140,20 @@ module Fixtures
     end
   end
 
-  # -- sugar_do_nothing / sugar_store_input --------------------------------
+  # -- the §5 short forms --------------------------------------------------
+  #
+  # One class body each: the `sink` makes the procedure a whole operative of
+  # its `kind`, and `runner.rb` registers the class itself. No hand-written
+  # operative stands beside them.
 
   class SugarDoNothing < PassThrough
     procedure_name "sugar_do_nothing"
-  end
-
-  class SugarDoNothingOperative < Flezha::StreamOperative
-    factory_id "sugar_do_nothing"
-    channels do |c|
-      c.input("input", codec: :text).into(SugarDoNothing)
-       .sink("sugar_do_nothing_echo")
-    end
+    sink "sugar_do_nothing_echo", kind: :stream, codec: :text
   end
 
   class SugarStoreInput < Flezha::Procedure
     procedure_name "sugar_store_input"
+    sink "sugar_store_sink", kind: :stream, codec: :text
     def initial_state(_entity_key) = { text_inputs: [] }
     def apply_change(state, change) = state[:text_inputs] << change[:push]
 
@@ -165,12 +163,14 @@ module Fixtures
     end
   end
 
-  class SugarStoreInputOperative < Flezha::StreamOperative
-    factory_id "sugar_store_input"
-    channels do |c|
-      c.input("input", codec: :text).into(SugarStoreInput)
-       .sink("sugar_store_sink")
-    end
+  class SugarNamedInput < PassThrough
+    procedure_name "sugar_named_input"
+    sink "sugar_named_input_sink", kind: :stream, input: "prices", codec: :text
+  end
+
+  class SugarWorkflow < PassThrough
+    procedure_name "sugar_workflow"
+    sink "sugar_workflow_placed", kind: :workflow, input: "order", codec: :text
   end
 
   # -- hybrid_channel ------------------------------------------------------
@@ -577,9 +577,15 @@ module Fixtures
   ALL = [
     DoNothingOperative, BenchEchoOperative, CompareFilterOperative,
     StaticEntityOperative, SugarStaticEntityOperative, MixedOperative,
-    SugarDoNothingOperative, SugarStoreInputOperative, HybridChannelOperative,
+    HybridChannelOperative,
     MergedInputOperative, TransformChainOperative, EntityStressOperative, *STATE,
     CandleOperative, PoisonProbeOperative, WedgeProbeOperative, SessionTimeoutOperative, *BOUNDED_MAILBOX,
     PartitionRelayOperative, DynamicEntityOperative, SpawnRequesterOperative
+  ].freeze
+
+  # The §5 short forms this app registers: each is the procedure class itself,
+  # whose `sink` makes it a whole operative.
+  SHORTHAND = [
+    SugarDoNothing, SugarStoreInput, SugarNamedInput, SugarWorkflow
   ].freeze
 end

@@ -9,6 +9,7 @@ require_relative "graph"
 require_relative "logger"
 require_relative "native"
 require_relative "operative"
+require_relative "procedure"
 
 module Flezha
   # The runner: what an author starts, and everything it owns while running.
@@ -47,18 +48,45 @@ module Flezha
       @teardown = []
     end
 
-    # Register a stream operative class.
-    def define_stream(klass)
-      @classes << klass
+    # Register an operative class of either kind, or a `Procedure` subclass
+    # whose `sink` makes it one. The kind is read from the class, never named
+    # by the call.
+    def register_factory(klass)
+      @classes << operative_of(klass)
       self
     end
 
-    # Register a workflow operative class.
+    # Undo a registration made before the runner starts — the inverse of
+    # {#register_factory}, taking what it took.
     #
-    # The same registration as a stream, and deliberately the same code: what a
-    # class declares is read from the class, so the two names are for the
-    # reader rather than for the runner.
-    def define_workflow(klass) = define_stream(klass)
+    # After start it refuses: a started Ruby runner serves its declarations
+    # from a registry the executor already holds, and it cannot stop serving
+    # one. Saying so is what makes the call honest rather than ignored.
+    def unregister_factory(klass)
+      if @core
+        raise Error, "`#{klass}` cannot be unregistered: a running Ruby runner cannot stop " \
+                     "serving a started declaration"
+      end
+
+      operative = operative_of(klass)
+      unless @classes.delete(operative)
+        raise Error, "`#{klass}` is not registered on this runner"
+      end
+
+      self
+    end
+
+    # The operative a registration call was handed: an operative class is
+    # itself, and a short-form procedure carries the one it generates. A
+    # procedure with no `sink` generates none, and saying so here keeps the
+    # refusal at the call the author wrote.
+    def operative_of(klass)
+      return klass unless klass.is_a?(Class) && klass < Procedure
+
+      klass.operative ||
+        raise(Error, "`#{klass}` is a procedure with no `sink`, so it declares no operative; " \
+                     "register the operative that wires it, or declare a `sink` on it")
+    end
 
     # Which executor dispatches: `:threads` (the default) or `:fibers`.
     def executor(kind, **options)
@@ -226,6 +254,6 @@ module Flezha
     end
   end
 
-  # Start here: `Flezha.create_runner("default").define_stream(MyOperative).run`.
+  # Start here: `Flezha.create_runner("default").register_factory(MyOperative).run`.
   def self.create_runner(namespace) = Runner.new(namespace)
 end

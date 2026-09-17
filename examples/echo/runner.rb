@@ -4,14 +4,14 @@
 # operatives.
 #
 # Declare every operative you want served before `boot`. One runner can serve
-# several, and `define_workflow` is the same call for the workflow kind.
+# several, and the same call takes a workflow operative.
 
 require "flezha"
 require_relative "echo_operative"
 
 namespace = ARGV[0] || "default"
 
-runner = Flezha.create_runner(namespace).define_stream(EchoOperative)
+runner = Flezha.create_runner(namespace).register_factory(EchoOperative)
 
 # `run` is `boot` followed by `await_termination`. Splitting them leaves room
 # for the admin calls below, and still blocks until shutdown.

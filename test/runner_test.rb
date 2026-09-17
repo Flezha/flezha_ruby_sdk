@@ -17,7 +17,7 @@ class RunnerTest < Minitest::Test
 
   def boot_recording
     core = Flezha::TestSupport::FakeCore.new
-    runner = Flezha::Runner.new("test-ns").define_stream(EchoOperative)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperative)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> { core.events << :warmup }) do
         runner.boot(core: core)
@@ -49,7 +49,7 @@ class RunnerTest < Minitest::Test
     second.factory_id "runner_second_op"
     second.channels { |c| c.input("in").into(Echo, "second_node").sink("o") }
 
-    runner = Flezha::Runner.new("test-ns").define_stream(EchoOperative).define_stream(second)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperative).register_factory(second)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> { core.events << :warmup }) do
         runner.boot(core: core)
@@ -71,7 +71,7 @@ class RunnerTest < Minitest::Test
 
   def test_await_termination_waits_for_a_stop_then_drains
     core = Flezha::TestSupport::FakeCore.new
-    runner = Flezha::Runner.new("test-ns").define_stream(EchoOperative)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperative)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> { core.events << :warmup }) do
         runner.boot(core: core)
@@ -95,7 +95,7 @@ class RunnerTest < Minitest::Test
   end
 
   def test_an_unknown_executor_is_refused_by_name
-    runner = Flezha::Runner.new("test-ns").define_stream(EchoOperative).executor(:ractors)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperative).executor(:ractors)
 
     Flezha::TestSupport.without_a_terminal do
       assert_includes(
@@ -172,5 +172,104 @@ class RunnerTest < Minitest::Test
 
     assert_empty reachable - Flezha::TestSupport::FakeCore.instance_methods(false),
                  "the double is missing calls a runner can make on its core"
+  end
+
+  # -- the §5 short form ---------------------------------------------------
+
+  # The factory ids a runner currently declares. Read off the runner's own
+  # list: the Ruby runner exposes no accessor for it.
+  def declared(runner) = runner.instance_variable_get(:@classes).map(&:factory_id)
+
+  class ShortStream < Flezha::Procedure
+    procedure_name "short_stream"
+    sink "out", kind: :stream, codec: :text
+    def process(input, _ctx) = input
+  end
+
+  class ShortWorkflow < Flezha::Procedure
+    procedure_name "short_workflow"
+    sink "placed", kind: :workflow, input: "order", codec: :text
+    def process(input, _ctx) = input
+  end
+
+  class ShortTwin < Flezha::Procedure
+    procedure_name "short_twin"
+    def process(input, _ctx) = input
+  end
+
+  class ShortTwinOperative < Flezha::StreamOperative
+    factory_id "short_twin"
+    channels { |c| c.input("input", codec: :text).into(ShortTwin).sink("out") }
+  end
+
+  def test_a_stream_short_form_is_its_hand_written_twin
+    short = ShortStream.operative.spec
+    hand = ShortTwinOperative.spec
+
+    assert_equal :stream, short.kind
+    assert_equal "short_stream", short.factory_id
+    assert_equal hand.channels.map { |c| [c.name, c.kind] },
+                 short.channels.map { |c| [c.name, c.kind] }
+  end
+
+  def test_a_workflow_short_form_is_a_once_workflow
+    spec = ShortWorkflow.operative.spec
+
+    assert_equal :workflow, spec.kind
+    assert_equal :once, spec.workflow[:loop_mode]
+    assert_equal %w[order placed], spec.channels.map(&:name)
+  end
+
+  def test_register_factory_takes_a_short_form_of_either_kind
+    runner = Flezha::Runner.new("test-ns")
+                           .register_factory(ShortStream)
+                           .register_factory(ShortWorkflow)
+
+    assert_equal %w[short_stream short_workflow], declared(runner)
+
+    runner.unregister_factory(ShortWorkflow)
+    assert_equal %w[short_stream], declared(runner)
+  end
+
+  def test_unregistering_something_never_registered_is_refused
+    runner = Flezha::Runner.new("test-ns").register_factory(ShortStream)
+
+    error = assert_raises(Flezha::Error) { runner.unregister_factory(ShortWorkflow) }
+    assert_match(/not registered/, error.message)
+  end
+
+  # A class with no `procedure_name`: its id would be derived from the
+  # constant, which a `sink` refuses.
+  class DerivedName < Flezha::Procedure
+    sink "out", kind: :stream
+    def process(input, _ctx) = input
+  end
+
+  # A class with a name and no kind.
+  class NoKind < Flezha::Procedure
+    procedure_name "upcase"
+    sink "out"
+    def process(input, _ctx) = input
+  end
+
+  def test_a_sink_without_a_written_name_is_refused
+    error = assert_raises(Flezha::DeclarationError) do
+      Flezha::Runner.new("test-ns").register_factory(DerivedName)
+    end
+    assert_includes error.defect, "SinkWithoutId"
+  end
+
+  def test_a_sink_without_a_kind_is_refused
+    error = assert_raises(Flezha::DeclarationError) do
+      Flezha::Runner.new("test-ns").register_factory(NoKind)
+    end
+    assert_includes error.defect, "SinkWithoutKind"
+  end
+
+  def test_registering_a_procedure_with_no_sink_is_refused
+    error = assert_raises(Flezha::Error) do
+      Flezha::Runner.new("test-ns").register_factory(ShortTwin)
+    end
+    assert_match(/no `sink`/, error.message)
   end
 end

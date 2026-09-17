@@ -128,6 +128,30 @@ module Flezha
         @procedure_name = name.to_s
       end
 
+      # The §5 short form: a `sink` makes this one procedure a whole operative
+      # of `kind`, wiring an entry channel named `input` (or `"input"`) into it
+      # and it to the `sink` plugin channel, the entry decoded by `codec`.
+      #
+      # The keys ride this call, so the Ruby spelling cannot write one without
+      # a sink and owes no `ShorthandKeyWithoutSink`.
+      def sink(name = nil, kind: nil, input: nil, codec: nil)
+        return @sink if name.nil?
+
+        @sink = name.to_s
+        @sink_kind = kind
+        @sink_input = (input || "input").to_s
+        @sink_codec = codec
+      end
+
+      # The operative this short form generates, or `nil` for a plain
+      # procedure. Built at registration, which is where the Ruby contract
+      # places every refusal.
+      def operative
+        return nil if @sink.nil?
+
+        @operative ||= build_short_form
+      end
+
       def entity_keys(*keys)
         return @entity_keys if keys.empty?
 
@@ -206,6 +230,42 @@ module Flezha
                                      definition.build_initial_state(nil))
         end
         definition
+      end
+
+      # The operative a `sink` generates, on the same builder path a
+      # hand-written one is built on. The two refusals Ruby owes are raised
+      # here, each naming itself (`authoring_contract.md` §5.2); it cannot see
+      # a procedure's output type and owes no `SinkWithoutOutput`.
+      def build_short_form
+        if @procedure_name.nil?
+          raise DeclarationError.new(
+            "<procedure>", name.to_s,
+            "SinkWithoutId: a `sink` makes this class a whole operative, whose factory id is " \
+            "an address an operator types; write it as `procedure_name \"...\"` rather than " \
+            "deriving it from the class"
+          )
+        end
+        unless %i[stream workflow].include?(@sink_kind)
+          raise DeclarationError.new(
+            "<procedure>", procedure_name,
+            "SinkWithoutKind: a `sink` makes this class a whole operative; write " \
+            "`kind: :stream` or `kind: :workflow`"
+          )
+        end
+
+        procedure = self
+        id = procedure_name
+        entry = @sink_input
+        codec = @sink_codec
+        sink = @sink
+        base = @sink_kind == :workflow ? WorkflowOperative : StreamOperative
+        Class.new(base) do
+          factory_id id
+          channels do |c|
+            stream = codec ? c.input(entry, codec: codec) : c.input(entry)
+            stream.into(procedure).sink(sink)
+          end
+        end
       end
 
       def default_name

@@ -31,8 +31,9 @@ if (topology = ENV["FLEZHA_REFUSAL_FIXTURE"])
   # topology dies at declaration, before the core is started.
   Conformance.register_only(runner, topology)
 else
-  Fixtures::ALL.each { |operative| runner.define_stream(operative) }
-  Fixtures::WORKFLOWS.each { |operative| runner.define_workflow(operative) }
+  Fixtures::ALL.each { |operative| runner.register_factory(operative) }
+  Fixtures::SHORTHAND.each { |short_form| runner.register_factory(short_form) }
+  Fixtures::WORKFLOWS.each { |operative| runner.register_factory(operative) }
 end
 
 # The harness stops a runner by closing its pipes. A write that lands after

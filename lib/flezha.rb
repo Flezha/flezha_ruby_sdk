@@ -17,7 +17,7 @@
 #     channels { |c| c.input("input", codec: :text).into(Echo).sink("out") }
 #   end
 #
-#   Flezha.create_runner("default").define_stream(EchoOperative).run
+#   Flezha.create_runner("default").register_factory(EchoOperative).run
 
 require_relative "flezha/version"
 require_relative "flezha/errors"

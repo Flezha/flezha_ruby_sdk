@@ -45,7 +45,8 @@ module Flezha
 
     def add(spec)
       if @classes.key?(spec.factory_id)
-        raise Error, "duplicate factory id `#{spec.factory_id}`: a runner declares each factory once"
+        raise Error, "DuplicateFactoryId: `#{spec.factory_id}` is already declared on this " \
+                     "runner; a runner declares each factory id once"
       end
 
       @classes[spec.factory_id] = RegisteredClass.new(spec)
