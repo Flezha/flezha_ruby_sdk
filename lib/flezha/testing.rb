@@ -150,7 +150,7 @@ module Flezha
         )
       end
 
-      def invoke(input, ctx) = @definition.instance.process(input, ctx)
+      def invoke(input, ctx) = @definition.instance.run(input, ctx)
 
       # The controller's shape: the factory id trimmed so the whole id fits the
       # 32-byte limit, then 16 base32 characters.

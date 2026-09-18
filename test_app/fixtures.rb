@@ -21,7 +21,7 @@ module Fixtures
 
   class DoNothing < Flezha::Procedure
     procedure_name "do_nothing_procedure"
-    def process(input, _ctx) = input
+    def run(input, _ctx) = input
   end
 
   class DoNothingOperative < Flezha::StreamOperative
@@ -51,7 +51,7 @@ module Fixtures
   class CompareFilter < Flezha::Procedure
     procedure_name "compare_filter_procedure"
     def initial_state(_entity_key) = { comparable: "default", inverted: false }
-    def process(input, ctx) = ctx.state[:comparable] == input ? input : nil
+    def run(input, ctx) = ctx.state[:comparable] == input ? input : nil
   end
 
   class CompareFilterOperative < Flezha::StreamOperative
@@ -81,7 +81,7 @@ module Fixtures
     def initial_state(_entity_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change({ push: input })
       input
     end
@@ -92,7 +92,7 @@ module Fixtures
   end
 
   class PassThrough < Flezha::Procedure
-    def process(input, _ctx) = input
+    def run(input, _ctx) = input
   end
 
   class StaticDownstream < PassThrough
@@ -142,35 +142,58 @@ module Fixtures
 
   # -- the §5 short forms --------------------------------------------------
   #
-  # One class body each: the `sink` makes the procedure a whole operative of
-  # its `kind`, and `runner.rb` registers the class itself. No hand-written
-  # operative stands beside them.
+  # One operative class each, carrying its one procedure's `run` body instead
+  # of `channels`; `runner.rb` registers the class itself. No procedure stands
+  # beside them.
 
-  class SugarDoNothing < PassThrough
-    procedure_name "sugar_do_nothing"
-    sink "sugar_do_nothing_echo", kind: :stream, codec: :text
+  class SugarDoNothing < Flezha::StreamOperative
+    factory_id "sugar_do_nothing"
+    sink "sugar_do_nothing_echo"
+    codec :text
+    def run(input, _ctx) = input
   end
 
-  class SugarStoreInput < Flezha::Procedure
-    procedure_name "sugar_store_input"
-    sink "sugar_store_sink", kind: :stream, codec: :text
+  class SugarStoreInput < Flezha::StreamOperative
+    factory_id "sugar_store_input"
+    sink "sugar_store_sink"
+    codec :text
     def initial_state(_entity_key) = { text_inputs: [] }
     def apply_change(state, change) = state[:text_inputs] << change[:push]
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change({ push: input })
       input
     end
   end
 
-  class SugarNamedInput < PassThrough
-    procedure_name "sugar_named_input"
-    sink "sugar_named_input_sink", kind: :stream, input: "prices", codec: :text
+  class SugarNamedInput < Flezha::StreamOperative
+    factory_id "sugar_named_input"
+    sink "sugar_named_input_sink"
+    input "prices"
+    codec :text
+    def run(input, _ctx) = input
   end
 
-  class SugarWorkflow < PassThrough
-    procedure_name "sugar_workflow"
-    sink "sugar_workflow_placed", kind: :workflow, input: "order", codec: :text
+  class SugarWorkflow < Flezha::WorkflowOperative
+    factory_id "sugar_workflow"
+    sink "sugar_workflow_placed"
+    input "order"
+    codec :text
+    def run(input, _ctx) = input
+  end
+
+  # No sink: what it was sent is proven by its state.
+  class SugarStateOnly < Flezha::StreamOperative
+    factory_id "sugar_state_only"
+    input "ticks"
+    codec :text
+    def initial_state(_entity_key) = { seen: [] }
+    def apply_change(state, change) = state[:seen] << change[:push]
+
+    def run(input, ctx)
+      ctx.change({ push: input })
+      nil
+    end
   end
 
   # -- hybrid_channel ------------------------------------------------------
@@ -184,7 +207,7 @@ module Fixtures
 
   class HybridProducer < Flezha::Procedure
     procedure_name "hybrid_producer_procedure"
-    def process(input, ctx)
+    def run(input, ctx)
       parsed = Integer(input.to_s, exception: false) || 0
       value = parsed.between?(0, 0xffffffff) ? parsed : 0
       begin
@@ -198,7 +221,7 @@ module Fixtures
 
   class HybridConsumer < Flezha::Procedure
     procedure_name "hybrid_consumer_procedure"
-    def process(input, _ctx)
+    def run(input, _ctx)
       puts("hybrid_consumer_procedure: received #{input}")
       nil
     end
@@ -237,7 +260,7 @@ module Fixtures
   class MergeLabel < Flezha::Procedure
     procedure_name "merge_label_procedure"
     dynamic_entities
-    def process(input, _ctx) = "#{input[:source]}:#{input[:payload]}"
+    def run(input, _ctx) = "#{input[:source]}:#{input[:payload]}"
   end
 
   class MergedInputOperative < Flezha::StreamOperative
@@ -284,13 +307,13 @@ module Fixtures
     procedure_name "stress_a"
     entity_keys(*STRESS_KEYS)
     def entities_for(_input) = STRESS_KEYS
-    def process(input, _ctx) = input
+    def run(input, _ctx) = input
   end
 
   class StressToP0 < Flezha::Procedure
     entity_keys(*STRESS_KEYS)
     def entities_for(_input) = ["p0"]
-    def process(input, _ctx) = input
+    def run(input, _ctx) = input
   end
 
   class StressB < StressToP0
@@ -322,7 +345,7 @@ module Fixtures
     procedure_name "poison_probe_procedure"
     ANTIDOTE = { taken: false }
 
-    def process(input, _ctx)
+    def run(input, _ctx)
       ANTIDOTE[:taken] = true if input == "antidote"
       raise "poison payload" if input == "poison" && !ANTIDOTE[:taken]
 
@@ -354,7 +377,7 @@ module Fixtures
     procedure_name "wedge_probe_procedure"
     ABORTED = { done: false }
 
-    def process(input, _ctx)
+    def run(input, _ctx)
       loop { sleep(3600) } if input == "wedge"
 
       if input == "abort" && !ABORTED[:done]
@@ -390,7 +413,7 @@ module Fixtures
     def apply_change(state, change) = state[:folded] << change[:fold]
     def event_time(input) = AS_INT.call(input.to_s.split(":", 2).first)
 
-    def process(input, ctx)
+    def run(input, ctx)
       # `ctx.now` IS the extracted event time under an event-time clock.
       event_time = ctx.now
       ctx.change({ fold: event_time })
@@ -431,7 +454,7 @@ module Fixtures
       end
     end
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change({ touched: input })
       # A processing-time timer, because the answer to "nothing has arrived"
       # cannot be an event-time one: nothing would advance the clock.
@@ -462,7 +485,7 @@ module Fixtures
     def initial_state(_entity_key) = { processed: 0 }
     def apply_change(state, _change) = state[:processed] += 1
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change({ processed: true })
       input
     end
@@ -498,7 +521,7 @@ module Fixtures
     def initial_state(_entity_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change({ push: input })
       ctx.emit(input, key: PREFIX.call(input))
       nil
@@ -522,7 +545,7 @@ module Fixtures
     def initial_state(_entity_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change({ push: input })
       input
     end
@@ -549,7 +572,7 @@ module Fixtures
   class SpawnRequester < Flezha::Procedure
     procedure_name "spawn_requester"
 
-    def process(input, ctx)
+    def run(input, ctx)
       handles = {
         "unnamed" => ctx.spawn_workflow("stateless_loop_workflow", input),
         "named" => ctx.spawn_workflow("stateless_loop_workflow", input, id: input)
@@ -583,9 +606,8 @@ module Fixtures
     PartitionRelayOperative, DynamicEntityOperative, SpawnRequesterOperative
   ].freeze
 
-  # The §5 short forms this app registers: each is the procedure class itself,
-  # whose `sink` makes it a whole operative.
+  # The §5 short forms this app registers.
   SHORTHAND = [
-    SugarDoNothing, SugarStoreInput, SugarNamedInput, SugarWorkflow
+    SugarDoNothing, SugarStoreInput, SugarNamedInput, SugarWorkflow, SugarStateOnly
   ].freeze
 end

@@ -49,7 +49,7 @@ module Conformance
   # subclass of each, because a Ruby procedure's mailbox capacity is a class
   # declaration and a resolved definition is memoised per class.
   class PaletteProcedure < Flezha::Procedure
-    def process(input, _ctx) = input
+    def run(input, _ctx) = input
   end
 
   class Plain < PaletteProcedure; end
@@ -225,6 +225,9 @@ module Conformance
     end
   end
 
+  # Whether this builder carries the surface a row needs.
+  def self.carried?(row) = row[:needs] == "-" || SURFACES.include?(row[:needs])
+
   # The refusal table, in file order.
   def self.rows
     File.read(fixture_path).each_line.filter_map do |line|
@@ -266,32 +269,39 @@ module Conformance
     CITED[row[:topology]] || operative_for(row)
   end
 
-  # The §5 short form. Ruby refuses a malformed declaration and a duplicate
-  # factory id where the author registers it, so every row this SDK can write
-  # boots for real.
+  # The §5 short form. Ruby refuses a malformed declaration where the author
+  # registers it and a duplicate factory id where the runner declares it, so
+  # every row this SDK can write boots for real.
 
-  # The `shorthand(<id>|-, <kind>|-, <sink>|-, <input>|-)` steps of a row.
+  # The `shorthand(<id>|-, <sink>|-, <input>|-)` steps of a row. A `.noout`
+  # row needs a surface this builder lacks and is skipped before it gets here.
   def self.shorthand_steps(row)
     row[:steps].split(";").filter_map do |raw|
       step = raw.strip
-      verb, args = split_call(step.delete_suffix(".noout"))
+      topology = step.end_with?(".topology")
+      verb, args = split_call(step.delete_suffix(".topology").delete_suffix(".noout"))
       next unless verb == "shorthand"
 
       fields = args.split(",").map(&:strip)
-      raise "a shorthand step declares four fields: read `#{step}`" unless fields.size == 4
+      raise "a shorthand step declares three fields: read `#{step}`" unless fields.size == 3
 
       written = ->(field) { field == "-" ? nil : field }
-      { name: written[fields[0]], kind: written[fields[1]],
-        sink: written[fields[2]], input: written[fields[3]] }
+      { id: written[fields[0]], sink: written[fields[1]], input: written[fields[2]],
+        topology: topology }
     end
   end
 
-  # Declare one short form exactly as an author writes it.
-  def self.declare_shorthand(declaration)
-    Class.new(Flezha::Procedure) do
-      procedure_name(declaration[:name]) if declaration[:name]
-      sink(declaration[:sink], kind: declaration[:kind]&.to_sym, input: declaration[:input])
-      def process(input, _ctx) = input
+  # Declare a row's short forms exactly as an author writes them. The second
+  # is a workflow, so a collision crosses kinds.
+  def self.declare_shorthands(declarations)
+    declarations.each_with_index.map do |declaration, position|
+      Class.new(position.zero? ? Flezha::StreamOperative : Flezha::WorkflowOperative) do
+        factory_id(declaration[:id]) if declaration[:id]
+        sink(declaration[:sink]) if declaration[:sink]
+        input(declaration[:input]) if declaration[:input]
+        channels { |c| c.input("input").into(Plain) } if declaration[:topology]
+        def run(input, _ctx) = input
+      end
     end
   end
 
@@ -302,7 +312,7 @@ module Conformance
   # what keeps the name the author reads and the name reported the same one.
   def self.judge_shorthand(row, declarations)
     registry = Flezha::Registry.new
-    declarations.each { |declaration| registry.add(declare_shorthand(declaration).operative.spec) }
+    declare_shorthands(declarations).each { |operative| registry.add(operative.spec) }
     { "topology" => row[:topology], "outcome" => "accepted" }
   rescue Flezha::DeclarationError => e
     { "topology" => row[:topology], "outcome" => "refused",
@@ -318,7 +328,7 @@ module Conformance
   # One row's verdict, in the report's shape. The refusal NAMES are the core's
   # own, carried on the refusal this SDK raises; nothing here re-derives one.
   def self.judge(row, core)
-    if row[:needs] != "-" && !SURFACES.include?(row[:needs])
+    unless carried?(row)
       return { "topology" => row[:topology], "outcome" => "skipped", "needs" => row[:needs] }
     end
 
@@ -363,15 +373,18 @@ module Conformance
   # Register ONLY the named row's topology, the way the app registers any
   # class. A refused row never reaches a connected runner: the declaration is
   # judged before the core is started, and the process dies naming the refusal.
+  # A row needing a surface this builder lacks exits naming the surface.
   def self.register_only(runner, topology)
     row = rows.find { |candidate| candidate[:topology] == topology }
     raise "#{FIXTURE} has no row `#{topology}`" unless row
 
-    declarations = shorthand_steps(row)
-    if declarations.empty?
-      runner.register_factory(class_for(row))
-    else
-      declarations.each { |declaration| runner.register_factory(declare_shorthand(declaration)) }
+    unless carried?(row)
+      warn("conformance: #{topology} skipped: this builder carries no `#{row[:needs]}`")
+      exit 0
     end
+
+    declarations = shorthand_steps(row)
+    operatives = declarations.empty? ? [class_for(row)] : declare_shorthands(declarations)
+    operatives.each { |operative| runner.register_factory(operative) }
   end
 end

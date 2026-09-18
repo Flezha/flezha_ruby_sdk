@@ -24,13 +24,13 @@ class DeclKeysTest < Minitest::Test
     def initial_state(_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
     def event_time(input) = Integer(input)
-    def process(input, ctx) = ctx.change({ push: input })
+    def run(input, ctx) = ctx.change({ push: input })
   end
 
   class Downstream < Flezha::Procedure
     procedure_name "downstream"
     dynamic_entities idle_ttl_ms: 1_000, max_entities: 16
-    def process(input, _ctx) = input
+    def run(input, _ctx) = input
     def compensate(_outputs, _ctx) = nil
   end
 
@@ -38,7 +38,7 @@ class DeclKeysTest < Minitest::Test
     procedure_name "fanned"
     entity_keys "a", "b"
     def entities_for(_input) = ["a"]
-    def process(input, _ctx) = input
+    def run(input, _ctx) = input
   end
 
   class FullStream < Flezha::StreamOperative
@@ -169,12 +169,12 @@ class ReferenceTopologiesTest < Minitest::Test
 
   class HybridProducer < Flezha::Procedure
     procedure_name "hybrid_producer_procedure"
-    def process(input, ctx) = ctx.emit(input)
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class HybridConsumer < Flezha::Procedure
     procedure_name "hybrid_consumer_procedure"
-    def process(_input, _ctx) = nil
+    def run(_input, _ctx) = nil
   end
 
   class HybridChannel < Flezha::StreamOperative
@@ -187,12 +187,12 @@ class ReferenceTopologiesTest < Minitest::Test
 
   class TierCommitA < Flezha::Procedure
     procedure_name "tier_commit_a"
-    def process(input, ctx) = ctx.emit(input, key: "job")
+    def run(input, ctx) = ctx.emit(input, key: "job")
   end
 
   class BlockB < Flezha::Procedure
     procedure_name "block_b"
-    def process(_input, _ctx) = nil
+    def run(_input, _ctx) = nil
   end
 
   class CommitBlockChain < Flezha::WorkflowOperative

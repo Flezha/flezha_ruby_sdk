@@ -9,7 +9,7 @@ require_relative "test_helper"
 class ConcurrencyTest < Minitest::Test
   class Echo < Flezha::Procedure
     procedure_name "echo"
-    def process(input, _ctx) = input
+    def run(input, _ctx) = input
   end
 
   class EchoOperative < Flezha::StreamOperative
@@ -151,7 +151,7 @@ class ConcurrencyTest < Minitest::Test
 
   class Recorder < Flezha::Procedure
     procedure_name "recorder"
-    def process(input, _ctx)
+    def run(input, _ctx)
       ORDER_LOCK.synchronize { ORDER << :dispatched }
       input
     end
@@ -187,7 +187,7 @@ class ConcurrencyTest < Minitest::Test
 
   class NeverReturns < Flezha::Procedure
     procedure_name "never_returns"
-    def process(_input, _ctx) = sleep
+    def run(_input, _ctx) = sleep
   end
 
   class NeverReturnsOperative < Flezha::StreamOperative

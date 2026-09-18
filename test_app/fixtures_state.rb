@@ -14,7 +14,7 @@ module Fixtures
   #
   # The reference's `TierStoreState` and its upsert fold: `tier_store`,
   # `checkpoint_store` and `bench_checkpoint` are the same keyed upsert under
-  # three acknowledgement postures; only `process` differs.
+  # three acknowledgement postures; only `run` differs.
   class KeyedUpsert < Flezha::Procedure
     def initial_state(_entity_key) = { values: {} }
     def apply_change(state, change) = state[:values][change[:key]] = change[:value]
@@ -31,7 +31,7 @@ module Fixtures
   class TierStore < KeyedUpsert
     procedure_name "tier_store_procedure"
 
-    def process(input, ctx)
+    def run(input, ctx)
       # Dead-letter e2e: a "poison" value fails every attempt, exhausting the
       # retry budget so the tier-on atomic park advances the entity past it.
       raise "poison value" if input.to_s.split(":", 2)[1] == "poison"
@@ -44,7 +44,7 @@ module Fixtures
   class CheckpointStore < KeyedUpsert
     procedure_name "checkpoint_store_procedure"
 
-    def process(input, ctx)
+    def run(input, ctx)
       if input.to_s.split(":", 2)[0] == "commit"
         ctx.checkpoint
         return nil
@@ -57,7 +57,7 @@ module Fixtures
   # `checkpoint_store` driven by a DECLARED cadence rather than an input.
   class BenchCheckpoint < KeyedUpsert
     procedure_name "bench_checkpoint_procedure"
-    def process(input, ctx) = upsert(input, ctx)
+    def run(input, ctx) = upsert(input, ctx)
   end
 
   # The same keyed upsert under both durability postures, so the round-trip
@@ -152,7 +152,7 @@ module Fixtures
     def initial_state(_entity_key) = { binary_inputs: [], text_inputs: [] }
     def apply_change(state, change) = state[:text_inputs] << change[:push_text]
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change({ push_text: input })
       input
     end
@@ -170,7 +170,7 @@ module Fixtures
 
   class CounterEntry < Flezha::Procedure
     procedure_name "counter_entry_procedure"
-    def process(input, _ctx) = AS_INT.call(input)
+    def run(input, _ctx) = AS_INT.call(input)
   end
 
   class Counter < Flezha::Procedure
@@ -178,7 +178,7 @@ module Fixtures
     def initial_state(_entity_key) = { value: 0 }
     def apply_change(state, change) = state[:value] += change[:delta]
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change({ delta: input })
       nil
     end
@@ -209,7 +209,7 @@ module Fixtures
   class TickEntry < Flezha::Procedure
     procedure_name "tick_entry_procedure"
 
-    def process(input, _ctx)
+    def run(input, _ctx)
       interval, ts, delta = input.to_s.split(":", 3)
       { interval: AS_INT.call(interval), ts: AS_INT.call(ts), delta: AS_INT.call(delta) }
     end
@@ -225,7 +225,7 @@ module Fixtures
     def initial_state(_entity_key) = { last: 0 }
     def apply_change(state, change) = state[:last] = change[:delta]
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change(input.dup)
       nil
     end
@@ -247,7 +247,7 @@ module Fixtures
     def initial_state(_entity_key) = { total: 0 }
     def apply_change(state, change) = state[:total] += change[:add]
 
-    def process(input, ctx)
+    def run(input, ctx)
       delta = AS_INT.call(input)
       total = ctx.state[:total] + delta
       ctx.change({ add: delta })
@@ -279,7 +279,7 @@ module Fixtures
     def initial_state(_entity_key) = { total: 0 }
     def apply_change(state, change) = state[:total] += change[:add]
 
-    def process(input, ctx)
+    def run(input, ctx)
       delta = AS_INT.call(input)
       total = ctx.state[:total] + delta
       ctx.change({ add: delta })
@@ -307,7 +307,7 @@ module Fixtures
     def initial_state(_entity_key) = { total: 0, currency: "" }
     def apply_change(state, change) = state[:total] += change[:add]
 
-    def process(input, ctx)
+    def run(input, ctx)
       delta = AS_INT.call(input)
       total = ctx.state[:total] + delta
       currency = ctx.state[:currency].to_s.empty? ? "EUR" : ctx.state[:currency]

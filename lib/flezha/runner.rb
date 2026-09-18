@@ -8,7 +8,6 @@ require_relative "graph"
 require_relative "logger"
 require_relative "native"
 require_relative "operative"
-require_relative "procedure"
 
 module Flezha
   # The runner: what an author starts, and everything it owns while running.
@@ -47,11 +46,17 @@ module Flezha
       @teardown = []
     end
 
-    # Register an operative class of either kind, or a `Procedure` subclass
-    # whose `sink` makes it one. The kind is read from the class, never named
-    # by the call.
+    # Register an operative class of either kind, short form or full. The kind
+    # is read from the class, never named by the call.
     def register_factory(klass)
-      @classes << operative_of(klass)
+      unless klass.is_a?(Class) && (klass < StreamOperative || klass < WorkflowOperative)
+        raise Error, "UnknownOperativeKind: `#{klass}` is neither a Flezha::StreamOperative nor " \
+                     "a Flezha::WorkflowOperative; a procedure is registered by the operative " \
+                     "that wires it"
+      end
+
+      klass.check_declaration!
+      @classes << klass
       self
     end
 
@@ -67,8 +72,7 @@ module Flezha
                      "serving a started declaration"
       end
 
-      operative = operative_of(klass)
-      unless @classes.delete(operative)
+      unless @classes.delete(klass)
         raise Error, "`#{klass}` is not registered on this runner"
       end
 
@@ -188,18 +192,6 @@ module Flezha
     end
 
     private
-
-    # The operative a registration call was handed: an operative class is
-    # itself, and a short-form procedure carries the one it generates. A
-    # procedure with no `sink` generates none, and saying so here keeps the
-    # refusal at the call the author wrote.
-    def operative_of(klass)
-      return klass unless klass.is_a?(Class) && klass < Procedure
-
-      klass.operative ||
-        raise(Error, "`#{klass}` is a procedure with no `sink`, so it declares no operative; " \
-                     "register the operative that wires it, or declare a `sink` on it")
-    end
 
     def declare_all
       # The verdict before the registration: the core judges the record and

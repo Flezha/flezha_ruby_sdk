@@ -15,7 +15,7 @@ class TestingTest < Minitest::Test
       state[:seen] << change[:by]
     end
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change({ by: Integer(input) })
       ctx.state[:total]
     end
@@ -28,7 +28,7 @@ class TestingTest < Minitest::Test
   # after a restart, and reported nowhere until then.
   class Unrecorded < Counter
     procedure_name "harness_unrecorded"
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.state[:total] += Integer(input)
       ctx.state[:total]
     end
@@ -39,7 +39,7 @@ class TestingTest < Minitest::Test
   # never ran, produces a different answer.
   class ImpureFold < Counter
     procedure_name "harness_impure"
-    def process(input, ctx)
+    def run(input, ctx)
       @handled = (@handled || 0) + 1
       super
     end
@@ -96,7 +96,7 @@ class TestingTest < Minitest::Test
   def test_a_registered_timer_is_anchored_on_now
     inner = Class.new(Flezha::Procedure) do
       procedure_name "timer_registrar"
-      def process(_input, ctx) = ctx.timer_after(50)
+      def run(_input, ctx) = ctx.timer_after(50)
     end
     harness = Flezha::Testing::Harness.new(inner)
 
@@ -129,7 +129,7 @@ class TestingTest < Minitest::Test
     spawner = Class.new(Flezha::Procedure) do
       procedure_name "spawner"
 
-      define_method(:process) do |input, ctx|
+      define_method(:run) do |input, ctx|
         handles.replace([ctx.spawn_workflow("stateless_loop_workflow", input),
                          ctx.spawn_workflow("stateless_loop_workflow", input, id: "w1")])
         handles.map { |handle| handle.try_result.to_h }
@@ -151,7 +151,7 @@ class TestingTest < Minitest::Test
   def test_stable_id_is_replay_stable_within_an_invocation
     identifier = Class.new(Flezha::Procedure) do
       procedure_name "identifier"
-      def process(_input, ctx) = [ctx.stable_id, ctx.stable_id]
+      def run(_input, ctx) = [ctx.stable_id, ctx.stable_id]
     end
 
     first = Flezha::Testing::Harness.new(identifier).feed("x").returned
@@ -165,7 +165,7 @@ class TestingTest < Minitest::Test
   class Emitter < Flezha::Procedure
     procedure_name "harness_emitter"
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.emit({ said: input })
       "echo: #{input}"
     end

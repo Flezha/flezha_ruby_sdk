@@ -19,7 +19,7 @@ class AuthoringTest < Minitest::Test
   def pass_through(name)
     Class.new(Flezha::Procedure) do
       procedure_name name
-      def process(input, _ctx) = input
+      def run(input, _ctx) = input
     end
   end
 
@@ -38,17 +38,39 @@ class AuthoringTest < Minitest::Test
     Flezha::TestSupport.validate(spec)
   end
 
-  def test_a_procedure_without_a_process_method_is_refused_by_name
+  def test_a_procedure_without_a_run_method_is_refused_by_name
     klass = Class.new(Flezha::Procedure) { procedure_name "no_body" }
 
-    assert_includes refusal { klass.definition }.message, "no_body"
+    message = refusal { klass.definition }.message
+    assert_includes message, "no_body"
+    assert_includes message, "`run`"
+  end
+
+  class StillProcess < Flezha::Procedure
+    def process(input, _ctx) = input
+  end
+
+  def test_a_procedure_defining_process_and_no_run_is_refused_naming_run
+    message = refusal { StillProcess.definition }.message
+
+    assert_includes message, "AuthoringTest::StillProcess"
+    assert_includes message, "`run`"
+  end
+
+  def test_a_procedure_s_body_is_its_run_method
+    upcase = Class.new(Flezha::Procedure) do
+      procedure_name "upcase"
+      def run(input, _ctx) = input.upcase
+    end
+
+    assert_equal ["A"], Flezha::Testing::Harness.new(upcase).feed("a").outputs
   end
 
   def test_a_fold_with_no_state_to_fold_into_is_refused
     klass = Class.new(Flezha::Procedure) do
       procedure_name "fold_only"
       def apply_change(state, change) = state
-      def process(input, _ctx) = input
+      def run(input, _ctx) = input
     end
 
     assert_includes refusal { klass.definition }.message, "initial_state"
@@ -60,7 +82,7 @@ class AuthoringTest < Minitest::Test
       entity_keys "a"
       dynamic_entities
       def entities_for(_input) = ["a"]
-      def process(input, _ctx) = input
+      def run(input, _ctx) = input
     end
 
     assert_includes refusal { klass.definition }.message, "exclusive"
@@ -70,7 +92,7 @@ class AuthoringTest < Minitest::Test
     klass = Class.new(Flezha::Procedure) do
       procedure_name "unencodable"
       def initial_state(_key) = { handler: -> {} }
-      def process(input, _ctx) = input
+      def run(input, _ctx) = input
     end
 
     assert_raises(Flezha::UnrepresentableValueError) { klass.definition }
@@ -82,7 +104,7 @@ class AuthoringTest < Minitest::Test
     klass = Class.new(Flezha::Procedure) do
       procedure_name "no_extractor"
       clock :event_time
-      def process(input, _ctx) = input
+      def run(input, _ctx) = input
     end
     graph = operative("no_extractor_op") { |c| c.input("in").into(klass).sink }
 
@@ -107,7 +129,7 @@ class AuthoringTest < Minitest::Test
     target = Class.new(Flezha::Procedure) do
       procedure_name "keyed"
       dynamic_entities
-      def process(input, _ctx) = input
+      def run(input, _ctx) = input
     end
     klass = operative("dup_key_by") do |c|
       c.input("in").key_by { "a" }.key_by { "b" }.into(target)
@@ -148,7 +170,7 @@ class AuthoringTest < Minitest::Test
     error = refusal { klass.spec }
 
     assert_equal "bodiless", error.factory_id
-    assert_includes error.message, "declares no channels"
+    assert_includes error.message, "`channels`"
   end
 
   # The core's own check, reached through the one submission path.

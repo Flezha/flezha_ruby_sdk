@@ -30,7 +30,7 @@ module Flezha
       end
     end
 
-    def process(input, ctx)
+    def run(input, ctx)
       state = ctx.state
       if input.key?(:document)
         # The document is opaque: equal is the class codec's bytes, so a

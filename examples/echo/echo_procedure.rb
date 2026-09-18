@@ -3,7 +3,7 @@
 require "flezha"
 
 # A processing stage of the operative's graph, run once per message. This one
-# prefixes the input, and what `process` returns is emitted.
+# prefixes the input, and what `run` returns is emitted.
 #
 # With no `initial_state` and no `apply_change`, nothing is kept between
 # messages and nothing is journaled. Where the result goes is not decided here:
@@ -14,5 +14,5 @@ class EchoProcedure < Flezha::Procedure
   # later declares a different procedure rather than renaming this one.
   procedure_name "echo"
 
-  def process(input, _ctx) = "echo: #{input}"
+  def run(input, _ctx) = "echo: #{input}"
 end

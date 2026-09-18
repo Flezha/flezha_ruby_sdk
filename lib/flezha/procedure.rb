@@ -54,7 +54,7 @@ module Flezha
     # Captured here rather than delegated, because the dispatcher reads these
     # on the hot path.
     def initialize(klass)
-      @klass = klass
+      @body = klass.body
       @name = klass.procedure_name
       @entity_keys = klass.entity_keys
       @dynamic = klass.dynamic_entities?
@@ -68,7 +68,7 @@ module Flezha
       @change_codec = klass.change_codec
       @migrate_state = klass.migrate_state
       @migrate_change = klass.migrate_change
-      @instance = klass.new
+      @instance = @body.new
     end
 
     def entity_mode
@@ -78,7 +78,7 @@ module Flezha
       :single
     end
 
-    def declares?(method) = @klass.method_defined?(method) || @klass.private_method_defined?(method)
+    def declares?(method) = @body.method_defined?(method) || @body.private_method_defined?(method)
 
     def initial_state? = declares?(:initial_state)
     def apply_change? = declares?(:apply_change)
@@ -96,6 +96,63 @@ module Flezha
     def event_time_of(input) = Integer(@instance.event_time(input))
   end
 
+  # A procedure's class-level declarations. A procedure class carries them,
+  # and so does a short-form operative class, which hands them to the
+  # procedure it generates.
+  module ProcedureSettings
+    # The scalar declarations. Each is read by its bare name and written by
+    # naming a value: `clock` answers, `clock :event_time` declares.
+    SCALARS = %i[mailbox_capacity schema_version min_readable_schema_version
+                 state_codec change_codec clock].freeze
+    BLOCKS = %i[migrate_state migrate_change].freeze
+    # Written by the declarations below, which take more than one value or
+    # write more than one variable; named so a subclass inherits them.
+    WRITTEN = %i[entity_keys dynamic idle_ttl_ms max_entities state_type change_type].freeze
+    NAMES = (SCALARS + BLOCKS + WRITTEN).freeze
+
+    def self.extended(base)
+      base.setting(*SCALARS)
+      base.block_setting(*BLOCKS)
+      base.declares(*WRITTEN)
+    end
+
+    def entity_keys(*keys)
+      return @entity_keys if keys.empty?
+
+      @entity_keys = keys.flatten.map(&:to_s)
+    end
+
+    def dynamic_entities(idle_ttl_ms: nil, max_entities: nil)
+      @dynamic = true
+      @idle_ttl_ms = idle_ttl_ms
+      @max_entities = max_entities
+    end
+
+    # Whether entities appear on first key rather than from a declared set.
+    def dynamic_entities? = @dynamic || false
+
+    attr_reader :idle_ttl_ms, :max_entities
+
+    # Declare the class an entity's State is. Its `to_h` is what is encoded
+    # and its `.from_h` is what rebuilds it, so a rename of the class does
+    # not break the restore of records written before it: the durable form
+    # is the Hash, not the class.
+    def state_type(type = nil)
+      return @state_type if type.nil?
+
+      @state_type = type
+      @state_codec = TypeCodec.new(type, "state")
+    end
+
+    # Declare the class a recorded Change is. Same contract as `state_type`.
+    def change_type(type = nil)
+      return @change_type if type.nil?
+
+      @change_type = type
+      @change_codec = TypeCodec.new(type, "change")
+    end
+  end
+
   # The base every authored procedure subclasses.
   #
   # The class body carries the scalar declarations; the instance methods carry
@@ -105,15 +162,8 @@ module Flezha
   # implementation cannot disagree.
   class Procedure
     extend Declarative
+    extend ProcedureSettings
 
-    # The scalar declarations. Each is read by its bare name and written by
-    # naming a value: `clock` answers, `clock :event_time` declares.
-    setting :mailbox_capacity, :schema_version, :min_readable_schema_version,
-            :state_codec, :change_codec, :clock
-    block_setting :migrate_state, :migrate_change
-    # Written by the declarations below, which take more than one value or
-    # write more than one variable; named here so a subclass inherits them.
-    declares :entity_keys, :dynamic, :idle_ttl_ms, :max_entities, :state_type, :change_type
     # `procedure_name` is deliberately NOT inherited: a node identity is per
     # class, and a subclass silently taking its parent's would make two
     # procedures claim one node — which the builder refuses, at the far end of
@@ -128,64 +178,20 @@ module Flezha
         @procedure_name = name.to_s
       end
 
-      # The §5 short form: a `sink` makes this one procedure a whole operative
-      # of `kind`, wiring an entry channel named `input` (or `"input"`) into it
-      # and it to the `sink` plugin channel, the entry decoded by `codec`.
-      #
-      # The keys ride this call, so the Ruby spelling cannot write one without
-      # a sink and owes no `ShorthandKeyWithoutSink`.
-      def sink(name = nil, kind: nil, input: nil, codec: nil)
-        return @sink if name.nil?
+      # The class whose instance methods run for this procedure: the procedure
+      # itself, or the short-form operative whose `run` body it was generated
+      # from.
+      def body = self
 
-        @sink = name.to_s
-        @sink_kind = kind
-        @sink_input = (input || "input").to_s
-        @sink_codec = codec
-      end
-
-      # The operative this short form generates, or `nil` for a plain
-      # procedure. Built at registration, which is where the Ruby contract
-      # places every refusal.
-      def operative
-        return nil if @sink.nil?
-
-        @operative ||= build_short_form
-      end
-
-      def entity_keys(*keys)
-        return @entity_keys if keys.empty?
-
-        @entity_keys = keys.flatten.map(&:to_s)
-      end
-
-      def dynamic_entities(idle_ttl_ms: nil, max_entities: nil)
-        @dynamic = true
-        @idle_ttl_ms = idle_ttl_ms
-        @max_entities = max_entities
-      end
-
-      # Whether entities appear on first key rather than from a declared set.
-      def dynamic_entities? = @dynamic || false
-
-      attr_reader :idle_ttl_ms, :max_entities
-
-      # Declare the class an entity's State is. Its `to_h` is what is encoded
-      # and its `.from_h` is what rebuilds it, so a rename of the class does
-      # not break the restore of records written before it — the durable form
-      # is the Hash, not the class.
-      def state_type(type = nil)
-        return @state_type if type.nil?
-
-        @state_type = type
-        @state_codec = TypeCodec.new(type, "state")
-      end
-
-      # Declare the class a recorded Change is. Same contract as `state_type`.
-      def change_type(type = nil)
-        return @change_type if type.nil?
-
-        @change_type = type
-        @change_codec = TypeCodec.new(type, "change")
+      # A procedure has no sink: the one-procedure short form is an operative,
+      # and its sink is written there.
+      def sink(*, **)
+        raise DeclarationError.new(
+          "<procedure>", to_s,
+          "declares a `sink`, and a procedure has none; a one-procedure operative is a " \
+          "Flezha::StreamOperative or Flezha::WorkflowOperative subclass with a `run` body, " \
+          "and its `sink` is written there"
+        )
       end
 
       # The resolved declaration. Built once: it instantiates the procedure,
@@ -197,10 +203,11 @@ module Flezha
       private
 
       def build_definition
-        unless method_defined?(:process)
+        unless body.method_defined?(:run)
+          stale = body.method_defined?(:process) ? " (`process` is not read)" : ""
           raise DeclarationError.new("<procedure>", procedure_name,
-                                     "declares no `process` method; a procedure is what runs " \
-                                     "against an input")
+                                     "#{body} declares no `run` method#{stale}; a procedure's " \
+                                     "body is its `run`, what runs against an input")
         end
         if @entity_keys && @dynamic
           raise DeclarationError.new("<procedure>", procedure_name,
@@ -215,7 +222,7 @@ module Flezha
         # State without a fold is legitimate: a value seeded at start and read
         # but never mutated has nothing to journal, and `ctx.change` already
         # refuses at the point of use. A fold with no state to fold into is not.
-        if !method_defined?(:initial_state) && method_defined?(:apply_change)
+        if !body.method_defined?(:initial_state) && body.method_defined?(:apply_change)
           raise DeclarationError.new("<procedure>", procedure_name,
                                      "declares apply_change but no initial_state; there is " \
                                      "nothing for a change to fold into")
@@ -230,42 +237,6 @@ module Flezha
                                      definition.build_initial_state(nil))
         end
         definition
-      end
-
-      # The operative a `sink` generates, on the same builder path a
-      # hand-written one is built on. The two refusals Ruby owes are raised
-      # here, each naming itself (`authoring_contract.md` §5.2); it cannot see
-      # a procedure's output type and owes no `SinkWithoutOutput`.
-      def build_short_form
-        if @procedure_name.nil?
-          raise DeclarationError.new(
-            "<procedure>", name.to_s,
-            "SinkWithoutId: a `sink` makes this class a whole operative, whose factory id is " \
-            "an address an operator types; write it as `procedure_name \"...\"` rather than " \
-            "deriving it from the class"
-          )
-        end
-        unless %i[stream workflow].include?(@sink_kind)
-          raise DeclarationError.new(
-            "<procedure>", procedure_name,
-            "SinkWithoutKind: a `sink` makes this class a whole operative; write " \
-            "`kind: :stream` or `kind: :workflow`"
-          )
-        end
-
-        procedure = self
-        id = procedure_name
-        entry = @sink_input
-        codec = @sink_codec
-        sink = @sink
-        base = @sink_kind == :workflow ? WorkflowOperative : StreamOperative
-        Class.new(base) do
-          factory_id id
-          channels do |c|
-            stream = codec ? c.input(entry, codec: codec) : c.input(entry)
-            stream.into(procedure).sink(sink)
-          end
-        end
       end
 
       def default_name

@@ -3,15 +3,26 @@
 require_relative "builder"
 require_relative "declarative"
 require_relative "errors"
+require_relative "procedure"
 
 module Flezha
   # The base an authored operative subclasses. Its class body declares the
-  # factory id and the channels graph; `spec` resolves both once.
+  # factory id and one body: a `channels` graph, or, for the single-procedure
+  # short form, that procedure's `run` instance method. `spec` resolves the
+  # declaration once.
   class Operative
     extend Declarative
+    # A short form's procedure settings, handed to the procedure it generates.
+    extend ProcedureSettings
 
     # The channels graph. The block receives the builder.
     block_setting :channels
+    # The short form's entry channel name, its codec and its optional plugin
+    # sink. A full form names its channels in `channels` instead.
+    SHORT_FORM_KEYS = %i[input codec sink].freeze
+    setting(*SHORT_FORM_KEYS)
+    # The declarations only a short form reads.
+    SHORT_FORM_ONLY = (SHORT_FORM_KEYS + ProcedureSettings::NAMES).freeze
     declares :persistent
     # `factory_id` is deliberately NOT inherited: two operatives cannot share
     # one, and a subclass silently taking its parent's would be refused by the
@@ -35,16 +46,82 @@ module Flezha
         @spec ||= build_spec
       end
 
-      private
+      # The procedure a short form generates, or `nil` for a full form. Named
+      # after the factory id, verbatim: a procedure's name is part of every
+      # entity's state path, so the full form that replaces this one keeps
+      # its entities by naming its procedure the same.
+      def procedure
+        return nil unless short_form?
 
-      def build_builder
+        check_declaration!
+        @procedure ||= Class.new(Procedure).tap do |generated|
+          operative = self
+          generated.procedure_name(@factory_id)
+          generated.define_singleton_method(:body) { operative }
+          hand_down(generated, ProcedureSettings::NAMES)
+        end
+      end
+
+      # The refusals a class earns before anything is built, raised by
+      # `Runner#register_factory` at the call the author wrote and again when
+      # the spec is built.
+      def check_declaration!
         unless @factory_id
-          raise DeclarationError.new(name.to_s, nil, "declares no factory_id")
+          raise DeclarationError.new(to_s, nil, "declares no `factory_id`; an operative's " \
+                                                "factory id is written, never derived")
         end
 
+        if short_form?
+          if channels
+            raise DeclarationError.new(
+              @factory_id, "run",
+              "ShortFormWithTopology: defines a `run` body beside `channels`; a short form's " \
+              "one procedure is `run`, and a graph of procedures is `channels`, so keep one",
+              ["ShortFormWithTopology"]
+            )
+          end
+
+          # Everything else a class declares is a class setting, left at its
+          # default on a short form.
+          refuse_written(settings - SHORT_FORM_ONLY,
+                         " on a short form, whose class settings are the defaults; write the " \
+                         "full form in `channels` to change one")
+        elsif channels
+          refuse_written(SHORT_FORM_ONLY,
+                         ", which only a short form reads; a full form wires it in `channels`, " \
+                         "a channel key on the channel and a procedure setting on the procedure")
+        else
+          raise DeclarationError.new(@factory_id, nil,
+                                     "declares no body; write the graph in `channels`, or a " \
+                                     "single procedure's body as `run`")
+        end
+      end
+
+      private
+
+      # A short form carries its one procedure's `run` body instead of a
+      # `channels` graph.
+      def short_form? = method_defined?(:run)
+
+      # Refuse the declarations among +names+ this class wrote, naming each.
+      def refuse_written(names, reason)
+        names = written(names).keys
+        return if names.empty?
+
+        raise DeclarationError.new(@factory_id, nil, "declares `#{names.join('`, `')}`#{reason}")
+      end
+
+      def build_builder
+        check_declaration!
         builder = Builder.new(@factory_id)
-        channels&.call(builder)
+        short_form? ? wire_short_form(builder) : channels.call(builder)
         builder
+      end
+
+      # `input -> procedure`, and on to the plugin sink when one is declared.
+      def wire_short_form(builder)
+        edge = builder.input(input || "input", codec: codec).into(procedure)
+        edge.sink(sink) if sink
       end
     end
   end
@@ -87,12 +164,6 @@ module Flezha
 
       def build_spec
         builder = build_builder.seal
-        unless channels
-          raise DeclarationError.new(@factory_id, nil,
-                                     "declares no channels; a workflow runs procedures, " \
-                                     "wired in `channels`")
-        end
-
         ClassSpec.new(
           factory_id: @factory_id, kind: :workflow, persistent: persistent,
           effectively_once: builder.effectively_once_flag, checkpoint_ack: false,

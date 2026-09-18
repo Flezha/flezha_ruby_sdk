@@ -14,7 +14,7 @@ class DispatchTest < Minitest::Test
     def initial_state(_key) = { total: 0, seen: [] }
     def apply_change(state, change) = state[:total] += change[:by]
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change({ by: Integer(input) })
       "total=#{ctx.state[:total]}"
     end
@@ -186,7 +186,7 @@ class DispatchTest < Minitest::Test
   class Finisher < Flezha::Procedure
     procedure_name "finisher"
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.complete("replaced")
       ctx.complete(COMPLETIONS.fetch(input).first)
       nil
@@ -229,7 +229,7 @@ class DispatchTest < Minitest::Test
   class FailsAfterCompleting < Flezha::Procedure
     procedure_name "fails_after_completing"
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.complete(input)
       raise ArgumentError, "after completing"
     end
@@ -250,7 +250,7 @@ class DispatchTest < Minitest::Test
   def test_a_result_json_cannot_carry_is_refused_naming_the_procedure
     klass = Class.new(Flezha::Procedure) do
       procedure_name "completes_with_nan"
-      def process(_input, ctx) = ctx.complete(Float::NAN)
+      def run(_input, ctx) = ctx.complete(Float::NAN)
     end
 
     error = assert_raises(Flezha::EmitError) { Flezha::Testing::Harness.new(klass).feed("x") }
@@ -316,7 +316,7 @@ class DispatchTest < Minitest::Test
   class StampEmitter < Flezha::Procedure
     procedure_name "stamp_emitter"
 
-    def process(input, ctx)
+    def run(input, ctx)
       if input == "twice"
         ctx.emit_to("keyed_out", "a")
         ctx.emit_to("keyed_out", "b")
@@ -345,7 +345,7 @@ class DispatchTest < Minitest::Test
   class PlainEmitter < Flezha::Procedure
     procedure_name "plain_emitter"
 
-    def process(_input, ctx)
+    def run(_input, ctx)
       ctx.emit_to("plain_out", "p")
       nil
     end
@@ -422,7 +422,7 @@ class DispatchTest < Minitest::Test
 
   class WfProducer < Flezha::Procedure
     procedure_name "wf_producer"
-    def process(input, ctx) = ctx.emit(input)
+    def run(input, ctx) = ctx.emit(input)
   end
 
   # What a consumer of the `handoff` channel was handed, in delivery order.
@@ -431,7 +431,7 @@ class DispatchTest < Minitest::Test
   class WfB < Flezha::Procedure
     procedure_name "wf_b"
 
-    def process(input, _ctx)
+    def run(input, _ctx)
       DELIVERED << input
       nil
     end
@@ -440,7 +440,7 @@ class DispatchTest < Minitest::Test
   class WfC < Flezha::Procedure
     procedure_name "wf_c"
 
-    def process(input, _ctx)
+    def run(input, _ctx)
       DELIVERED << input
       nil
     end
@@ -555,12 +555,12 @@ class DispatchTest < Minitest::Test
 
   class PassThrough < Flezha::Procedure
     procedure_name "pass_through"
-    def process(input, _ctx) = input
+    def run(input, _ctx) = input
   end
 
   class MergeLabel < Flezha::Procedure
     procedure_name "merge_label"
-    def process(input, _ctx) = "#{input[:source]}:#{input[:payload]}"
+    def run(input, _ctx) = "#{input[:source]}:#{input[:payload]}"
   end
 
   MERGE_TAG = lambda do |source|

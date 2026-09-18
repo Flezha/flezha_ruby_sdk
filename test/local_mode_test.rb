@@ -13,7 +13,7 @@ class LocalModeTest < Minitest::Test
   # One line into its words: the hop to `Tally` is the runtime's job.
   class Split < Flezha::Procedure
     procedure_name "split"
-    def process(line, ctx)
+    def run(line, ctx)
       line.split.each { |word| ctx.emit(word.downcase) }
       nil
     end
@@ -26,7 +26,7 @@ class LocalModeTest < Minitest::Test
     def initial_state(_key) = { seen: 0 }
     def apply_change(state, change) = state[:seen] = change[:seen]
 
-    def process(word, ctx)
+    def run(word, ctx)
       seen = ctx.state[:seen] + 1
       ctx.change({ seen: seen })
       ctx.emit("#{word} #{seen}")
@@ -98,7 +98,7 @@ class LocalModeTest < Minitest::Test
   # Reads the map an undeclared entry decodes, and emits a string and a map.
   class Defaults < Flezha::Procedure
     procedure_name "defaults"
-    def process(value, ctx)
+    def run(value, ctx)
       ctx.emit("a is #{value[:a]}")
       ctx.emit({ a: value[:a] })
       nil

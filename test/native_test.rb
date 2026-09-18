@@ -144,7 +144,7 @@ class NativeTest < Minitest::Test
   def checkpoint_class(factory_id)
     procedure = Class.new(Flezha::Procedure) do
       procedure_name "#{factory_id}_procedure"
-      def process(input, _ctx) = input
+      def run(input, _ctx) = input
     end
     operative = Class.new(Flezha::StreamOperative)
     operative.factory_id factory_id
@@ -192,7 +192,7 @@ class NativeTest < Minitest::Test
     keyed = Class.new(Flezha::Procedure) do
       procedure_name "check_keyed"
       dynamic_entities
-      def process(input, _ctx) = input
+      def run(input, _ctx) = input
     end
     operative = Class.new(Flezha::StreamOperative)
     operative.factory_id "check_dup_key"
@@ -216,7 +216,7 @@ class NativeTest < Minitest::Test
 
     echo = Class.new(Flezha::Procedure) do
       procedure_name "native_echo"
-      def process(input, _ctx) = input
+      def run(input, _ctx) = input
     end
     operative = Class.new(Flezha::StreamOperative)
     operative.factory_id "native_echo_op"

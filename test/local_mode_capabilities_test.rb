@@ -120,9 +120,8 @@ class LocalModeCapabilitiesTest < Minitest::Test
                     "conformance.json lists #{listed.inspect} for #{capability}, not " \
                     "#{factory_id}; the local-mode run must drive a class the e2e drives"
     # By factory id, not by constant: one of these classes is built in a loop
-    # over its overflow policy and has no name of its own. A short form
-    # registers the operative it carries, so it is matched by that one.
-    registered = Fixtures::ALL + Fixtures::SHORTHAND.map(&:operative)
+    # over its overflow policy and has no name of its own.
+    registered = Fixtures::ALL + Fixtures::SHORTHAND
     registered.find { |operative| operative.factory_id == factory_id } ||
       flunk("the test app registers no class whose factory id is #{factory_id}")
   end

@@ -9,7 +9,7 @@
 # and idiomatic errors.
 #
 #   class Echo < Flezha::Procedure
-#     def process(input, _ctx) = input
+#     def run(input, _ctx) = input
 #   end
 #
 #   class EchoOperative < Flezha::StreamOperative

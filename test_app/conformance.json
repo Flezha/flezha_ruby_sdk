@@ -63,7 +63,8 @@
       "sugar_do_nothing",
       "sugar_store_input",
       "sugar_named_input",
-      "sugar_workflow"
+      "sugar_workflow",
+      "sugar_state_only"
     ],
     "liveness": [
       "wedge_probe"

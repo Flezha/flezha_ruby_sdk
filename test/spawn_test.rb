@@ -122,7 +122,7 @@ class SpawnTest < Minitest::Test
 
   class Waiter < Flezha::Procedure
     procedure_name "waiter"
-    def process(input, ctx) = ctx.spawn_workflow("worker", input, id: "w1").wait.outcome.to_s
+    def run(input, ctx) = ctx.spawn_workflow("worker", input, id: "w1").wait.outcome.to_s
   end
 
   class WaiterOperative < Flezha::StreamOperative
@@ -139,7 +139,7 @@ class SpawnTest < Minitest::Test
   class Spawner < Flezha::Procedure
     procedure_name "spawner"
 
-    def process(input, ctx)
+    def run(input, ctx)
       unnamed = ctx.spawn_workflow("worker", input)
       named = ctx.spawn_workflow("worker", input, id: "w1")
       [-> { unnamed.wait }, -> { named.wait }, -> { named.try_result }].each do |read|

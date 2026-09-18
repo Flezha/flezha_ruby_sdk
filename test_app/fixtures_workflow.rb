@@ -73,7 +73,7 @@ module Fixtures
     # key emits through the ctx and answers nil.
     def released(input, _ctx) = input
 
-    def process(input, ctx)
+    def run(input, ctx)
       Fixtures.block_until_released if gated?(input)
       value = recorded(input)
       ctx.change({ insert: value }) unless value.nil?
@@ -97,7 +97,7 @@ module Fixtures
 
   class Echo < Flezha::Procedure
     procedure_name "echo"
-    def process(input, _ctx) = "echo:#{input}"
+    def run(input, _ctx) = "echo:#{input}"
   end
 
   class EchoWorkflow < Flezha::WorkflowOperative
@@ -119,7 +119,7 @@ module Fixtures
 
   class BlockB < Flezha::Procedure
     procedure_name "block_b"
-    def process(_input, _ctx) = Fixtures.block_until_released
+    def run(_input, _ctx) = Fixtures.block_until_released
   end
 
   COMMIT_BLOCK_CHAIN = lambda do |c|
@@ -196,7 +196,7 @@ module Fixtures
 
   class SagaC < Flezha::Procedure
     procedure_name "saga_c"
-    def process(_input, _ctx) = raise("saga_c always fails")
+    def run(_input, _ctx) = raise("saga_c always fails")
   end
 
   class SagaBlockWorkflow < Flezha::WorkflowOperative
@@ -247,7 +247,7 @@ module Fixtures
 
   class UndoOutboxC < Flezha::Procedure
     procedure_name "undo_outbox_c"
-    def process(_input, _ctx) = raise("undo_outbox_c always fails")
+    def run(_input, _ctx) = raise("undo_outbox_c always fails")
   end
 
   class UndoOutboxWorkflow < Flezha::WorkflowOperative
@@ -302,7 +302,7 @@ module Fixtures
   class BranchD < Flezha::Procedure
     procedure_name "branch_d"
 
-    def process(input, _ctx)
+    def run(input, _ctx)
       raise "branch_d failed" if ENV.key?(BRANCH_FAIL_ENV)
 
       Fixtures.block_until_released
@@ -364,7 +364,7 @@ module Fixtures
   # The join: one `j:`-tagged record per accumulated contribution.
   class DiamJoin < Flezha::Procedure
     procedure_name "diam_join"
-    def process(input, _ctx) = "j:#{input}"
+    def run(input, _ctx) = "j:#{input}"
   end
 
   class DiamondWorkflow < Flezha::WorkflowOperative
@@ -406,7 +406,7 @@ module Fixtures
     ATTEMPTS = { made: 0 }
     ATTEMPTS_LOCK = Mutex.new
 
-    def process(input, _ctx)
+    def run(input, _ctx)
       attempt = ATTEMPTS_LOCK.synchronize { ATTEMPTS[:made] += 1 }
       raise "flaky attempt #{attempt}" if attempt <= ENV.fetch(RETRY_FAILS_ENV, "").to_i
 
@@ -467,7 +467,7 @@ module Fixtures
 
   class ChatReply < Flezha::Procedure
     procedure_name "chat_reply"
-    def process(input, _ctx) = "reply:#{input}"
+    def run(input, _ctx) = "reply:#{input}"
   end
 
   class ChatReplyUndoable < Flezha::Procedure
@@ -478,7 +478,7 @@ module Fixtures
       change.key?(:said) ? state[:said].push(change[:said]) : state[:said].pop
     end
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change({ said: input })
       "reply:#{input}"
     end
@@ -574,7 +574,7 @@ module Fixtures
       state[:last] = change[:turn]
     end
 
-    def process(input, ctx)
+    def run(input, ctx)
       ctx.change({ turn: input })
       input
     end

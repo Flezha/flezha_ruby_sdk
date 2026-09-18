@@ -61,10 +61,17 @@ module Flezha
 
     def inherited(subclass)
       super
-      settings.each do |name|
-        value = instance_variable_get(:"@#{name}")
-        subclass.instance_variable_set(:"@#{name}", value) unless value.nil?
-      end
+      hand_down(subclass, settings)
+    end
+
+    private
+
+    # The declarations among +names+ this class wrote, with their values.
+    def written(names) = names.to_h { |name| [name, instance_variable_get(:"@#{name}")] }.compact
+
+    # Copy the named declarations this class wrote onto +other+.
+    def hand_down(other, names)
+      written(names).each { |name, value| other.instance_variable_set(:"@#{name}", value) }
     end
   end
 end
