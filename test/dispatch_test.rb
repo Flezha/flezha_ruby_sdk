@@ -170,19 +170,92 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  def test_a_workflow_run_reaches_the_run_body
-    workflow = Class.new(Flezha::WorkflowOperative)
-    workflow.factory_id "wf"
-    workflow.run { |args, ctx| ctx.complete("ran:#{args}") }
-    @registry.add(workflow.spec)
+  # -- a procedure ending its workflow ----------------------------------------
+  #
+  # The host only carries the request in the item's effect. Ending the instance
+  # once the iteration commits, and failing a stream's item, are the core's.
 
-    result = Flezha::Dispatch.answer(
-      activation(:workflow_run, factory: "wf", args: Flezha::Codec.encode("seed")), @deps
-    )
+  COMPLETIONS = {
+    "text" => ["drei ü", "drei \xC3\xBC".b],
+    "bytes" => ["\x00\xFFraw".b, "\x00\xFFraw".b],
+    "json" => [{ turns: 3 }, '{"turns":3}'.b],
+    "none" => [nil, "".b]
+  }.freeze
 
-    assert_equal "workflow_done", result[:outcome]
-    assert result[:workflow_completed]
-    assert_equal "ran:seed", Flezha::Codec.decode(result[:workflow_result])
+  # Completes twice per input, so the later call is the one that must ride.
+  class Finisher < Flezha::Procedure
+    procedure_name "finisher"
+
+    def process(input, ctx)
+      ctx.complete("replaced")
+      ctx.complete(COMPLETIONS.fetch(input).first)
+      nil
+    end
+  end
+
+  class FinishingWorkflow < Flezha::WorkflowOperative
+    factory_id "finishing_workflow"
+    channels { |c| c.input("in", codec: :text).into(Finisher).sink }
+  end
+
+  class FinishingStream < Flezha::StreamOperative
+    factory_id "finishing_stream"
+    channels { |c| c.input("in", codec: :text).into(Finisher).sink }
+  end
+
+  def completion_of(operative, input)
+    effect, = answer_on(operative, items: [input_item(input)])[:effects]
+    assert_equal "ok", effect[:verdict]
+    effect[:complete]
+  end
+
+  def test_complete_carries_the_latest_result_in_the_effect
+    COMPLETIONS.each do |input, (_, carried)|
+      completion = completion_of(FinishingWorkflow, input)
+
+      assert_equal carried, completion, "#{input} rides as #{carried.inspect}"
+      assert_equal Encoding::BINARY, completion.encoding
+    end
+  end
+
+  def test_an_item_that_never_completes_carries_no_completion
+    assert_nil answer(:work, items: [input_item("2")])[:effects][0][:complete]
+  end
+
+  def test_a_stream_procedure_completing_is_carried_the_same_way
+    assert_equal "drei \xC3\xBC".b, completion_of(FinishingStream, "text")
+  end
+
+  class FailsAfterCompleting < Flezha::Procedure
+    procedure_name "fails_after_completing"
+
+    def process(input, ctx)
+      ctx.complete(input)
+      raise ArgumentError, "after completing"
+    end
+  end
+
+  class FailingWorkflow < Flezha::WorkflowOperative
+    factory_id "failing_workflow"
+    channels { |c| c.input("in", codec: :text).into(FailsAfterCompleting).sink }
+  end
+
+  def test_a_failed_item_carries_no_completion
+    effect, = answer_on(FailingWorkflow, items: [input_item("x")])[:effects]
+
+    assert_equal "retryable", effect[:verdict]
+    refute effect.key?(:complete), "a failed item's effect carries no completion"
+  end
+
+  def test_a_result_json_cannot_carry_is_refused_naming_the_procedure
+    klass = Class.new(Flezha::Procedure) do
+      procedure_name "completes_with_nan"
+      def process(_input, ctx) = ctx.complete(Float::NAN)
+    end
+
+    error = assert_raises(Flezha::EmitError) { Flezha::Testing::Harness.new(klass).feed("x") }
+
+    assert_includes error.message, "completes_with_nan: a Float cannot be sent as JSON"
   end
 
   # The handout contract, against the collaborator that decides it. A real core

@@ -113,11 +113,6 @@ module Flezha
                       non_retryable: true)
       end
 
-      # The workflow body is the one kind addressed to a class rather than to a
-      # procedure, so it is answered before the procedure is resolved — which
-      # is what lets every arm below hold a procedure rather than assert one.
-      return run_workflow(activation, registered, deps) if activation[:kind] == :workflow_run
-
       node = registered.spec.procedures[activation[:procedure]]
       unless node
         return failed(activation[:token],
@@ -313,25 +308,6 @@ module Flezha
       { token: activation[:token], outcome: "prepared", prepared: answers }
     end
 
-    def run_workflow(activation, registered, deps)
-      run = registered.spec.run
-      unless run
-        return failed(activation[:token],
-                      "class `#{activation[:factory]}` was handed a workflow body but " \
-                      "declares none", non_retryable: true)
-      end
-
-      ctx = deps.workflow_ctx.call(activation[:operative])
-      args = activation[:args] ? Codec.decode(activation[:args]) : nil
-      returned = run.call(args, ctx)
-      completed = ctx.completed? || !returned.nil?
-      {
-        token: activation[:token], outcome: "workflow_done",
-        workflow_completed: completed,
-        workflow_result: Codec.encode(ctx.completed? ? ctx.result : returned)
-      }
-    end
-
     def compensate(activation, registered, node, deps)
       definition = node.definition
       unless definition.compensate?
@@ -375,5 +351,5 @@ module Flezha
   end
 
   # What a dispatch loop needs to answer an activation, over one extension.
-  DispatchDeps = Struct.new(:registry, :bridge, :workflow_ctx, keyword_init: true)
+  DispatchDeps = Struct.new(:registry, :bridge, keyword_init: true)
 end

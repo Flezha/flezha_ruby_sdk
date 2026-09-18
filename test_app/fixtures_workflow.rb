@@ -65,7 +65,7 @@ module Fixtures
     def initial_state(_entity_key) = { items: [] }
     def apply_change(state, change) = Fixtures.insert_sorted(state[:items], change[:insert])
 
-    # The value this step journals.
+    # The value this step journals, or nil for none.
     def recorded(_input) = self.class.procedure_name
     # Whether it waits for the gate before journaling anything.
     def gated?(_input) = false
@@ -75,7 +75,8 @@ module Fixtures
 
     def process(input, ctx)
       Fixtures.block_until_released if gated?(input)
-      ctx.change({ insert: recorded(input) })
+      value = recorded(input)
+      ctx.change({ insert: value }) unless value.nil?
       released(input, ctx)
     end
   end
@@ -90,12 +91,18 @@ module Fixtures
 
   # -- echo_workflow --------------------------------------------------------
   #
-  # The run-sugar shape (workflow.rs:14): emits its args back once and returns,
-  # so the SDK ships the completion and the controller deregisters it.
+  # One procedure, run once (workflow.rs): its single pass is seeded with the
+  # start values and emits them back, so the pass ends and the controller
+  # deregisters the instance.
+
+  class Echo < Flezha::Procedure
+    procedure_name "echo"
+    def process(input, _ctx) = "echo:#{input}"
+  end
 
   class EchoWorkflow < Flezha::WorkflowOperative
     factory_id "echo_workflow"
-    run { |args, ctx| ctx.emit("echo:#{args}") }
+    channels { |c| c.input("in", codec: :text).into(Echo).sink("out") }
   end
 
   # -- commit_block_workflow / sync_durable_workflow ------------------------
@@ -427,7 +434,10 @@ module Fixtures
   # the release variable is unset, so a SIGKILL lands with the earlier
   # iterations durable and that one in flight. Keying the block on the payload
   # rather than on an invocation count keeps it deterministic across the
-  # park/rehydrate cycles, which re-run the driver but not the turns.
+  # park/rehydrate cycles, which re-run the driver but not the turns. The turn
+  # `bye` records nothing, still reaches REPLY, and completes the instance with
+  # the number of turns TURN holds, so the session ends once that iteration
+  # commits.
   #
   # stateless_loop_workflow is the same loop MINUS its stateful first
   # procedure: ChatReply alone holds no per-Entity state, so nothing writes an
@@ -440,13 +450,19 @@ module Fixtures
   # reads the last thing it said, retracts it and pops it.
 
   CRASH_TURN = "mid-crash"
+  BYE_TURN = "bye"
 
   class ChatTurn < DurableStep
     procedure_name "chat_turn"
     # Keyed by the turn, so the record count is the number of DISTINCT turns
-    # that ran — a re-run of a committed iteration would show up.
-    def recorded(input) = input
+    # that ran; a re-run of a committed iteration would show up.
+    def recorded(input) = input == BYE_TURN ? nil : input
     def gated?(input) = input == CRASH_TURN
+
+    def released(input, ctx)
+      ctx.complete(ctx.state[:items].size.to_s) if input == BYE_TURN
+      input
+    end
   end
 
   class ChatReply < Flezha::Procedure
@@ -476,9 +492,9 @@ module Fixtures
     end
   end
 
-  # A chat session ends on an external stop, not on its own; the duration
-  # backstop keeps a stray instance from outliving the test run. The knobs are
-  # declared once and inherited; `factory_id` deliberately is not.
+  # A loop here ends on an external stop, or on `bye` where ChatTurn runs; the
+  # duration backstop keeps a stray instance from outliving the test run. The
+  # knobs are declared once and inherited; `factory_id` deliberately is not.
   class LoopWorkflow < Flezha::WorkflowOperative
     loop_mode :per_input
     max_duration_ms 600_000

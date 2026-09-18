@@ -39,17 +39,16 @@ module Flezha
     :factory_id, :kind, :persistent, :effectively_once, :checkpoint_ack,
     :checkpoint_every, :checkpoint_outputs, :checkpoint_max_delay_ms,
     :correction_window_ms, :beyond_window_policy, :compact_after_bytes,
-    :sync_durability, :procedures, :channels, :workflow, :run,
+    :sync_durability, :procedures, :channels, :workflow,
     keyword_init: true
   ) do
     # Whether this class's producers release their values untransformed.
     #
-    # A structured workflow's stage releases ONE value per emit and the driver
-    # fans it out to every consumer itself, so each consumer edge — its
-    # transforms and its key — belongs to the consumer. The producer and the
-    # consumer read this one predicate, so they cannot disagree about which
-    # side applies the edge.
-    def structured_workflow? = kind == :workflow && !channels.empty?
+    # A workflow's stage releases ONE value per emit and the driver fans it out
+    # to every consumer itself, so each consumer edge (its transforms and its
+    # key) belongs to the consumer. The producer and the consumer read this one
+    # predicate, so they cannot disagree about which side applies the edge.
+    def structured_workflow? = kind == :workflow
   end
 
   # Run an edge's transform chain over one value and answer the values that

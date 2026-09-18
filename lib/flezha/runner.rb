@@ -2,7 +2,6 @@
 
 require "json"
 
-require_relative "ctx"
 require_relative "dispatch"
 require_relative "executor"
 require_relative "graph"
@@ -211,11 +210,7 @@ module Flezha
     end
 
     def build_executor
-      deps = DispatchDeps.new(
-        registry: @registry,
-        bridge: @core,
-        workflow_ctx: ->(instance_id) { WorkflowCtx.new(instance_id, @core) }
-      )
+      deps = DispatchDeps.new(registry: @registry, bridge: @core)
       case @executor_kind
       when :threads then ThreadExecutor.new(@core, deps, **@executor_options)
       when :fibers then FiberExecutor.new(@core, deps, **@executor_options)

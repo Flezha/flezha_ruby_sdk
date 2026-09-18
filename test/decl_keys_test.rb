@@ -68,7 +68,7 @@ class DeclKeysTest < Minitest::Test
     max_duration_ms 60_000
     wake_after_ms 5_000
     sync_durability
-    run { |args, _ctx| args }
+    channels { |c| c.input("input").into(Downstream).sink }
   end
 
   def spelled

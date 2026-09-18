@@ -70,16 +70,23 @@ module Flezha
       end
     end
 
-    # How `sink` writes a channel's payload: the named codec, or, when the
-    # channel names none, a String as its bytes and anything else as JSON.
+    # How `sink` writes a channel's payload: the named codec, or
+    # `plain_payload` when the channel names none.
     def channel_encoder(codec, channel)
       case codec
       when :bytes then ->(value) { value.is_a?(String) ? value : refuse_payload(channel, codec, value) }
       when :text then ->(value) { value.is_a?(String) ? utf8_text(value, channel) : refuse_payload(channel, codec, value) }
-      when :json then ->(value) { json_payload(channel, value) }
+      when :json then ->(value) { json_payload("channel `#{channel.name}`", value) }
       when :msgpack then method(:encode)
-      else ->(value) { value.is_a?(String) ? value : json_payload(channel, value) }
+      else ->(value) { plain_payload(value, "channel `#{channel.name}`") }
       end
+    end
+
+    # A String as its bytes and anything else as JSON: what a sink naming no
+    # codec sends, and what a workflow completion carries. `owner` is what a
+    # refusal names.
+    def plain_payload(value, owner)
+      value.is_a?(String) ? value : json_payload(owner, value)
     end
 
     def utf8_text(bytes, channel)
@@ -89,10 +96,10 @@ module Flezha
       raise EncodingError, "channel `#{channel.name}`: the payload is not valid UTF-8"
     end
 
-    def json_payload(channel, value)
+    def json_payload(owner, value)
       JSON.generate(value)
     rescue JSON::GeneratorError => e
-      raise EmitError, "channel `#{channel.name}`: a #{value.class} cannot be sent as JSON: #{e.message}"
+      raise EmitError, "#{owner}: a #{value.class} cannot be sent as JSON: #{e.message}"
     end
 
     def refuse_payload(channel, codec, value)

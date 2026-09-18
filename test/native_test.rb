@@ -48,7 +48,7 @@ class NativeTest < Minitest::Test
     end
     blocking = surface.select { |row| row[2] }.map(&:first)
     assert_equal %w[start local_feed local_next_output local_run_until_idle poll
-                    wait_starvation complete workflow_recv spawn_result admin_call], blocking
+                    wait_starvation complete spawn_result admin_call], blocking
   end
 
   # The guarded wrapper covers the whole surface. Without this, an entry point
@@ -67,9 +67,9 @@ class NativeTest < Minitest::Test
   end
 
   # The GVL is released around every blocking core call, through one function.
-  # A workflow stage waiting seconds on its inbox with the lock held would
-  # freeze the whole VM, fetchers included — `poll` is the same seam, and the
-  # one a test can park in without a controller.
+  # A call parked in the core with the lock held would freeze the whole VM,
+  # fetchers included; `poll` is the one a test can park in without a
+  # controller.
   def test_a_blocked_poll_does_not_stop_another_ruby_thread
     Flezha::Native.context_new(Flezha::ACTIVATION_SCHEMA_VERSION)
     ticks = 0

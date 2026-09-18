@@ -141,13 +141,23 @@ class AuthoringTest < Minitest::Test
     refute_includes decl.keys, "ack_granularity", "the granularity is derived, never declared"
   end
 
-  def test_a_workflow_cannot_declare_both_a_run_body_and_channels
+  def test_a_workflow_declaring_no_channels_is_refused_naming_them
     klass = Class.new(Flezha::WorkflowOperative)
-    klass.factory_id "both_shapes"
-    klass.run { |args, _ctx| args }
-    klass.channels { |c| c.input("input").into(pass_through("w")).sink("o") }
+    klass.factory_id "bodiless"
 
-    assert_includes refusal { klass.spec }.message, "one or the other"
+    error = refusal { klass.spec }
+
+    assert_equal "bodiless", error.factory_id
+    assert_includes error.message, "declares no channels"
+  end
+
+  # The core's own check, reached through the one submission path.
+  def test_a_workflow_declaring_no_procedure_is_refused
+    klass = Class.new(Flezha::WorkflowOperative)
+    klass.factory_id "empty"
+    klass.channels { |_c| nil }
+
+    assert_includes refusal { validate(klass.spec) }.message, "at least one procedure"
   end
 
   def test_two_unnamed_mentions_of_one_procedure_are_one_node

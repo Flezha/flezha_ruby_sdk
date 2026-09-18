@@ -10,10 +10,11 @@ require_relative "identity"
 module Flezha
   # The invocation context: every deterministic effect a handler is allowed.
   #
-  # The context accumulates one item's effects — recorded changes, outputs,
-  # timer operations, the checkpoint flag — and the dispatcher turns them into
-  # the item effect the core folds. Nothing here reaches the wire on its own;
-  # an emit is a value in a list until the completion carries it.
+  # The context accumulates one item's effects (recorded changes, outputs,
+  # timer operations, the checkpoint flag, a completion request) and the
+  # dispatcher turns them into the item effect the core folds. Nothing here
+  # reaches the wire on its own; an emit is a value in a list until the
+  # completion carries it.
   class Ctx
     # Metadata keys the runtime owns. A handler that sets one is refused.
     RESERVED_PREFIX = "flz."
@@ -37,6 +38,7 @@ module Flezha
       @outputs = []
       @timers = []
       @checkpointed = false
+      @completion = nil
       @ordinal = 0
       @emit_ordinal = 0
       @identity = nil
@@ -126,6 +128,22 @@ module Flezha
       nil
     end
 
+    # End the workflow instance this procedure runs in, with `result`.
+    #
+    # The rest of the iteration still runs and commits; the instance then ends
+    # with status `ok` instead of waiting for its next input. In a `once`
+    # workflow it sets the result the pass ends with. `result` is encoded as a
+    # sink naming no codec encodes a value: a String as its bytes and anything
+    # else as JSON; nil carries an empty result. A later call in the same
+    # invocation replaces an earlier one.
+    #
+    # A stream never completes: a stream procedure calling this fails its
+    # input, without a retry, with an error naming `CompleteOutsideWorkflow`.
+    def complete(result = nil)
+      @completion = result.nil? ? "".b : Codec.plain_payload(result, @node.name).b
+      nil
+    end
+
     # Spawn a workflow instance of `factory_id` with `payload` as its first
     # input, answering a `SpawnHandle` at once. With an `id` already running,
     # `if_running: "deliver"` (the default) hands it `payload` instead, and
@@ -158,7 +176,8 @@ module Flezha
         consumed_offset: consumed_offset,
         event_time: @now,
         timers: @timers,
-        checkpoint: @checkpointed
+        checkpoint: @checkpointed,
+        complete: @completion
       }
     end
 
@@ -305,46 +324,5 @@ module Flezha
 
       SpawnResult.new(id: answer["id"], outcome: answer["outcome"].to_sym)
     end
-  end
-
-  # The context a run-sugar workflow body receives.
-  class WorkflowCtx
-    # How long a workflow body's `recv` parks when the caller names no timeout.
-    DEFAULT_RECV_TIMEOUT_MS = 1_000
-
-    attr_reader :instance_id, :result
-
-    def initialize(instance_id, native)
-      @instance_id = instance_id
-      @native = native
-      @completed = false
-      @result = nil
-    end
-
-    # Emit one output payload. Best-effort and at-least-once.
-    def emit(value)
-      @native.workflow_emit(@instance_id, Codec.encode(value))
-      nil
-    end
-
-    # The next inbox item, or nil on timeout.
-    def recv(timeout_ms = DEFAULT_RECV_TIMEOUT_MS)
-      payload = @native.workflow_recv(@instance_id, timeout_ms)
-      payload && Codec.decode(payload)
-    end
-
-    # Whether the body's cancellation token has tripped.
-    def cancelled? = @native.workflow_cancelled(@instance_id)
-
-    # Set the terminal result; the body is completed once this is called.
-    def complete(result = nil)
-      @completed = true
-      @result = result
-      nil
-    end
-
-    def completed? = @completed
-
-    def now = @native.monotonic_nanos
   end
 end

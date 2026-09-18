@@ -59,7 +59,7 @@ module Flezha
         # The dispatcher's own entity store, so the state this harness reports
         # is the state a runner would hold.
         @registered = RegisteredClass.new(@spec)
-        @deps = DispatchDeps.new(registry: nil, bridge: self, workflow_ctx: nil)
+        @deps = DispatchDeps.new(registry: nil, bridge: self)
         @log = []
         @change_seq = 0
         # Answers by handle, until the invocation that made them ends, as the

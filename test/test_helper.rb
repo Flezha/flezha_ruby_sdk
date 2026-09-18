@@ -133,10 +133,7 @@ module Flezha
     def self.deps(operative_class, core)
       registry = Flezha::Registry.new
       registry.add(operative_class.spec)
-      Flezha::DispatchDeps.new(
-        registry: registry, bridge: core,
-        workflow_ctx: ->(id) { Flezha::WorkflowCtx.new(id, core) }
-      )
+      Flezha::DispatchDeps.new(registry: registry, bridge: core)
     end
 
     # One activation, with the fields every kind carries; a caller merges what
@@ -257,11 +254,6 @@ module Flezha
           @resolved[handle] ||= @spawns.shift
         end
       end
-
-      def workflow_emit(*) = nil
-      def workflow_recv(*) = nil
-      def workflow_cancelled(*) = false
-      def monotonic_nanos = 1_234
 
       # Wake every blocked call: a shutdown a test has to wait out is a sleep
       # wearing a signal's name.

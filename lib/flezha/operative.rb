@@ -75,30 +75,24 @@ module Flezha
     end
   end
 
-  # A workflow operative: a run-sugar body, or a structured chain over a
-  # channels graph.
+  # A workflow operative: a chain of procedures over a channels graph, run
+  # once or looping.
   class WorkflowOperative < Operative
     setting :loop_mode, :rollback_mode, :retry_attempts, :retry_backoff_ms,
             :barrier_retry_attempts, :max_duration_ms, :wake_after_ms
     flag :sync_durability
-    # A run-sugar body: one imperative block over `(args, ctx)`.
-    block_setting :run
 
     class << self
       private
 
       def build_spec
-        if run && channels
-          raise DeclarationError.new(@factory_id.to_s, nil,
-                                     "declares both a run body and a channels graph; a " \
-                                     "workflow is one or the other")
-        end
-        if !run && !channels
-          raise DeclarationError.new(@factory_id.to_s, nil,
-                                     "declares neither a run body nor a channels graph")
+        builder = build_builder.seal
+        unless channels
+          raise DeclarationError.new(@factory_id, nil,
+                                     "declares no channels; a workflow runs procedures, " \
+                                     "wired in `channels`")
         end
 
-        builder = build_builder.seal
         ClassSpec.new(
           factory_id: @factory_id, kind: :workflow, persistent: persistent,
           effectively_once: builder.effectively_once_flag, checkpoint_ack: false,
@@ -111,8 +105,7 @@ module Flezha
             retry_attempts: retry_attempts, retry_backoff_ms: retry_backoff_ms,
             barrier_retry_attempts: barrier_retry_attempts,
             max_duration_ms: max_duration_ms, wake_after_ms: wake_after_ms
-          },
-          run: run
+          }
         )
       end
 

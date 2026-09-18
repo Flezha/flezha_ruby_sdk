@@ -38,7 +38,7 @@ module Flezha
         Graph.declare(spec, core, registry)
         # Not `start`, which is the one call that dials a controller.
         core.local_start(spec.factory_id, "#{spec.factory_id}-local")
-        deps = DispatchDeps.new(registry: registry, bridge: core, workflow_ctx: nil)
+        deps = DispatchDeps.new(registry: registry, bridge: core)
         executor = ThreadExecutor.new(core, deps)
         executor.start
       rescue Exception # rubocop:disable Lint/RescueException
