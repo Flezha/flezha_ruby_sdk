@@ -9,7 +9,7 @@ require_relative "test_helper"
 # — not here. What is left here is the ergonomics: which shapes the fluent
 # builder BUILDS, the two defects a record cannot carry (a Ruby class that does
 # not define the method its declaration promises, a plugin sink on a channel no
-# procedure produces on), and that the core's verdict reaches an author as this
+# tasklet produces on), and that the core's verdict reaches an author as this
 # SDK's own refusal.
 class AuthoringTest < Minitest::Test
   def refusal(&block)
@@ -17,8 +17,8 @@ class AuthoringTest < Minitest::Test
   end
 
   def pass_through(name)
-    Class.new(Flezha::Procedure) do
-      procedure_name name
+    Class.new(Flezha::Tasklet) do
+      tasklet_name name
       def run(input, _ctx) = input
     end
   end
@@ -38,28 +38,28 @@ class AuthoringTest < Minitest::Test
     Flezha::TestSupport.validate(spec)
   end
 
-  def test_a_procedure_without_a_run_method_is_refused_by_name
-    klass = Class.new(Flezha::Procedure) { procedure_name "no_body" }
+  def test_a_tasklet_without_a_run_method_is_refused_by_name
+    klass = Class.new(Flezha::Tasklet) { tasklet_name "no_body" }
 
     message = refusal { klass.definition }.message
     assert_includes message, "no_body"
     assert_includes message, "`run`"
   end
 
-  class StillProcess < Flezha::Procedure
+  class StillProcess < Flezha::Tasklet
     def process(input, _ctx) = input
   end
 
-  def test_a_procedure_defining_process_and_no_run_is_refused_naming_run
+  def test_a_tasklet_defining_process_and_no_run_is_refused_naming_run
     message = refusal { StillProcess.definition }.message
 
     assert_includes message, "AuthoringTest::StillProcess"
     assert_includes message, "`run`"
   end
 
-  def test_a_procedure_s_body_is_its_run_method
-    upcase = Class.new(Flezha::Procedure) do
-      procedure_name "upcase"
+  def test_a_tasklet_s_body_is_its_run_method
+    upcase = Class.new(Flezha::Tasklet) do
+      tasklet_name "upcase"
       def run(input, _ctx) = input.upcase
     end
 
@@ -67,8 +67,8 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_fold_with_no_state_to_fold_into_is_refused
-    klass = Class.new(Flezha::Procedure) do
-      procedure_name "fold_only"
+    klass = Class.new(Flezha::Tasklet) do
+      tasklet_name "fold_only"
       def apply_change(state, change) = state
       def run(input, _ctx) = input
     end
@@ -76,12 +76,12 @@ class AuthoringTest < Minitest::Test
     assert_includes refusal { klass.definition }.message, "initial_state"
   end
 
-  def test_the_two_entity_modes_are_exclusive
-    klass = Class.new(Flezha::Procedure) do
-      procedure_name "both_modes"
-      entity_keys "a"
-      dynamic_entities
-      def entities_for(_input) = ["a"]
+  def test_the_two_cell_modes_are_exclusive
+    klass = Class.new(Flezha::Tasklet) do
+      tasklet_name "both_modes"
+      cell_keys "a"
+      dynamic_cells
+      def cells_for(_input) = ["a"]
       def run(input, _ctx) = input
     end
 
@@ -89,8 +89,8 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_state_that_cannot_be_encoded_is_refused_at_registration
-    klass = Class.new(Flezha::Procedure) do
-      procedure_name "unencodable"
+    klass = Class.new(Flezha::Tasklet) do
+      tasklet_name "unencodable"
       def initial_state(_key) = { handler: -> {} }
       def run(input, _ctx) = input
     end
@@ -101,8 +101,8 @@ class AuthoringTest < Minitest::Test
   # A clock is a promise about a method, and a record carries the clock but not
   # the class: only this SDK can see that the method is missing.
   def test_an_event_time_clock_without_its_extractor_is_refused_here
-    klass = Class.new(Flezha::Procedure) do
-      procedure_name "no_extractor"
+    klass = Class.new(Flezha::Tasklet) do
+      tasklet_name "no_extractor"
       clock :event_time
       def run(input, _ctx) = input
     end
@@ -120,15 +120,15 @@ class AuthoringTest < Minitest::Test
   def test_a_plugin_sink_on_an_entry_channel_is_refused_here
     klass = operative("entry_sink") { |c| c.input("in").sink }
 
-    assert_includes refusal { klass.spec }.message, "a plugin sink is fed by a procedure"
+    assert_includes refusal { klass.spec }.message, "a plugin sink is fed by a tasklet"
   end
 
   # `validate` IS the submission: the record crosses the ABI and the core's
   # verdict comes back as this SDK's own refusal, in the core's vocabulary.
   def test_the_cores_verdict_reaches_the_author_as_a_declaration_refusal
-    target = Class.new(Flezha::Procedure) do
-      procedure_name "keyed"
-      dynamic_entities
+    target = Class.new(Flezha::Tasklet) do
+      tasklet_name "keyed"
+      dynamic_cells
       def run(input, _ctx) = input
     end
     klass = operative("dup_key_by") do |c|
@@ -174,15 +174,15 @@ class AuthoringTest < Minitest::Test
   end
 
   # The core's own check, reached through the one submission path.
-  def test_a_workflow_declaring_no_procedure_is_refused
+  def test_a_workflow_declaring_no_tasklet_is_refused
     klass = Class.new(Flezha::WorkflowOperative)
     klass.factory_id "empty"
     klass.channels { |_c| nil }
 
-    assert_includes refusal { validate(klass.spec) }.message, "at least one procedure"
+    assert_includes refusal { validate(klass.spec) }.message, "at least one tasklet"
   end
 
-  def test_two_unnamed_mentions_of_one_procedure_are_one_node
+  def test_two_unnamed_mentions_of_one_tasklet_are_one_node
     shared = pass_through("shared")
     upstream = pass_through("upstream")
     klass = operative("diamond") do |c|
@@ -192,14 +192,14 @@ class AuthoringTest < Minitest::Test
     end
     validate(klass.spec)
 
-    assert_equal 2, klass.spec.procedures.size
+    assert_equal 2, klass.spec.tasklets.size
     # And one edge: `named` renames the one channel `upstream` produces on, so
     # the second bare mention re-declares the first rather than wiring `shared`
     # a second time off it.
-    assert_equal [1], klass.spec.channels[1].consumers.map(&:procedure)
+    assert_equal [1], klass.spec.channels[1].consumers.map(&:tasklet)
   end
 
-  def test_a_second_procedure_claiming_one_node_identity_is_refused
+  def test_a_second_tasklet_claiming_one_node_identity_is_refused
     first = pass_through("same_name")
     second = pass_through("same_name")
     klass = operative("collide") do |c|
@@ -212,7 +212,7 @@ class AuthoringTest < Minitest::Test
     # The one refusal this builder raises under a core name reads the way the core's do.
     assert_equal ["NodeIdentityCollision"], error.refusals
     assert error.message.start_with?(
-      "collide: same_name: topology rejected [NodeIdentityCollision]:\n  - two different procedures"
+      "collide: same_name: topology rejected [NodeIdentityCollision]:\n  - two different tasklets"
     ), error.message
   end
 
@@ -225,7 +225,7 @@ class AuthoringTest < Minitest::Test
     refute_nil defined_but_unregistered.definition
   end
 
-  # `named` is honoured on the inter-proc path and was dropped on the plugin
+  # `named` is honoured on the inter-task path and was dropped on the plugin
   # path, so `named("input").sink("relay_out")` produced a channel called
   # `relay_out` — and the channel name is what a forwarded frame carries and
   # what selects the receiving operative's entry channel.
@@ -247,13 +247,13 @@ class AuthoringTest < Minitest::Test
 
     assert_equal %w[input plain], klass.spec.channels.map(&:name)
   end
-  # -- one output channel per producing procedure -----------------------------
+  # -- one output channel per producing tasklet -----------------------------
   #
-  # The model Rust and Java carry: a procedure node owns ONE output channel,
+  # The model Rust and Java carry: a tasklet node owns ONE output channel,
   # created on first wiring and reused after. A held edge wired twice appends a
   # second consumer to it — it does not declare a second channel claiming the
   # same producer, which the core resolves by first match
-  # (`host/register.rs` `procedure_wiring`) and so silently truncates.
+  # (`host/register.rs` `tasklet_wiring`) and so silently truncates.
   #
   # Read off the DERIVED declaration: the consumers and the plugin kind are
   # what the core made of the chains this builder recorded.
@@ -261,34 +261,34 @@ class AuthoringTest < Minitest::Test
   def channels_of(klass)
     validate(klass.spec)["channels"].map do |channel|
       [channel["name"], channel["kind"], channel["producer"],
-       channel["consumers"].map { |edge| edge["procedure"] }, channel["sink"]]
+       channel["consumers"].map { |edge| edge["tasklet"] }, channel["sink"]]
     end
   end
 
   def test_a_held_edge_wired_twice_is_one_channel_with_two_consumers
     b = pass_through("b")
-    c_proc = pass_through("c")
+    c_task = pass_through("c")
     klass = operative("fan_out") do |c|
       edge = c.input("in").into(pass_through("producer"))
       edge.into(b)
-      edge.into(c_proc)
+      edge.into(c_task)
     end
 
-    assert_equal [["in", "entry", nil, [0], nil], ["producer", "inter_proc", 0, [1, 2], nil]],
+    assert_equal [["in", "entry", nil, [0], nil], ["producer", "inter_task", 0, [1, 2], nil]],
                  channels_of(klass)
   end
 
   def test_branch_and_two_into_statements_build_the_identical_declaration
     producer = pass_through("producer")
     b = pass_through("b")
-    c_proc = pass_through("c")
+    c_task = pass_through("c")
     separate = operative("separate") do |c|
       edge = c.input("in").into(producer)
       edge.into(b)
-      edge.into(c_proc)
+      edge.into(c_task)
     end
     branched = operative("branched") do |c|
-      c.input("in").into(producer).branch(->(arm) { arm.into(b) }, ->(arm) { arm.into(c_proc) })
+      c.input("in").into(producer).branch(->(arm) { arm.into(b) }, ->(arm) { arm.into(c_task) })
     end
 
     assert_equal channels_of(separate), channels_of(branched)
@@ -301,7 +301,7 @@ class AuthoringTest < Minitest::Test
     end
 
     assert_equal [["in", "entry", nil, [0], nil],
-                  ["hybrid_indicator", "inter_proc", 0, [1], "hybrid_indicator"]],
+                  ["hybrid_indicator", "inter_task", 0, [1], "hybrid_indicator"]],
                  channels_of(klass)
   end
 
@@ -348,16 +348,16 @@ class AuthoringTest < Minitest::Test
 
   def test_a_transform_before_one_into_reaches_that_consumer_only
     b = pass_through("b")
-    c_proc = pass_through("c")
+    c_task = pass_through("c")
     klass = operative("per_edge_transform") do |c|
       edge = c.input("in").into(pass_through("producer"))
       edge.map { |value| "#{value}!" }.into(b)
-      edge.into(c_proc)
+      edge.into(c_task)
     end
     validate(klass.spec)
 
     assert_equal [[1, 1], [2, 0]],
-                 klass.spec.channels[1].consumers.map { |e| [e.procedure, e.transforms.size] }
+                 klass.spec.channels[1].consumers.map { |e| [e.tasklet, e.transforms.size] }
   end
 
   # A re-declaration carrying neither transform nor key is the fan-in /
@@ -373,8 +373,8 @@ class AuthoringTest < Minitest::Test
     derived = validate(klass.spec)
 
     assert_equal [[0, 0]],
-                 klass.spec.channels[0].consumers.map { |e| [e.procedure, e.transforms.size] }
-    assert_equal [0], derived["channels"][0]["consumers"].map { |e| e["procedure"] }
+                 klass.spec.channels[0].consumers.map { |e| [e.tasklet, e.transforms.size] }
+    assert_equal [0], derived["channels"][0]["consumers"].map { |e| e["tasklet"] }
   end
 
   # The reference declares exactly this — `tier_commit_block_workflow` opens
@@ -410,8 +410,8 @@ class AuthoringTest < Minitest::Test
     end
     validate(klass.spec)
 
-    assert_equal ["label"], klass.spec.procedures.map(&:name)
-    assert_equal [[0], [0]], klass.spec.channels.map { |channel| channel.consumers.map(&:procedure) }
+    assert_equal ["label"], klass.spec.tasklets.map(&:name)
+    assert_equal [[0], [0]], klass.spec.channels.map { |channel| channel.consumers.map(&:tasklet) }
     ticks, quotes = klass.spec.channels.map { |channel| channel.consumers.first }
     assert_equal [[{ source: "ticks", value: "x" }], [{ source: "quotes", value: "x" }]],
                  [ticks, quotes].map { |edge| Flezha.apply_transforms(edge.transforms, "x") }
@@ -457,7 +457,7 @@ class AuthoringTest < Minitest::Test
     validate(klass.spec)
 
     assert_equal [["route_latest", Flezha::RouteLatest], ["limits_router", Flezha::RouteLatest]],
-                 klass.spec.procedures.map { |node| [node.name, node.klass] }
+                 klass.spec.tasklets.map { |node| [node.name, node.klass] }
     # The traffic item's key is computed on its own edge, so the router never holds the item.
     trades_edges = klass.spec.channels[0].consumers
     assert_equal [[{ traffic: "A" }], [{ traffic: "A" }]],

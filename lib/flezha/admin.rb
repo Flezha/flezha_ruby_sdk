@@ -10,7 +10,7 @@ module Flezha
   # Administering the namespace this runner's connection proved, from ordinary
   # application code.
   #
-  # No procedure has to be running and the application holds no credential of
+  # No tasklet has to be running and the application holds no credential of
   # its own: the controller judges every call as the identity the connection
   # already established, so nothing an unattended process holds expires. An
   # operator grants a namespace's applications the authority once and revokes
@@ -62,9 +62,9 @@ module Flezha
     # The plugins enabled on the controller node answering this call.
     def list_plugins = call("PluginManager.list")
 
-    # One entity's live state, and the change sequence it was read at.
-    def entity_state(operative_id, entity_key)
-      call("Operative.entity_state", operative_id, entity_key)
+    # One cell's live state, and the change sequence it was read at.
+    def cell_state(operative_id, cell_key)
+      call("Operative.cell_state", operative_id, cell_key)
     end
 
     # Any published function, by name. What succeeds follows from the role the

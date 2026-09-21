@@ -26,7 +26,7 @@ module Flezha
     end
   end
 
-  # An emit the declaration cannot carry — a channel the procedure does not
+  # An emit the declaration cannot carry — a channel the tasklet does not
   # produce on, a reserved metadata key, a keyed channel with no key.
   class EmitError < Error; end
 

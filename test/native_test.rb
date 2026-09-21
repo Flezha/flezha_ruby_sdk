@@ -128,7 +128,7 @@ class NativeTest < Minitest::Test
 
     error = assert_raises(Flezha::Native::Error) do
       Flezha::Native.declare_class(JSON.generate({ "factory_id" => "x", "channels" => [],
-                                                   "procedures" => [] }))
+                                                   "tasklets" => [] }))
     end
 
     assert_includes error.message, "sdk_lang", "a class that declares no language is refused"
@@ -142,8 +142,8 @@ class NativeTest < Minitest::Test
   # acknowledges at is rejected at registration, so a builder that can express
   # it hands its author a class that cannot start.
   def checkpoint_class(factory_id)
-    procedure = Class.new(Flezha::Procedure) do
-      procedure_name "#{factory_id}_procedure"
+    tasklet = Class.new(Flezha::Tasklet) do
+      tasklet_name "#{factory_id}_tasklet"
       def run(input, _ctx) = input
     end
     operative = Class.new(Flezha::StreamOperative)
@@ -151,7 +151,7 @@ class NativeTest < Minitest::Test
     operative.channels do |c|
       c.effectively_once
       yield c
-      c.input("input").into(procedure).keyed.sink("sink")
+      c.input("input").into(tasklet).keyed.sink("sink")
     end
     Flezha::Graph.to_host_class_decl(operative.spec)
   end
@@ -189,9 +189,9 @@ class NativeTest < Minitest::Test
   def test_a_refused_record_answers_the_verdict_and_registers_nothing
     Flezha::Native.context_new(Flezha::ACTIVATION_SCHEMA_VERSION)
 
-    keyed = Class.new(Flezha::Procedure) do
-      procedure_name "check_keyed"
-      dynamic_entities
+    keyed = Class.new(Flezha::Tasklet) do
+      tasklet_name "check_keyed"
+      dynamic_cells
       def run(input, _ctx) = input
     end
     operative = Class.new(Flezha::StreamOperative)
@@ -214,8 +214,8 @@ class NativeTest < Minitest::Test
   def test_a_ruby_declaration_is_accepted_and_carries_the_allocated_language_byte
     Flezha::Native.context_new(Flezha::ACTIVATION_SCHEMA_VERSION)
 
-    echo = Class.new(Flezha::Procedure) do
-      procedure_name "native_echo"
+    echo = Class.new(Flezha::Tasklet) do
+      tasklet_name "native_echo"
       def run(input, _ctx) = input
     end
     operative = Class.new(Flezha::StreamOperative)

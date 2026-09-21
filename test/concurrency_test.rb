@@ -7,8 +7,8 @@ require_relative "test_helper"
 # core call, a refused post-fork call, and identical ordering under both
 # executors.
 class ConcurrencyTest < Minitest::Test
-  class Echo < Flezha::Procedure
-    procedure_name "echo"
+  class Echo < Flezha::Tasklet
+    tasklet_name "echo"
     def run(input, _ctx) = input
   end
 
@@ -145,12 +145,12 @@ class ConcurrencyTest < Minitest::Test
 
   # The seam's whole contract: an activation is completed only after its
   # dispatch has returned. An executor that completed early would break
-  # per-entity ordering, which is the one thing it may never touch.
+  # per-cell ordering, which is the one thing it may never touch.
   ORDER = []
   ORDER_LOCK = Mutex.new
 
-  class Recorder < Flezha::Procedure
-    procedure_name "recorder"
+  class Recorder < Flezha::Tasklet
+    tasklet_name "recorder"
     def run(input, _ctx)
       ORDER_LOCK.synchronize { ORDER << :dispatched }
       input
@@ -185,8 +185,8 @@ class ConcurrencyTest < Minitest::Test
 
   # -- the drain is bounded -------------------------------------------------
 
-  class NeverReturns < Flezha::Procedure
-    procedure_name "never_returns"
+  class NeverReturns < Flezha::Tasklet
+    tasklet_name "never_returns"
     def run(_input, _ctx) = sleep
   end
 

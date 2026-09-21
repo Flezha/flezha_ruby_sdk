@@ -3,12 +3,12 @@
 require_relative "errors"
 
 module Flezha
-  # A procedure as the graph holds it, with its position in the declaration.
+  # A tasklet as the graph holds it, with its position in the declaration.
   # `output` is the one channel it produces on, created on first wiring.
-  ProcNode = Struct.new(:index, :name, :klass, :definition, :output)
+  TaskNode = Struct.new(:index, :name, :klass, :definition, :output)
 
   # One consumer of a channel, with the transforms and key of its own edge.
-  ConsumerEdge = Struct.new(:procedure, :transforms, :key_by, keyword_init: true)
+  ConsumerEdge = Struct.new(:tasklet, :transforms, :key_by, keyword_init: true)
 
   # One fluent sequence declared off a channel handle, as the record carries
   # it: `links` in the order the author called them, for the core to judge.
@@ -22,8 +22,8 @@ module Flezha
   # A channel as the graph holds it. Its position in the list IS its id.
   # `sink` is the plugin sink attached to it; nil means none. `sink_encode` is
   # that sink's payload encoder and belongs to the sink frame alone: an
-  # inter-procedure frame is decoded with the class codec, so encoding one with
-  # it hands the consuming procedure bytes it cannot read.
+  # inter-tasklet frame is decoded with the class codec, so encoding one with
+  # it hands the consuming tasklet bytes it cannot read.
   #
   # `chain_edges` runs parallel to `chains`: the closures each sequence closed
   # on, at the position the core reads that sequence at. `consumers` is filled
@@ -39,7 +39,7 @@ module Flezha
     :factory_id, :kind, :persistent, :effectively_once, :checkpoint_ack,
     :checkpoint_every, :checkpoint_outputs, :checkpoint_max_delay_ms,
     :correction_window_ms, :beyond_window_policy, :compact_after_bytes,
-    :sync_durability, :procedures, :channels, :workflow,
+    :sync_durability, :tasklets, :channels, :workflow,
     keyword_init: true
   ) do
     # Whether this class's producers release their values untransformed.
@@ -69,7 +69,7 @@ module Flezha
 
   # The fluent channel builder an operative's `channels` block receives.
   class Builder
-    attr_reader :factory_id, :procedures, :channels, :effectively_once_flag,
+    attr_reader :factory_id, :tasklets, :channels, :effectively_once_flag,
                 :checkpoint_ack_flag, :checkpoint_every_value, :checkpoint_outputs_value,
                 :checkpoint_max_delay_ms_value, :correction_window_ms_value,
                 :beyond_window_policy_value, :compact_after_bytes_value,
@@ -77,7 +77,7 @@ module Flezha
 
     def initialize(factory_id)
       @factory_id = factory_id
-      @procedures = []
+      @tasklets = []
       @channels = []
       # The links each fluent sequence was declared with, in declaration
       # order. Recorded, never judged: the core reads them and answers.
@@ -166,7 +166,7 @@ module Flezha
       )
     end
 
-    # Merge two or more sources into one procedure: see `Merge`.
+    # Merge two or more sources into one tasklet: see `Merge`.
     def merge = Merge.new(self)
 
     # The id that ties one merge's sources together in the record.
@@ -198,29 +198,29 @@ module Flezha
         .into(RouteLatest, node_name)
     end
 
-    # The node for a procedure. Two unnamed mentions of one procedure are one
+    # The node for a tasklet. Two unnamed mentions of one tasklet are one
     # node — the naming convention every SDK mirrors — so a diamond that fans
     # out and back in has one instance, not two.
     def node_for(klass, name = nil)
       definition = klass.definition
       identity = (name || definition.name).to_s
-      existing = @procedures.find { |node| node.name == identity && node.klass == klass }
+      existing = @tasklets.find { |node| node.name == identity && node.klass == klass }
       return existing if existing
 
-      if @procedures.any? { |node| node.name == identity }
+      if @tasklets.any? { |node| node.name == identity }
         # The node table is keyed by identity and physically cannot hold two,
         # so the record the core would judge is unwritable. The refusal answers
         # under the core's own name all the same.
         raise DeclarationError.new(
           @factory_id, identity,
-          "two different procedures claim this node identity; name one of them on the " \
+          "two different tasklets claim this node identity; name one of them on the " \
           "`into(...)` so each node has its own",
           ["NodeIdentityCollision"]
         )
       end
 
-      node = ProcNode.new(@procedures.size, identity, klass, definition, nil)
-      @procedures << node
+      node = TaskNode.new(@tasklets.size, identity, klass, definition, nil)
+      @tasklets << node
       node
     end
 
@@ -235,7 +235,7 @@ module Flezha
       return node.output if node.output
 
       channel = ChannelSpec.new(
-        index: @channels.size, name: node.name, kind: :inter_proc,
+        index: @channels.size, name: node.name, kind: :inter_task,
         producer: node.index, consumers: [], chains: [], chain_edges: [],
         overflow: :drop_nothing, keyed: false
       )
@@ -317,14 +317,14 @@ module Flezha
       relink(TRANSFORM, transforms: transforms + [->(value) { fan.call(value).to_a }])
     end
 
-    # Route by a computed key: the consumer becomes a dynamic keyed procedure.
+    # Route by a computed key: the consumer becomes a dynamic keyed tasklet.
     def key_by(&key) = relink(KEY, key_by: key)
 
     def on_full(policy) = with(overflow: policy.to_sym)
     def retry_max(attempts) = with(retry_max: attempts)
     def retry_backoff_ms(milliseconds) = with(retry_backoff_ms: milliseconds)
 
-    # Stamp `flz.entity` / `flz.seq` / `flz.key` onto this channel's plugin frames.
+    # Stamp `flz.cell` / `flz.seq` / `flz.key` onto this channel's plugin frames.
     def keyed = with(keyed: true)
 
     # Fan out: each arm receives this same edge, so `branch` builds exactly the
@@ -338,10 +338,10 @@ module Flezha
       self
     end
 
-    # Wire this edge into a procedure.
+    # Wire this edge into a tasklet.
     def into(klass, node_name = nil)
       node = @builder.node_for(klass, node_name)
-      close_on(node, { "link" => "into", "procedure" => node.index })
+      close_on(node, { "link" => "into", "tasklet" => node.index })
     end
 
     # Close this edge's chain on a resolved node with `link`, and answer the
@@ -351,7 +351,7 @@ module Flezha
       # link that closes on it is recorded.
       channel
       # The transforms and the key belong to this edge, not to the channel: one
-      # channel may feed several procedures, and a chain declared before one
+      # channel may feed several tasklets, and a chain declared before one
       # `into` must not reach another. They ride the chain that closes on them,
       # and the core names that chain back on the edge it derived — so whether
       # a re-declaration is the legal fan-in no-op or `EdgeAlreadyWired` is
@@ -359,10 +359,10 @@ module Flezha
       @builder.link_chain(
         @from, @pending[:chain], link,
         edge: ConsumerEdge.new(
-          procedure: node.index, transforms: transforms, key_by: @pending[:key_by]
+          tasklet: node.index, transforms: transforms, key_by: @pending[:key_by]
         )
       )
-      Edge.new(@builder, [:procedure, node], {})
+      Edge.new(@builder, [:tasklet, node], {})
     end
 
     # Terminate this edge's channel on the plugin layer, and answer the edge.
@@ -381,10 +381,10 @@ module Flezha
     # format instead. With neither, a String is sent as its bytes and any other
     # value as JSON, so a sink needs neither for a string, bytes or a JSON value.
     def sink(name = nil, encode: nil, codec: nil)
-      unless @from[0] == :procedure
+      unless @from[0] == :tasklet
         raise DeclarationError.new(
           @builder.factory_id, name || "<derived>",
-          "a plugin sink is fed by a procedure; wire the entry channel into one first"
+          "a plugin sink is fed by a tasklet; wire the entry channel into one first"
         )
       end
 
@@ -410,7 +410,7 @@ module Flezha
     protected
 
     # The channel this edge's values leave on, with the pending options
-    # applied. An entry edge already has one; a procedure edge's is created on
+    # applied. An entry edge already has one; a tasklet edge's is created on
     # first use and reused after.
     def channel
       if @from[0] == :entry
@@ -458,7 +458,7 @@ module Flezha
     end
   end
 
-  # Several sources into one procedure node, each lifted into the merged value
+  # Several sources into one tasklet node, each lifted into the merged value
   # by its own mapping. Recorded, never judged: a merge of one source, or of
   # one source twice, is the core's to refuse.
   class Merge
@@ -486,13 +486,13 @@ module Flezha
     # node's output edge.
     def into(klass, node_name = nil)
       node = @builder.node_for(klass, node_name)
-      link = { "link" => "merge", "procedure" => node.index, "group" => @builder.next_merge_group }
+      link = { "link" => "merge", "tasklet" => node.index, "group" => @builder.next_merge_group }
       # The key rides each source's chain after its mapping; a second `key_by`
       # is one more link, which the core refuses as it would on one edge.
       @sources.each do |source|
         @keys.reduce(source) { |edge, key| edge.key_by(&key) }.close_on(node, link)
       end
-      Edge.new(@builder, [:procedure, node], {})
+      Edge.new(@builder, [:tasklet, node], {})
     end
   end
 end

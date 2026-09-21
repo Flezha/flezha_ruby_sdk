@@ -4,13 +4,13 @@ require_relative "test_helper"
 
 # Every activation kind the boundary defines is answered with its own outcome.
 #
-# A kind that fell through to the unknown-kind refusal would retire the entity
+# A kind that fell through to the unknown-kind refusal would retire the cell
 # it addressed for the life of the process, and the first sign of it would be a
 # stalled operative — so the sweep is over the whole vocabulary rather than the
 # kinds one fixture happens to exercise.
 class DispatchTest < Minitest::Test
-  class Counter < Flezha::Procedure
-    procedure_name "counter"
+  class Counter < Flezha::Tasklet
+    tasklet_name "counter"
     def initial_state(_key) = { total: 0, seen: [] }
     def apply_change(state, change) = state[:total] += change[:by]
 
@@ -133,7 +133,7 @@ class DispatchTest < Minitest::Test
     assert_equal "prepared", result[:outcome]
     assert_equal 2, result[:prepared].size
     assert_equal [[], []], result[:prepared].map { |a| a[:keys] },
-                 "a single-entity procedure names no key"
+                 "a single-cell tasklet names no key"
   end
 
   def test_a_compensate_run_folds_the_recorded_outputs
@@ -170,7 +170,7 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  # -- a procedure ending its workflow ----------------------------------------
+  # -- a tasklet ending its workflow ----------------------------------------
   #
   # The host only carries the request in the item's effect. Ending the instance
   # once the iteration commits, and failing a stream's item, are the core's.
@@ -183,8 +183,8 @@ class DispatchTest < Minitest::Test
   }.freeze
 
   # Completes twice per input, so the later call is the one that must ride.
-  class Finisher < Flezha::Procedure
-    procedure_name "finisher"
+  class Finisher < Flezha::Tasklet
+    tasklet_name "finisher"
 
     def run(input, ctx)
       ctx.complete("replaced")
@@ -222,12 +222,12 @@ class DispatchTest < Minitest::Test
     assert_nil answer(:work, items: [input_item("2")])[:effects][0][:complete]
   end
 
-  def test_a_stream_procedure_completing_is_carried_the_same_way
+  def test_a_stream_tasklet_completing_is_carried_the_same_way
     assert_equal "drei \xC3\xBC".b, completion_of(FinishingStream, "text")
   end
 
-  class FailsAfterCompleting < Flezha::Procedure
-    procedure_name "fails_after_completing"
+  class FailsAfterCompleting < Flezha::Tasklet
+    tasklet_name "fails_after_completing"
 
     def run(input, ctx)
       ctx.complete(input)
@@ -247,9 +247,9 @@ class DispatchTest < Minitest::Test
     refute effect.key?(:complete), "a failed item's effect carries no completion"
   end
 
-  def test_a_result_json_cannot_carry_is_refused_naming_the_procedure
-    klass = Class.new(Flezha::Procedure) do
-      procedure_name "completes_with_nan"
+  def test_a_result_json_cannot_carry_is_refused_naming_the_tasklet
+    klass = Class.new(Flezha::Tasklet) do
+      tasklet_name "completes_with_nan"
       def run(_input, ctx) = ctx.complete(Float::NAN)
     end
 
@@ -262,7 +262,7 @@ class DispatchTest < Minitest::Test
   # created without `start` never handed these tokens out, so it is the core
   # itself that says so — a fake that accepts whatever it is handed cannot.
   #
-  # An unanswered activation retires its entity for the life of the process, so
+  # An unanswered activation retires its cell for the life of the process, so
   # the guard is the contract rather than politeness.
   def test_an_activation_the_core_never_handed_out_is_abandoned_not_dropped
     skip "needs the compiled veneer" unless Flezha::TestSupport.native?
@@ -313,8 +313,8 @@ class DispatchTest < Minitest::Test
   # One invocation, several emits: the per-emit ordinal is the half a
   # single-emit assertion cannot see, and the e2e golden checks stamp NAMES only.
 
-  class StampEmitter < Flezha::Procedure
-    procedure_name "stamp_emitter"
+  class StampEmitter < Flezha::Tasklet
+    tasklet_name "stamp_emitter"
 
     def run(input, ctx)
       if input == "twice"
@@ -342,8 +342,8 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  class PlainEmitter < Flezha::Procedure
-    procedure_name "plain_emitter"
+  class PlainEmitter < Flezha::Tasklet
+    tasklet_name "plain_emitter"
 
     def run(_input, ctx)
       ctx.emit_to("plain_out", "p")
@@ -351,8 +351,8 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  # A procedure owns ONE output channel, so a keyed and a non-keyed plugin
-  # channel are two procedures. The unkeyed one carries no stamps at all.
+  # A tasklet owns ONE output channel, so a keyed and a non-keyed plugin
+  # channel are two tasklets. The unkeyed one carries no stamps at all.
   class MixedStampOperative < Flezha::StreamOperative
     factory_id "mixed_stamp_op"
     channels do |c|
@@ -369,7 +369,7 @@ class DispatchTest < Minitest::Test
   end
 
   def stamp_answer(payload, operative: StampOperative, items: nil)
-    answer_on(operative, entity_key: "ek", change_seq: 5, items: items || [input_item(payload)])
+    answer_on(operative, cell_key: "ek", change_seq: 5, items: items || [input_item(payload)])
   end
 
   def meta_of(output) = output[:metadata].to_h
@@ -378,9 +378,9 @@ class DispatchTest < Minitest::Test
     outputs = stamp_answer("twice")[:effects][0][:outputs]
 
     assert_equal 2, outputs.size
-    assert_equal({ "flz.entity" => "op-1/stamp_emitter/ek", "flz.seq" => "5.0",
+    assert_equal({ "flz.cell" => "op-1/stamp_emitter/ek", "flz.seq" => "5.0",
                    "flz.key" => "ek" }, meta_of(outputs[0]))
-    assert_equal({ "flz.entity" => "op-1/stamp_emitter/ek", "flz.seq" => "5.1",
+    assert_equal({ "flz.cell" => "op-1/stamp_emitter/ek", "flz.seq" => "5.1",
                    "flz.key" => "ek" }, meta_of(outputs[1]))
   end
 
@@ -395,7 +395,7 @@ class DispatchTest < Minitest::Test
     keyed, = stamp_answer("mixed")[:effects][0][:outputs]
 
     assert_equal "keyed_out", keyed[:plugin_channel]
-    assert_equal({ "user" => "meta", "flz.entity" => "op-1/stamp_emitter/ek",
+    assert_equal({ "user" => "meta", "flz.cell" => "op-1/stamp_emitter/ek",
                    "flz.seq" => "5.0", "flz.key" => "ek" }, meta_of(keyed))
   end
 
@@ -420,16 +420,16 @@ class DispatchTest < Minitest::Test
   # releases one output per consumer, transformed and keyed. The plugin output
   # rides alongside either way.
 
-  class WfProducer < Flezha::Procedure
-    procedure_name "wf_producer"
+  class WfProducer < Flezha::Tasklet
+    tasklet_name "wf_producer"
     def run(input, ctx) = ctx.emit(input)
   end
 
   # What a consumer of the `handoff` channel was handed, in delivery order.
   DELIVERED = []
 
-  class WfB < Flezha::Procedure
-    procedure_name "wf_b"
+  class WfB < Flezha::Tasklet
+    tasklet_name "wf_b"
 
     def run(input, _ctx)
       DELIVERED << input
@@ -437,8 +437,8 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  class WfC < Flezha::Procedure
-    procedure_name "wf_c"
+  class WfC < Flezha::Tasklet
+    tasklet_name "wf_c"
 
     def run(input, _ctx)
       DELIVERED << input
@@ -470,7 +470,7 @@ class DispatchTest < Minitest::Test
   end
 
   def emit_arm_outputs(operative)
-    answer_on(operative, entity_key: "ek", items: [input_item("10")])[:effects][0][:outputs]
+    answer_on(operative, cell_key: "ek", items: [input_item("10")])[:effects][0][:outputs]
   end
 
   def test_a_structured_workflow_releases_one_untransformed_edge_output
@@ -509,14 +509,14 @@ class DispatchTest < Minitest::Test
   # producer already applied the edge, so delivery applies nothing; a workflow
   # stage released the value raw, so delivery is the one application.
 
-  def delivered(operative, procedure, payload)
+  def delivered(operative, tasklet, payload)
     DELIVERED.clear
-    result = answer_on(operative, procedure: procedure, entity_key: "ek", items: [input_item(payload, channel: 1)])
+    result = answer_on(operative, tasklet: tasklet, cell_key: "ek", items: [input_item(payload, channel: 1)])
     assert_equal "ok", result[:effects][0][:verdict]
     DELIVERED.dup
   end
 
-  def test_a_stream_inter_proc_edge_applies_its_map_exactly_once
+  def test_a_stream_inter_task_edge_applies_its_map_exactly_once
     mapped = emit_arm_outputs(WfEmitStreamOperative)[0][:payload]
 
     assert_equal [11], delivered(WfEmitStreamOperative, 1, mapped)
@@ -549,17 +549,17 @@ class DispatchTest < Minitest::Test
 
   # -- merge ----------------------------------------------------------------
   #
-  # Two sources into one node, an entry and a procedure's output: each source
+  # Two sources into one node, an entry and a tasklet's output: each source
   # runs its own mapping on its own edge, the entry's at delivery and the
   # producer's as it emits, and the key is read off the mapped value.
 
-  class PassThrough < Flezha::Procedure
-    procedure_name "pass_through"
+  class PassThrough < Flezha::Tasklet
+    tasklet_name "pass_through"
     def run(input, _ctx) = input
   end
 
-  class MergeLabel < Flezha::Procedure
-    procedure_name "merge_label"
+  class MergeLabel < Flezha::Tasklet
+    tasklet_name "merge_label"
     def run(input, _ctx) = "#{input[:source]}:#{input[:payload]}"
   end
 
@@ -577,8 +577,8 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  def test_two_merge_sources_reach_one_procedure_each_under_its_own_mapping_in_order
-    upstream = answer_on(MergeOperative, procedure: 0, entity_key: "AAPL", items: [input_item("AAPL:3", channel: 1)])
+  def test_two_merge_sources_reach_one_tasklet_each_under_its_own_mapping_in_order
+    upstream = answer_on(MergeOperative, tasklet: 0, cell_key: "AAPL", items: [input_item("AAPL:3", channel: 1)])
     released = upstream[:effects][0][:outputs]
     assert_equal [[1, "AAPL", { source: "quotes", symbol: "AAPL", payload: "AAPL:3" }]],
                  released.map { |o| [o[:consumer], o[:key], Flezha::Codec.decode(o[:payload])] }
@@ -588,7 +588,7 @@ class DispatchTest < Minitest::Test
       input_item("AAPL:2", channel: 0, consumed_offset: 2),
       input_item(released.first[:payload], channel: 2, consumed_offset: 1)
     ]
-    effects = answer_on(MergeOperative, procedure: 1, entity_key: "AAPL", items: items)[:effects]
+    effects = answer_on(MergeOperative, tasklet: 1, cell_key: "AAPL", items: items)[:effects]
 
     assert_equal [["ticks:AAPL:1"], ["ticks:AAPL:2"], ["quotes:AAPL:3"]],
                  effects.map { |effect| effect[:outputs].map { |output| output[:payload] } }
@@ -596,7 +596,7 @@ class DispatchTest < Minitest::Test
 
   def test_a_merge_key_is_read_off_the_mapped_value_at_the_crossing
     request = { channel: 0, payloads: ["MSFT:1".b], want_keys: true, want_event_time: false }
-    result = answer_on(MergeOperative, kind: :key_request, procedure: 1, entity_key: "AAPL", key_request: request)
+    result = answer_on(MergeOperative, kind: :key_request, tasklet: 1, cell_key: "AAPL", key_request: request)
 
     assert_equal [["MSFT"]], result[:prepared].map { |answer| answer[:keys] }
   end
@@ -650,21 +650,21 @@ class DispatchTest < Minitest::Test
     assert_equal [%w[a b c], []], prepared.map { |answer| answer[:keys] }
   end
 
-  # The crossing answered every key, so the payload reaches each Entity whole:
+  # The crossing answered every key, so the payload reaches each Cell whole:
   # each keeps only the values keyed to it.
-  def test_each_entity_a_fanned_payload_reaches_runs_only_its_own_values
+  def test_each_cell_a_fanned_payload_reaches_runs_only_its_own_values
     outputs = %w[a b].map do |key|
-      answer_on(KeyedFanOperative, entity_key: key, items: [input_item("a:1,b:2,a:3")])[:effects][0][:outputs]
+      answer_on(KeyedFanOperative, cell_key: key, items: [input_item("a:1,b:2,a:3")])[:effects][0][:outputs]
     end
 
     assert_equal [%w[a:1 a:3], %w[b:2]], outputs.map { |frames| frames.map { |o| o[:payload] } }
   end
 
   class StaticFanLabel < PassThrough
-    procedure_name "static_fan_label"
-    entity_keys "a", "b"
+    tasklet_name "static_fan_label"
+    cell_keys "a", "b"
     ROUTES = { "both" => %w[a b], "none" => [] }.freeze
-    def entities_for(value) = ROUTES.fetch(value.split(":").first) { [value.split(":").first] }
+    def cells_for(value) = ROUTES.fetch(value.split(":").first) { [value.split(":").first] }
   end
 
   class StaticFanOperative < Flezha::StreamOperative
@@ -674,11 +674,11 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  # The same on a static consumer, where `entities_for` names the Entities: a
+  # The same on a static consumer, where `cells_for` names the Cells: a
   # value naming both reaches both, and one naming none reaches neither.
-  def test_each_static_entity_a_fanned_payload_reaches_runs_only_its_own_values
+  def test_each_static_cell_a_fanned_payload_reaches_runs_only_its_own_values
     outputs = %w[a b].map do |key|
-      answer_on(StaticFanOperative, entity_key: key,
+      answer_on(StaticFanOperative, cell_key: key,
                                     items: [input_item("a:1,b:2,both:9,none:0,a:3")])[:effects][0][:outputs]
     end
 

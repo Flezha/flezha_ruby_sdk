@@ -17,7 +17,7 @@
 #                                so a refused one kills the process with the
 #                                refusal's own name in its output
 #
-# The palette procedures live here rather than in `fixtures.rb`: they exist
+# The palette tasklets live here rather than in `fixtures.rb`: they exist
 # only for this run, and nothing registers them but a row that names them.
 
 require "json"
@@ -44,36 +44,36 @@ module Conformance
     "commit_block_chain" => Fixtures::TierCommitBlockWorkflow
   }.freeze
 
-  # The palette. One fixture procedure per role the fixture header names; the
+  # The palette. One fixture tasklet per role the fixture header names; the
   # facts a role declares are the facts a rule reads. A row mints its own
-  # subclass of each, because a Ruby procedure's mailbox capacity is a class
+  # subclass of each, because a Ruby tasklet's mailbox capacity is a class
   # declaration and a resolved definition is memoised per class.
-  class PaletteProcedure < Flezha::Procedure
+  class PaletteTasklet < Flezha::Tasklet
     def run(input, _ctx) = input
   end
 
-  class Plain < PaletteProcedure; end
-  class Second < PaletteProcedure; end
-  class Twin < PaletteProcedure; end
+  class Plain < PaletteTasklet; end
+  class Second < PaletteTasklet; end
+  class Twin < PaletteTasklet; end
 
-  class StaticKeys < PaletteProcedure
-    entity_keys "a", "b"
+  class StaticKeys < PaletteTasklet
+    cell_keys "a", "b"
   end
 
-  class Routed < PaletteProcedure
-    entity_keys "a", "b"
-    def entities_for(_input) = ["a"]
+  class Routed < PaletteTasklet
+    cell_keys "a", "b"
+    def cells_for(_input) = ["a"]
   end
 
-  class Dynamic < PaletteProcedure
-    dynamic_entities
+  class Dynamic < PaletteTasklet
+    dynamic_cells
   end
 
-  class NoChangeLogical < PaletteProcedure
+  class NoChangeLogical < PaletteTasklet
     clock :logical
   end
 
-  class EventTime < PaletteProcedure
+  class EventTime < PaletteTasklet
     clock :event_time
     def event_time(input) = input.to_s.length
   end
@@ -102,8 +102,8 @@ module Conformance
   class Interpreter
     def initialize(steps)
       @steps = steps.split(";").map(&:strip).reject(&:empty?)
-      # A handle is a channel id from an `entry(...)` step, or a procedure role
-      # naming that procedure's output channel.
+      # A handle is a channel id from an `entry(...)` step, or a tasklet role
+      # naming that tasklet's output channel.
       @handles = {}
       @classes = {}
       @mailbox = mailbox_capacities
@@ -126,7 +126,7 @@ module Conformance
     end
 
     # `<handle>.<link>…` — a chain declared off a handle, a channel knob, a
-    # procedure knob, or a class flag.
+    # tasklet knob, or a class flag.
     def dotted(builder, step)
       head, rest = step.split(".", 2)
       return class_flag(builder, rest) if head == "class"
@@ -147,21 +147,21 @@ module Conformance
       when "on_full" then edge.on_full(arg.to_sym)
       when "sink" then arg.empty? ? edge.sink : edge.sink(arg)
       when "into" then wire(edge, arg)
-      # Declared on the procedure in this SDK, and read as its class was
+      # Declared on the tasklet in this SDK, and read as its class was
       # minted — one step earlier than the step that names it.
       when "mailbox" then edge
       else raise "the fixture spells a link this interpreter does not map: #{verb}"
       end
     end
 
-    # `<x>.into(<role>)` — the palette role bound to its fixture procedure. The
-    # result is that procedure's output channel, addressed by its role.
+    # `<x>.into(<role>)` — the palette role bound to its fixture tasklet. The
+    # result is that tasklet's output channel, addressed by its role.
     def wire(edge, role)
-      @handles[role] = edge.into(procedure_class(role))
+      @handles[role] = edge.into(tasklet_class(role))
     end
 
     # `merge(<role>, <x>, <x>…)`: one merge over the listed sources, each
-    # under the identity mapping, wired into the role's procedure as `into` is.
+    # under the identity mapping, wired into the role's tasklet as `into` is.
     def merge(builder, arg)
       role, *sources = arg.split(",").map(&:strip)
       wire(sources.reduce(builder.merge) { |merge, source| merge.from(handle(source)) { |value| value } }, role)
@@ -196,23 +196,23 @@ module Conformance
       @handles.fetch(name) { raise "the row addresses `#{name}`, which nothing has declared" }
     end
 
-    # The row's own subclass of the role's palette procedure, minted once. The
+    # The row's own subclass of the role's palette tasklet, minted once. The
     # identity is re-declared because a node identity is deliberately not
     # inherited, and the capacity because a definition is resolved once.
-    def procedure_class(role)
+    def tasklet_class(role)
       @classes[role] ||= begin
         base, identity = PALETTE.fetch(role) do
           raise "the fixture names a palette role that is not one: #{role}"
         end
         klass = Class.new(base)
-        klass.procedure_name(identity)
+        klass.tasklet_name(identity)
         capacity = @mailbox[role]
         klass.mailbox_capacity(capacity) if capacity
         klass
       end
     end
 
-    # The capacities a row declares, read BEFORE the steps run: a procedure is
+    # The capacities a row declares, read BEFORE the steps run: a tasklet is
     # minted by the `into` that first names it, which is one step earlier than
     # the `mailbox` step that declares its capacity.
     def mailbox_capacities
@@ -342,8 +342,8 @@ module Conformance
   end
 
   # The derived declaration in the columns the fixture's seven-column table
-  # states. The core spells a consumer `{"procedure":N,"chain":M}`; the report
-  # carries the flat list of procedure indices, which is what that table pins.
+  # states. The core spells a consumer `{"tasklet":N,"chain":M}`; the report
+  # carries the flat list of tasklet indices, which is what that table pins.
   def self.channels_of(derived)
     derived["channels"].map do |channel|
       {
@@ -351,7 +351,7 @@ module Conformance
         "name" => channel["name"],
         "kind" => channel["kind"],
         "producer" => channel["producer"],
-        "consumers" => channel["consumers"].map { |edge| edge["procedure"] },
+        "consumers" => channel["consumers"].map { |edge| edge["tasklet"] },
         "sink" => channel["sink"]
       }
     end

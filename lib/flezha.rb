@@ -2,13 +2,13 @@
 
 # The Flezha Ruby SDK: a poll host over `flz_core`.
 #
-# The SDK contains no kernel code. Transport, framing, ordering, per-entity
+# The SDK contains no kernel code. Transport, framing, ordering, per-cell
 # exclusivity, durability, retries, the retry-to-park ladder, timers, credit,
 # routing, the workflow driver and reconnect all live in the core; this gem
 # brings the authoring surface, the codec for user types, the threading host
 # and idiomatic errors.
 #
-#   class Echo < Flezha::Procedure
+#   class Echo < Flezha::Tasklet
 #     def run(input, _ctx) = input
 #   end
 #
@@ -27,7 +27,7 @@ require_relative "flezha/identity"
 require_relative "flezha/codec"
 require_relative "flezha/state"
 require_relative "flezha/builder"
-require_relative "flezha/procedure"
+require_relative "flezha/tasklet"
 require_relative "flezha/route_latest"
 require_relative "flezha/operative"
 require_relative "flezha/graph"

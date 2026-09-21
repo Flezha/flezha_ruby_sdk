@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "flezha"
-require_relative "echo_procedure"
+require_relative "echo_tasklet"
 
 # The deployable unit. An operative declares the graph a message travels: the
 # entry channel it arrives on, the steps it passes through, and the channel its
@@ -9,7 +9,7 @@ require_relative "echo_procedure"
 #
 # The graph is checked as a whole when the runner declares it, so one that
 # cannot work is refused at startup. The entry names the text codec, so the
-# procedure is handed a String, and the sink names none, so a String result
+# tasklet is handed a String, and the sink names none, so a String result
 # leaves as its own bytes.
 class EchoOperative < Flezha::StreamOperative
   # The operative's stable identity, and the name `flz operative start` takes.
@@ -17,7 +17,7 @@ class EchoOperative < Flezha::StreamOperative
 
   channels do |c|
     c.input("in", codec: :text)
-     .into(EchoProcedure)
+     .into(EchoTasklet)
      .sink("out")
   end
 end

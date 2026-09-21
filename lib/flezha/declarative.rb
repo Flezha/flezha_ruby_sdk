@@ -10,7 +10,7 @@ module Flezha
   # when they add one.
   #
   # That inheritance is the point. Without it a subclass silently loses every
-  # declaration its parent made: its entity mode falls back to `:single`, its
+  # declaration its parent made: its cell mode falls back to `:single`, its
   # mailbox capacity to the default, its schema version to 1 — and nothing
   # reports the difference until the topology is wrong at runtime.
   module Declarative

@@ -55,7 +55,7 @@ module Flezha
     end
 
     # The payload formats a channel names on `input` and `sink`. A payload
-    # between two procedures names none: it stays in the MessagePack above.
+    # between two tasklets names none: it stays in the MessagePack above.
     CHANNEL_CODECS = %i[bytes text json msgpack].freeze
 
     # How `input` reads a channel's payload: the named codec, or JSON when the

@@ -2,12 +2,12 @@
 
 # Twins of the reference's durable structured workflow fixtures
 # (test/apps/rust_runner/src/workflow.rs and workflow_loop.rs) under the same
-# factory ids, procedure names, channel names and output bytes.
+# factory ids, tasklet names, channel names and output bytes.
 #
 # Entry payloads and plugin frames are UTF-8 text on the wire, as in the
 # reference: every entry names the text codec, and a bare `.sink(name)` sends a
-# String as UTF-8 here as it does there. An inter-procedure hop between two Ruby
-# procedures carries MessagePack, and the core derives that channel's journal
+# String as UTF-8 here as it does there. An inter-tasklet hop between two Ruby
+# tasklets carries MessagePack, and the core derives that channel's journal
 # codec from the channel's kind, so no fixture declares one.
 
 require "flezha"
@@ -29,7 +29,7 @@ module Fixtures
   # A queue rather than a timed wait, for two reasons. `Thread::Queue#pop` is
   # scheduler-aware, so one spelling parks a pool worker under the thread
   # executor and yields the fiber under the fiber one — the runner keeps
-  # answering control pings either way, and a sibling procedure stays
+  # answering control pings either way, and a sibling tasklet stays
   # dispatchable. And it holds no timer, so nothing here polls.
   def self.block_until_released
     RELEASE_GATE.pop unless ENV.key?(RELEASE_ENV)
@@ -50,7 +50,7 @@ module Fixtures
     items
   end
 
-  # -- the two shared procedure shapes --------------------------------------
+  # -- the two shared tasklet shapes --------------------------------------
 
   # The reference's `durable_step!` macro (workflow.rs:66): a String -> String
   # step committing one idempotent Change keyed by its own name, so a re-run
@@ -58,15 +58,15 @@ module Fixtures
   #
   # The macro parameterises the emit and the compensation. `recorded` and
   # `gated?` are the two axes the reference varies by hand-writing the
-  # procedure instead — the value journaled, and whether the step waits for the
+  # tasklet instead — the value journaled, and whether the step waits for the
   # release gate BEFORE recording it. Carrying all four as overridable methods
-  # is what lets every durable procedure here be a subclass with one line.
-  class DurableStep < Flezha::Procedure
-    def initial_state(_entity_key) = { items: [] }
+  # is what lets every durable tasklet here be a subclass with one line.
+  class DurableStep < Flezha::Tasklet
+    def initial_state(_cell_key) = { items: [] }
     def apply_change(state, change) = Fixtures.insert_sorted(state[:items], change[:insert])
 
     # The value this step journals, or nil for none.
-    def recorded(_input) = self.class.procedure_name
+    def recorded(_input) = self.class.tasklet_name
     # Whether it waits for the gate before journaling anything.
     def gated?(_input) = false
     # What it releases. A value is emitted by the dispatcher; a step needing a
@@ -91,12 +91,12 @@ module Fixtures
 
   # -- echo_workflow --------------------------------------------------------
   #
-  # One procedure, run once (workflow.rs): its single pass is seeded with the
+  # One tasklet, run once (workflow.rs): its single pass is seeded with the
   # start values and emits them back, so the pass ends and the controller
   # deregisters the instance.
 
-  class Echo < Flezha::Procedure
-    procedure_name "echo"
+  class Echo < Flezha::Tasklet
+    tasklet_name "echo"
     def run(input, _ctx) = "echo:#{input}"
   end
 
@@ -107,18 +107,18 @@ module Fixtures
 
   # -- commit_block_workflow / sync_durable_workflow ------------------------
   #
-  # Proc A commits durable state, proc B blocks until the resumed runner sets
+  # Task A commits durable state, task B blocks until the resumed runner sets
   # the release variable — so a SIGKILL lands with A's state already on the WAL
   # and B never finished. `sync_durable_workflow` is the same chain declaring
   # SYNCHRONOUS remote durability, which is what lets the kill-the-disk drill
   # destroy the state directory and still resume with A committed.
 
   class CommitA < DurableStep
-    procedure_name "commit_a"
+    tasklet_name "commit_a"
   end
 
-  class BlockB < Flezha::Procedure
-    procedure_name "block_b"
+  class BlockB < Flezha::Tasklet
+    tasklet_name "block_b"
     def run(_input, _ctx) = Fixtures.block_until_released
   end
 
@@ -139,7 +139,7 @@ module Fixtures
 
   # -- optout_commit_block --------------------------------------------------
   #
-  # The opt-out twin with a live mid-chain signal: proc A's output also reaches
+  # The opt-out twin with a live mid-chain signal: task A's output also reaches
   # a plugin sink, so the crash-resume drill can observe the mid-run point
   # without durable state. A crash re-runs the chain from the top, so the sink
   # sees A's marker once per run and no journal file exists.
@@ -156,14 +156,14 @@ module Fixtures
 
   # -- tier_commit_block_workflow -------------------------------------------
   #
-  # The effectively-once fixture. Proc A commits durable state AND emits
+  # The effectively-once fixture. Task A commits durable state AND emits
   # `committed:<input>` under a stable key on a keyed hybrid channel, captured
-  # into the atomic effect record; proc B blocks. A SIGKILL lands with A's
+  # into the atomic effect record; task B blocks. A SIGKILL lands with A's
   # effect record durable and B unfinished, and the resume re-runs A — the
   # change is idempotent and the re-emit deterministic.
 
   class TierCommitA < DurableStep
-    procedure_name "tier_commit_a"
+    tasklet_name "tier_commit_a"
     def released(input, ctx) = ctx.emit("committed:#{input}", key: "job")
   end
 
@@ -185,17 +185,17 @@ module Fixtures
   # finishes SA and SKIPS the already-done SB.
 
   class SagaA < DurableStep
-    procedure_name "saga_a"
+    tasklet_name "saga_a"
     def compensate(_outputs, _ctx) = Fixtures.block_until_released
   end
 
   class SagaB < DurableStep
-    procedure_name "saga_b"
+    tasklet_name "saga_b"
     def compensate(_outputs, _ctx) = nil
   end
 
-  class SagaC < Flezha::Procedure
-    procedure_name "saga_c"
+  class SagaC < Flezha::Tasklet
+    tasklet_name "saga_c"
     def run(_input, _ctx) = raise("saga_c always fails")
   end
 
@@ -210,10 +210,10 @@ module Fixtures
 
   # -- outbox_block_workflow ------------------------------------------------
   #
-  # The transactional outbox. Proc A commits durable state AND emits
+  # The transactional outbox. Task A commits durable state AND emits
   # plugin-bound output on a hybrid channel — STAGED, so it reaches the sink
   # only after the controller has journaled and fsynced A's committed entry
-  # with the output inside it and flushed the outbox. Proc B blocks, so a
+  # with the output inside it and flushed the outbox. Task B blocks, so a
   # SIGKILL lands with A committed and flushed and B unfinished.
 
   class OutboxBlockWorkflow < Flezha::WorkflowOperative
@@ -227,17 +227,17 @@ module Fixtures
 
   # -- undo_outbox_workflow -------------------------------------------------
   #
-  # The compensation half of the transactional outbox. Proc UA commits, emits
+  # The compensation half of the transactional outbox. Task UA commits, emits
   # its forward output on a hybrid plugin channel, and compensates by EMITTING
   # an undo record — plugin-bound, so it is staged and rides a compensated
-  # journal entry rather than the wire. Proc C fails immediately, so the chain
+  # journal entry rather than the wire. Task C fails immediately, so the chain
   # always rolls back; the hook BLOCKS, so on the first runner the undo is
   # emitted-but-never-journaled when the SIGKILL lands, proving staged undo
   # output cannot leak. The respawn re-runs the outstanding hook, whose done
   # marker never landed, and the undo is delivered exactly once.
 
   class UndoOutboxA < DurableStep
-    procedure_name "undo_outbox_a"
+    tasklet_name "undo_outbox_a"
 
     def compensate(_outputs, ctx)
       Fixtures.block_until_released
@@ -245,8 +245,8 @@ module Fixtures
     end
   end
 
-  class UndoOutboxC < Flezha::Procedure
-    procedure_name "undo_outbox_c"
+  class UndoOutboxC < Flezha::Tasklet
+    tasklet_name "undo_outbox_c"
     def run(_input, _ctx) = raise("undo_outbox_c always fails")
   end
 
@@ -264,7 +264,7 @@ module Fixtures
   #     BranchA ─┬─▶ BranchB ─▶ BranchD
   #              └─▶ BranchC
   #
-  # The procedure TREE (workflow.rs:352). Every procedure commits durable state
+  # The tasklet TREE (workflow.rs:352). Every tasklet commits durable state
   # and compensates by emitting an undo record, so both tree behaviours are
   # observable at one sink:
   #
@@ -276,31 +276,31 @@ module Fixtures
   #     blocking. A, B and C have all completed, so the rollback unwinds the
   #     two branches before the root they share: `undo-c`, `undo-b`, `undo-a`.
   #
-  # The inter-proc channels are hybrid, which is what makes a non-leaf
-  # procedure's forward and undo output visible at the sink.
+  # The inter-task channels are hybrid, which is what makes a non-leaf
+  # tasklet's forward and undo output visible at the sink.
 
   BRANCH_FAIL_ENV = "FLEZHA_BRANCH_FAIL"
 
   class BranchA < UndoingStep
-    procedure_name "branch_a"
+    tasklet_name "branch_a"
     def undo_record = "undo-a"
   end
 
   class BranchB < UndoingStep
-    procedure_name "branch_b"
+    tasklet_name "branch_b"
     def undo_record = "undo-b"
   end
 
   # The sibling leaf: emits straight to the sink, and its undo does too.
   class BranchC < UndoingStep
-    procedure_name "branch_c"
+    tasklet_name "branch_c"
     def undo_record = "undo-c"
     def released(input, _ctx) = "c:#{input}"
   end
 
   # The deep leaf under BranchB: blocks (crash-resume), or fails (compensation).
-  class BranchD < Flezha::Procedure
-    procedure_name "branch_d"
+  class BranchD < Flezha::Tasklet
+    tasklet_name "branch_d"
 
     def run(input, _ctx)
       raise "branch_d failed" if ENV.key?(BRANCH_FAIL_ENV)
@@ -340,30 +340,30 @@ module Fixtures
   # fresh output appended, so `c:` appears exactly once across both runs.
 
   class DiamA < DurableStep
-    procedure_name "diam_a"
+    tasklet_name "diam_a"
   end
 
   class DiamB1 < DurableStep
-    procedure_name "diam_b1"
+    tasklet_name "diam_b1"
   end
 
   # Waits BEFORE its change and its emit, so the kill window is deterministic:
   # B2 is always the uncommitted producer while the sibling arm has committed.
   class DiamB2 < DurableStep
-    procedure_name "diam_b2"
+    tasklet_name "diam_b2"
     def recorded(_input) = "diam_b"
     def gated?(_input) = true
     def released(input, _ctx) = "b:#{input}"
   end
 
   class DiamC < DurableStep
-    procedure_name "diam_c"
+    tasklet_name "diam_c"
     def released(input, _ctx) = "c:#{input}"
   end
 
   # The join: one `j:`-tagged record per accumulated contribution.
-  class DiamJoin < Flezha::Procedure
-    procedure_name "diam_join"
+  class DiamJoin < Flezha::Tasklet
+    tasklet_name "diam_join"
     def run(input, _ctx) = "j:#{input}"
   end
 
@@ -384,7 +384,7 @@ module Fixtures
 
   # -- retry_workflow -------------------------------------------------------
   #
-  # The per-entity retry ladder (workflow.rs:607). Proc RA commits durable
+  # The per-cell retry ladder (workflow.rs:607). Task RA commits durable
   # state, forwards on a hybrid channel, and compensates by emitting an undo
   # record; `retry_flaky` fails its first FLEZHA_WORKFLOW_RETRY_FAILS attempts
   # (none by default — each scenario arms it) and then emits
@@ -395,12 +395,12 @@ module Fixtures
   RETRY_FAILS_ENV = "FLEZHA_WORKFLOW_RETRY_FAILS"
 
   class RetryA < UndoingStep
-    procedure_name "retry_a"
+    tasklet_name "retry_a"
   end
 
-  class RetryFlaky < Flezha::Procedure
-    procedure_name "retry_flaky"
-    # Attempts made in this process. A retry re-runs the procedure of the same
+  class RetryFlaky < Flezha::Tasklet
+    tasklet_name "retry_flaky"
+    # Attempts made in this process. A retry re-runs the tasklet of the same
     # instance in place, so a process-wide counter is the whole ladder's view;
     # every worker thread shares this memory, so a mutex is enough.
     ATTEMPTS = { made: 0 }
@@ -427,7 +427,7 @@ module Fixtures
   #
   # chat_loop_workflow is the durable-loop + suspension shape
   # (workflow_loop.rs:8). One iteration per inbox item: TURN commits the turn
-  # to Entity state, so a resumed iteration is visible in the WAL, and REPLY
+  # to Cell state, so a resumed iteration is visible in the WAL, and REPLY
   # emits the answer to the sink. Between turns the loop finds an empty inbox
   # at a committed boundary and PARKS — the instance is evicted and rehydrated
   # by the next message. The turn whose payload is the crash turn BLOCKS while
@@ -440,12 +440,12 @@ module Fixtures
   # commits.
   #
   # stateless_loop_workflow is the same loop MINUS its stateful first
-  # procedure: ChatReply alone holds no per-Entity state, so nothing writes an
-  # Entity WAL and the instance's proc-journal reaches the driver only if it
+  # tasklet: ChatReply alone holds no per-Cell state, so nothing writes an
+  # Cell WAL and the instance's task-journal reaches the driver only if it
   # rides the bind itself.
   #
-  # chat_rewind_workflow is the loop whose replying procedure can be undone.
-  # The undo handle lives in Entity state, because a rewind's compensation is
+  # chat_rewind_workflow is the loop whose replying tasklet can be undone.
+  # The undo handle lives in Cell state, because a rewind's compensation is
   # rebuilt from the journal and is handed NO retained outputs, so the hook
   # reads the last thing it said, retracts it and pops it.
 
@@ -453,7 +453,7 @@ module Fixtures
   BYE_TURN = "bye"
 
   class ChatTurn < DurableStep
-    procedure_name "chat_turn"
+    tasklet_name "chat_turn"
     # Keyed by the turn, so the record count is the number of DISTINCT turns
     # that ran; a re-run of a committed iteration would show up.
     def recorded(input) = input == BYE_TURN ? nil : input
@@ -465,14 +465,14 @@ module Fixtures
     end
   end
 
-  class ChatReply < Flezha::Procedure
-    procedure_name "chat_reply"
+  class ChatReply < Flezha::Tasklet
+    tasklet_name "chat_reply"
     def run(input, _ctx) = "reply:#{input}"
   end
 
-  class ChatReplyUndoable < Flezha::Procedure
-    procedure_name "chat_reply_undoable"
-    def initial_state(_entity_key) = { said: [] }
+  class ChatReplyUndoable < Flezha::Tasklet
+    tasklet_name "chat_reply_undoable"
+    def initial_state(_cell_key) = { said: [] }
 
     def apply_change(state, change)
       change.key?(:said) ? state[:said].push(change[:said]) : state[:said].pop
@@ -529,12 +529,12 @@ module Fixtures
   # What `mix bench.workflow --scenario chain` drives (workflow_loop.rs:232): K
   # durable pass-through steps in a line, the payload unchanged, so the sink
   # receives the seed input and the bench reads its own seq and send timestamp
-  # back. Each chain position needs its own procedure, so the sixteen are
+  # back. Each chain position needs its own tasklet, so the sixteen are
   # generated rather than written out; the edge names follow the reference,
-  # which spells them from the step TYPE rather than from the procedure name.
+  # which spells them from the step TYPE rather than from the tasklet name.
 
   BENCH_STEPS = (0..15).map do |at|
-    Class.new(DurableStep) { procedure_name "bench_s#{at}" }
+    Class.new(DurableStep) { tasklet_name "bench_s#{at}" }
   end.freeze
 
   def self.bench_chain(id, steps, persist)
@@ -565,9 +565,9 @@ module Fixtures
 
   WAKE_AFTER_ENV = "FLEZHA_BENCH_WAKE_AFTER_MS"
 
-  class BenchTurn < Flezha::Procedure
-    procedure_name "bench_turn"
-    def initial_state(_entity_key) = { turns: 0, last: "" }
+  class BenchTurn < Flezha::Tasklet
+    tasklet_name "bench_turn"
+    def initial_state(_cell_key) = { turns: 0, last: "" }
 
     def apply_change(state, change)
       state[:turns] += 1

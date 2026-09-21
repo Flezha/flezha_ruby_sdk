@@ -8,32 +8,32 @@ require_relative "state"
 
 module Flezha
   # A declared class, with the lookups dispatch needs on the hot path, and the
-  # live state of every entity it owns.
+  # live state of every cell it owns.
   class RegisteredClass
     attr_reader :spec, :outgoing
 
     def initialize(spec)
       @spec = spec
-      @outgoing = spec.procedures.map do |node|
+      @outgoing = spec.tasklets.map do |node|
         spec.channels.select { |channel| channel.producer == node.index }
       end
-      @entities = {}
-      # Entities of one class are touched from every worker thread, and the
-      # core's per-entity exclusivity does not extend to this Hash: two
-      # different entities of the same class run concurrently by design.
+      @cells = {}
+      # Cells of one class are touched from every worker thread, and the
+      # core's per-cell exclusivity does not extend to this Hash: two
+      # different cells of the same class run concurrently by design.
       @lock = Mutex.new
     end
 
-    # The entity's live state, created from the declaration on first touch.
-    def state_of(node, entity_key)
-      key = [node.index, entity_key]
+    # The cell's live state, created from the declaration on first touch.
+    def state_of(node, cell_key)
+      key = [node.index, cell_key]
       @lock.synchronize do
-        @entities.fetch(key) { @entities[key] = node.definition.build_initial_state(entity_key) }
+        @cells.fetch(key) { @cells[key] = node.definition.build_initial_state(cell_key) }
       end
     end
 
-    def set_state(node, entity_key, state)
-      @lock.synchronize { @entities[[node.index, entity_key]] = state }
+    def set_state(node, cell_key, state)
+      @lock.synchronize { @cells[[node.index, cell_key]] = state }
     end
   end
 
@@ -59,9 +59,9 @@ module Flezha
 
   # Turning one activation into one answer, exactly once.
   #
-  # Per-entity exclusivity IS the handout: the core holds an entity's next
+  # Per-cell exclusivity IS the handout: the core holds a cell's next
   # activation until this one is answered, so an activation that returns
-  # unanswered retires that entity for the life of the process. Every path out
+  # unanswered retires that cell for the life of the process. Every path out
   # of `dispatch` therefore ends in a completion or an abandon, through an
   # `ensure` rather than a rule applied at each return site — a raised handler,
   # an encoding failure and a killed thread all reach the same guard.
@@ -85,7 +85,7 @@ module Flezha
     end
 
     # A payload as the handler sees it: the entry channel's decoder, or the
-    # class codec for a payload between procedures, then its transforms in
+    # class codec for a payload between tasklets, then its transforms in
     # declaration order. Empty when a filter rejected it, several values when
     # a flat_map fanned it.
     #
@@ -99,12 +99,12 @@ module Flezha
 
     # The channel's edge that feeds `node`, or nil when it feeds none.
     def edge_into(channel, node)
-      channel&.consumers&.find { |edge| edge.procedure == node }
+      channel&.consumers&.find { |edge| edge.tasklet == node }
     end
 
     # Produce the answer for one activation. Raising is not an option here:
     # every failure becomes a result the core can act on, because the
-    # alternative is an entity that never receives work again.
+    # alternative is a cell that never receives work again.
     def answer(activation, deps)
       registered = deps.registry.get(activation[:factory])
       unless registered
@@ -113,11 +113,11 @@ module Flezha
                       non_retryable: true)
       end
 
-      node = registered.spec.procedures[activation[:procedure]]
+      node = registered.spec.tasklets[activation[:tasklet]]
       unless node
         return failed(activation[:token],
-                      "class `#{activation[:factory]}` has no procedure at index " \
-                      "#{activation[:procedure]}", non_retryable: true)
+                      "class `#{activation[:factory]}` has no tasklet at index " \
+                      "#{activation[:tasklet]}", non_retryable: true)
       end
 
       case activation[:kind]
@@ -126,12 +126,12 @@ module Flezha
       when :snapshot_request then snapshot(activation, registered, node)
       when :live_state_read
         { token: activation[:token], outcome: "state_json",
-          json: Codec.to_state_json(registered.state_of(node, activation[:entity_key])).b }
+          json: Codec.to_state_json(registered.state_of(node, activation[:cell_key])).b }
       when :migration_serialize
         { token: activation[:token], outcome: "migration_state",
-          json: Codec.to_state_json(registered.state_of(node, activation[:entity_key])).b }
+          json: Codec.to_state_json(registered.state_of(node, activation[:cell_key])).b }
       when :apply_state
-        registered.set_state(node, activation[:entity_key],
+        registered.set_state(node, activation[:cell_key],
                              Codec.from_state_json(activation[:state_json]))
         { token: activation[:token], outcome: "state_applied" }
       when :key_request then prepare(activation, registered)
@@ -144,26 +144,26 @@ module Flezha
       failed(activation[:token], error_message(e), non_retryable: non_retryable?(e))
     end
 
-    # Run user code against one entity, and keep the state it produced.
+    # Run user code against one cell, and keep the state it produced.
     #
     # Every activation kind that reaches a handler goes through here — an
     # input, a timer firing, a compensation — so the context they receive and
     # the state they leave behind cannot differ between them. The state is
     # written back whether or not the body raised: a change recorded before the
     # raise is already journaled, and dropping it here would make the live
-    # entity disagree with its own log.
+    # cell disagree with its own log.
     def invoke(activation, registered, node, deps, now, replay)
       ctx = Ctx.new(
         spec: registered.spec, node: node, outgoing: registered.outgoing[node.index],
-        operative: activation[:operative], entity_key: activation[:entity_key],
+        operative: activation[:operative], cell_key: activation[:cell_key],
         change_seq: activation[:change_seq], now: now, replay: replay,
-        state: registered.state_of(node, activation[:entity_key]), bridge: deps.bridge,
+        state: registered.state_of(node, activation[:cell_key]), bridge: deps.bridge,
         token: activation[:token]
       )
       begin
         [ctx, yield(ctx)]
       ensure
-        registered.set_state(node, activation[:entity_key], ctx.state)
+        registered.set_state(node, activation[:cell_key], ctx.state)
       end
     end
 
@@ -183,7 +183,7 @@ module Flezha
           Flezha.log.debug("#{node.name} failed an item: #{e.class}: #{e.message}\n" \
                            "#{Array(e.backtrace).first(8).join("\n")}")
           # Items after this one are re-handed by the core, so the batch stops
-          # here rather than reporting effects the entity never saw.
+          # here rather than reporting effects the cell never saw.
           effects << {
             verdict: non_retryable?(e) ? "non_retryable" : "retryable",
             message: error_message(e), event_time: now,
@@ -223,7 +223,7 @@ module Flezha
         channel.nil? || channel.kind == :entry || registered.spec.structured_workflow?
       edge = untransformed ? edge_into(channel, node.index) : nil
       values = values_of(channel, edge, item[:payload] || "".b)
-      values = values.select { |value| routes_to?(edge, definition, value, ctx.entity_key) } if edge
+      values = values.select { |value| routes_to?(edge, definition, value, ctx.cell_key) } if edge
       # A filtered value reaches no handler and a fanned one reaches it once
       # per value. Either way the item is one effect, so its offset advances
       # once and nothing is retried.
@@ -237,30 +237,30 @@ module Flezha
       nil
     end
 
-    # Whether one value of an untransformed payload belongs to this Entity.
+    # Whether one value of an untransformed payload belongs to this Cell.
     # The crossing answered the keys of every value, so a fanned payload
-    # reaches each Entity it named whole, and each keeps only its own values.
-    def routes_to?(edge, definition, value, entity_key)
-      keys = entity_key && keys_of(edge, definition, value)
-      keys.nil? || keys.include?(entity_key)
+    # reaches each Cell it named whole, and each keeps only its own values.
+    def routes_to?(edge, definition, value, cell_key)
+      keys = cell_key && keys_of(edge, definition, value)
+      keys.nil? || keys.include?(cell_key)
     end
 
-    # The Entity keys one value routes to: its edge's key, else the procedure's
-    # `entities_for`, else nil when neither names one. The prepare crossing
+    # The Cell keys one value routes to: its edge's key, else the tasklet's
+    # `cells_for`, else nil when neither names one. The prepare crossing
     # and the delivery filter both read it, so they cannot disagree.
     def keys_of(edge, definition, value)
       if edge&.key_by then [edge.key_by.call(value).to_s]
-      elsif definition&.entities_for? then definition.entities_for(value).map(&:to_s)
+      elsif definition&.cells_for? then definition.cells_for(value).map(&:to_s)
       end
     end
 
     def restore_fold(activation, registered, node)
       registered.set_state(
-        node, activation[:entity_key],
+        node, activation[:cell_key],
         State.fold_restore(
           node.definition,
           { snapshot: activation[:snapshot], changes: activation[:changes] },
-          activation[:entity_key], node.name
+          activation[:cell_key], node.name
         )
       )
       { token: activation[:token], outcome: "restored" }
@@ -268,7 +268,7 @@ module Flezha
 
     def snapshot(activation, registered, node)
       codec = node.definition.state_codec
-      state = registered.state_of(node, activation[:entity_key])
+      state = registered.state_of(node, activation[:cell_key])
       { token: activation[:token], outcome: "snapshot",
         state: (codec ? codec.encode(state).b : Codec.encode(state)) }
     end
@@ -281,7 +281,7 @@ module Flezha
       # The crossing answers one key set for the whole payload, so it reads the
       # first consumer edge — the one the core routes the answer to.
       edge = channel&.consumers&.first
-      node = edge && registered.spec.procedures[edge.procedure]
+      node = edge && registered.spec.tasklets[edge.tasklet]
       definition = node&.definition
 
       answers = request[:payloads].map do |payload|
@@ -289,7 +289,7 @@ module Flezha
           values = values_of(channel, edge, payload)
           # A filtered payload answers no key. For a dynamic consumer that is
           # what tells the core not to route it at all — the drop happens
-          # before an entity is minted rather than inside one.
+          # before a cell is minted rather than inside one.
           next { keys: [] } if values.empty?
 
           # A fanned payload answers every value's key, once each.
@@ -325,7 +325,7 @@ module Flezha
     # Dispatch one activation and answer it exactly once.
     #
     # The guard is the contract, not politeness. An unanswered activation
-    # retires its entity for the life of the process, so a raise from the
+    # retires its cell for the life of the process, so a raise from the
     # dispatcher, from encoding the result, or from `complete` itself abandons
     # rather than logging and returning.
     def dispatch(activation, native, deps)

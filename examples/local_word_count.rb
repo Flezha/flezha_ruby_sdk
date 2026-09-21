@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
-# The two-procedure word count, run in this process with no controller.
+# The two-tasklet word count, run in this process with no controller.
 #
 #   rake compile
 #   ruby -Ilib examples/local_word_count.rb
 #
-# `Split` and `Tally` are ordinary procedures with nothing local-mode about
+# `Split` and `Tally` are ordinary tasklets with nothing local-mode about
 # them: the same classes deploy against a controller unchanged. What local mode
 # supplies is the sink — the values `Tally` releases arrive here instead of on
 # a socket.
@@ -14,8 +14,8 @@
 
 require "flezha"
 
-class Split < Flezha::Procedure
-  procedure_name "split"
+class Split < Flezha::Tasklet
+  tasklet_name "split"
 
   def run(line, ctx)
     line.split.each { |word| ctx.emit(word.downcase) }
@@ -23,9 +23,9 @@ class Split < Flezha::Procedure
   end
 end
 
-class Tally < Flezha::Procedure
-  procedure_name "tally"
-  dynamic_entities idle_ttl_ms: 300_000
+class Tally < Flezha::Tasklet
+  tasklet_name "tally"
+  dynamic_cells idle_ttl_ms: 300_000
 
   def initial_state(_key) = { seen: 0 }
   def apply_change(state, change) = state[:seen] = change[:seen]
@@ -42,7 +42,7 @@ class WordCount < Flezha::StreamOperative
   channels do |c|
     c.input("lines", codec: :text)
      .into(Split)
-     # One Entity per word: the hop from `Split` to `Tally` is the runtime's,
+     # One Cell per word: the hop from `Split` to `Tally` is the runtime's,
      # not this file's.
      .key_by { |word| word }
      .into(Tally).keyed

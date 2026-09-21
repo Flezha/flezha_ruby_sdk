@@ -9,7 +9,7 @@ Gem::Specification.new do |spec|
   spec.description = <<~TEXT
     Author Flezha operatives in Ruby: stream and workflow classes over the same
     shared kernel the Rust, Java, Node and Elixir SDKs drive. Transport,
-    ordering, per-entity exclusivity, durability, retries, timers, credit and
+    ordering, per-cell exclusivity, durability, retries, timers, credit and
     the workflow driver all live in the core; this gem brings the authoring
     surface, the MessagePack codec, and a thread host that releases the GVL
     around every blocking core call.

@@ -9,20 +9,20 @@ require_relative "dispatch"
 require_relative "state"
 
 module Flezha
-  # Driving one procedure without a controller, for the author's own tests.
+  # Driving one tasklet without a controller, for the author's own tests.
   #
   # The harness is not a second implementation of the dispatcher: it drives
   # `Dispatch.invoke` — the same function every activation kind that reaches a
-  # handler goes through — over a one-procedure `RegisteredClass`, and
+  # handler goes through — over a one-tasklet `RegisteredClass`, and
   # `replay_equals!` folds through `State.fold_restore`, the function a real
   # restore calls. So what it proves is what the runner does, rather than
   # something that agrees with it.
   module Testing
     # The recorded change log and the live state disagree.
     class ReplayMismatch < Error
-      def initialize(procedure, live, replayed)
+      def initialize(tasklet, live, replayed)
         super(
-          "#{procedure}: replaying the recorded change log against a fresh initial state " \
+          "#{tasklet}: replaying the recorded change log against a fresh initial state " \
           "produced #{replayed.inspect}, but the live state is #{live.inspect}. Either a " \
           "handler mutated the state without recording a change, or apply_change is not a " \
           "pure fold — both are lost on restart and reported nowhere until then."
@@ -38,25 +38,25 @@ module Flezha
     class Harness
       attr_reader :log
 
-      def initialize(procedure_class, entity_key: nil, operative: "harness")
-        @definition = procedure_class.definition
-        @entity_key = entity_key
+      def initialize(tasklet_class, cell_key: nil, operative: "harness")
+        @definition = tasklet_class.definition
+        @cell_key = cell_key
         @operative = operative
         # The real channel builder, not a hand-written spec: one entry channel
-        # into the procedure, and one plugin sink so `ctx.emit` has somewhere
-        # to go. A procedure under test emits to be observed, not to be routed,
+        # into the tasklet, and one plugin sink so `ctx.emit` has somewhere
+        # to go. A tasklet under test emits to be observed, not to be routed,
         # and the sink names MessagePack so `outputs` reports exactly the value
         # a handler emitted.
         builder = Builder.new("<harness>")
-        builder.input("in").into(procedure_class).sink("out", codec: :msgpack)
-        @node = builder.procedures.first
+        builder.input("in").into(tasklet_class).sink("out", codec: :msgpack)
+        @node = builder.tasklets.first
         @spec = ClassSpec.new(
           factory_id: "<harness>", kind: :stream, persistent: true, effectively_once: false,
           checkpoint_ack: false, checkpoint_outputs: :as_produced,
           beyond_window_policy: :process_as_arrival, sync_durability: false,
-          procedures: builder.procedures, channels: builder.channels
+          tasklets: builder.tasklets, channels: builder.channels
         )
-        # The dispatcher's own entity store, so the state this harness reports
+        # The dispatcher's own cell store, so the state this harness reports
         # is the state a runner would hold.
         @registered = RegisteredClass.new(@spec)
         @deps = DispatchDeps.new(registry: nil, bridge: self)
@@ -68,13 +68,13 @@ module Flezha
         @spawn_count = 0
       end
 
-      # The entity's live state, as the dispatcher left it.
-      def state = @registered.state_of(@node, @entity_key)
+      # The cell's live state, as the dispatcher left it.
+      def state = @registered.state_of(@node, @cell_key)
 
-      # Run the procedure against one input.
+      # Run the tasklet against one input.
       def feed(input, now: 0, replay: false) = run(now, replay) { |ctx| invoke(input, ctx) }
 
-      # Fire a per-entity timer. `now` IS the scheduled time, as it is live.
+      # Fire a per-cell timer. `now` IS the scheduled time, as it is live.
       def fire_timer(kind, scheduled_at)
         run(scheduled_at, false) do |ctx|
           @definition.instance.on_timer({ kind: kind, scheduled_at: scheduled_at }, ctx)
@@ -89,12 +89,12 @@ module Flezha
       # log — the same call the dispatcher answers `restore_fold` with.
       def restore(snapshot: nil, changes: [])
         @registered.set_state(
-          @node, @entity_key,
+          @node, @cell_key,
           State.fold_restore(
             @definition,
             { snapshot: snapshot && { bytes: snapshot },
               changes: changes.map { |bytes| { bytes: bytes } } },
-            @entity_key, @definition.name
+            @cell_key, @definition.name
           )
         )
       end
@@ -108,7 +108,7 @@ module Flezha
       def replay_equals!
         replayed = State.fold_restore(
           @definition, { changes: @log.map { |bytes| { bytes: bytes } } },
-          @entity_key, @definition.name
+          @cell_key, @definition.name
         )
         raise ReplayMismatch.new(@definition.name, state, replayed) unless replayed == state
 
@@ -133,7 +133,7 @@ module Flezha
       private
 
       def run(now, replay)
-        activation = { operative: @operative, entity_key: @entity_key, change_seq: @change_seq }
+        activation = { operative: @operative, cell_key: @cell_key, change_seq: @change_seq }
         ctx, returned = begin
           Dispatch.invoke(activation, @registered, @node, @deps, now, replay) { |c| yield(c) }
         ensure
@@ -165,9 +165,9 @@ module Flezha
       end
     end
 
-    # Drive `procedure_class` over `inputs` and assert the replay agrees.
-    def self.replay_equals?(procedure_class, inputs, entity_key: nil)
-      harness = Harness.new(procedure_class, entity_key: entity_key)
+    # Drive `tasklet_class` over `inputs` and assert the replay agrees.
+    def self.replay_equals?(tasklet_class, inputs, cell_key: nil)
+      harness = Harness.new(tasklet_class, cell_key: cell_key)
       inputs.each { |input| harness.feed(input) }
       harness.replay_equals!
     end

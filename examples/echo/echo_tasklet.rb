@@ -9,10 +9,10 @@ require "flezha"
 # messages and nothing is journaled. Where the result goes is not decided here:
 # the operative decides that, so the graph can be rewired without touching this
 # class.
-class EchoProcedure < Flezha::Procedure
-  # The procedure's stable identity. State is filed under it, so renaming it
-  # later declares a different procedure rather than renaming this one.
-  procedure_name "echo"
+class EchoTasklet < Flezha::Tasklet
+  # The tasklet's stable identity. State is filed under it, so renaming it
+  # later declares a different tasklet rather than renaming this one.
+  tasklet_name "echo"
 
   def run(input, _ctx) = "echo: #{input}"
 end

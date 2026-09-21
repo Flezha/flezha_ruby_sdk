@@ -37,14 +37,14 @@ module Flezha
     def decode(bytes) = @type.from_h(Codec.decode(bytes))
   end
 
-  # What a declared procedure resolves to: the scalar declarations, and the one
+  # What a declared tasklet resolves to: the scalar declarations, and the one
   # instance whose methods the dispatcher calls.
   #
-  # Procedures hold no state of their own — an entity's state lives in the
+  # Tasklets hold no state of their own — a cell's state lives in the
   # registry and is handed to each invocation — so one instance per class is
   # enough, and the dispatcher never allocates per activation.
   class Definition
-    attr_reader :name, :entity_keys, :idle_ttl_ms, :max_entities, :clock,
+    attr_reader :name, :cell_keys, :idle_ttl_ms, :max_cells, :clock,
                 :mailbox_capacity, :schema_version, :min_readable_schema_version,
                 :state_codec, :change_codec, :migrate_state, :migrate_change, :instance
 
@@ -55,11 +55,11 @@ module Flezha
     # on the hot path.
     def initialize(klass)
       @body = klass.body
-      @name = klass.procedure_name
-      @entity_keys = klass.entity_keys
-      @dynamic = klass.dynamic_entities?
+      @name = klass.tasklet_name
+      @cell_keys = klass.cell_keys
+      @dynamic = klass.dynamic_cells?
       @idle_ttl_ms = klass.idle_ttl_ms
-      @max_entities = klass.max_entities
+      @max_cells = klass.max_cells
       @clock = (klass.clock || :wall).to_sym
       @mailbox_capacity = klass.mailbox_capacity
       @schema_version = klass.schema_version
@@ -71,8 +71,8 @@ module Flezha
       @instance = @body.new
     end
 
-    def entity_mode
-      return :static if @entity_keys
+    def cell_mode
+      return :static if @cell_keys
       return :dynamic if @dynamic
 
       :single
@@ -82,24 +82,24 @@ module Flezha
 
     def initial_state? = declares?(:initial_state)
     def apply_change? = declares?(:apply_change)
-    def entities_for? = declares?(:entities_for)
+    def cells_for? = declares?(:cells_for)
     def event_time? = declares?(:event_time)
     def on_timer? = declares?(:on_timer)
     def compensate? = declares?(:compensate)
 
-    def build_initial_state(entity_key)
-      initial_state? ? @instance.initial_state(entity_key) : nil
+    def build_initial_state(cell_key)
+      initial_state? ? @instance.initial_state(cell_key) : nil
     end
 
     def fold_change(state, change) = @instance.apply_change(state, change)
-    def entities_for(input) = Array(@instance.entities_for(input))
+    def cells_for(input) = Array(@instance.cells_for(input))
     def event_time_of(input) = Integer(@instance.event_time(input))
   end
 
-  # A procedure's class-level declarations. A procedure class carries them,
+  # A tasklet's class-level declarations. A tasklet class carries them,
   # and so does a short-form operative class, which hands them to the
-  # procedure it generates.
-  module ProcedureSettings
+  # tasklet it generates.
+  module TaskletSettings
     # The scalar declarations. Each is read by its bare name and written by
     # naming a value: `clock` answers, `clock :event_time` declares.
     SCALARS = %i[mailbox_capacity schema_version min_readable_schema_version
@@ -107,7 +107,7 @@ module Flezha
     BLOCKS = %i[migrate_state migrate_change].freeze
     # Written by the declarations below, which take more than one value or
     # write more than one variable; named so a subclass inherits them.
-    WRITTEN = %i[entity_keys dynamic idle_ttl_ms max_entities state_type change_type].freeze
+    WRITTEN = %i[cell_keys dynamic idle_ttl_ms max_cells state_type change_type].freeze
     NAMES = (SCALARS + BLOCKS + WRITTEN).freeze
 
     def self.extended(base)
@@ -116,24 +116,24 @@ module Flezha
       base.declares(*WRITTEN)
     end
 
-    def entity_keys(*keys)
-      return @entity_keys if keys.empty?
+    def cell_keys(*keys)
+      return @cell_keys if keys.empty?
 
-      @entity_keys = keys.flatten.map(&:to_s)
+      @cell_keys = keys.flatten.map(&:to_s)
     end
 
-    def dynamic_entities(idle_ttl_ms: nil, max_entities: nil)
+    def dynamic_cells(idle_ttl_ms: nil, max_cells: nil)
       @dynamic = true
       @idle_ttl_ms = idle_ttl_ms
-      @max_entities = max_entities
+      @max_cells = max_cells
     end
 
-    # Whether entities appear on first key rather than from a declared set.
-    def dynamic_entities? = @dynamic || false
+    # Whether cells appear on first key rather than from a declared set.
+    def dynamic_cells? = @dynamic || false
 
-    attr_reader :idle_ttl_ms, :max_entities
+    attr_reader :idle_ttl_ms, :max_cells
 
-    # Declare the class an entity's State is. Its `to_h` is what is encoded
+    # Declare the class a cell's State is. Its `to_h` is what is encoded
     # and its `.from_h` is what rebuilds it, so a rename of the class does
     # not break the restore of records written before it: the durable form
     # is the Hash, not the class.
@@ -153,48 +153,48 @@ module Flezha
     end
   end
 
-  # The base every authored procedure subclasses.
+  # The base every authored tasklet subclasses.
   #
   # The class body carries the scalar declarations; the instance methods carry
-  # the behaviour. Which optional hooks a procedure declares is read from the
+  # the behaviour. Which optional hooks a tasklet declares is read from the
   # methods it defines — `apply_change` present means it folds changes,
   # `on_timer` present means it may register timers — so a declaration and its
   # implementation cannot disagree.
-  class Procedure
+  class Tasklet
     extend Declarative
-    extend ProcedureSettings
+    extend TaskletSettings
 
-    # `procedure_name` is deliberately NOT inherited: a node identity is per
+    # `tasklet_name` is deliberately NOT inherited: a node identity is per
     # class, and a subclass silently taking its parent's would make two
-    # procedures claim one node — which the builder refuses, at the far end of
+    # tasklets claim one node — which the builder refuses, at the far end of
     # the declaration rather than here.
 
     class << self
       # The node identity within its operative. Defaults to the class name in
       # snake_case, which is what an author would have typed anyway.
-      def procedure_name(name = nil)
-        return @procedure_name || default_name if name.nil?
+      def tasklet_name(name = nil)
+        return @tasklet_name || default_name if name.nil?
 
-        @procedure_name = name.to_s
+        @tasklet_name = name.to_s
       end
 
-      # The class whose instance methods run for this procedure: the procedure
+      # The class whose instance methods run for this tasklet: the tasklet
       # itself, or the short-form operative whose `run` body it was generated
       # from.
       def body = self
 
-      # A procedure has no sink: the one-procedure short form is an operative,
+      # A tasklet has no sink: the one-tasklet short form is an operative,
       # and its sink is written there.
       def sink(*, **)
         raise DeclarationError.new(
-          "<procedure>", to_s,
-          "declares a `sink`, and a procedure has none; a one-procedure operative is a " \
+          "<tasklet>", to_s,
+          "declares a `sink`, and a tasklet has none; a one-tasklet operative is a " \
           "Flezha::StreamOperative or Flezha::WorkflowOperative subclass with a `run` body, " \
           "and its `sink` is written there"
         )
       end
 
-      # The resolved declaration. Built once: it instantiates the procedure,
+      # The resolved declaration. Built once: it instantiates the tasklet,
       # and the dispatcher reads it on the hot path.
       def definition
         @definition ||= build_definition
@@ -205,25 +205,25 @@ module Flezha
       def build_definition
         unless body.method_defined?(:run)
           stale = body.method_defined?(:process) ? " (`process` is not read)" : ""
-          raise DeclarationError.new("<procedure>", procedure_name,
-                                     "#{body} declares no `run` method#{stale}; a procedure's " \
+          raise DeclarationError.new("<tasklet>", tasklet_name,
+                                     "#{body} declares no `run` method#{stale}; a tasklet's " \
                                      "body is its `run`, what runs against an input")
         end
-        if @entity_keys && @dynamic
-          raise DeclarationError.new("<procedure>", procedure_name,
-                                     "declares both a static key set and dynamic entities; the " \
+        if @cell_keys && @dynamic
+          raise DeclarationError.new("<tasklet>", tasklet_name,
+                                     "declares both a static key set and dynamic cells; the " \
                                      "two modes are exclusive")
         end
-        if @entity_keys&.empty?
-          raise DeclarationError.new("<procedure>", procedure_name,
-                                     "declares an empty static key set; a static procedure " \
-                                     "names its entities")
+        if @cell_keys&.empty?
+          raise DeclarationError.new("<tasklet>", tasklet_name,
+                                     "declares an empty static key set; a static tasklet " \
+                                     "names its cells")
         end
         # State without a fold is legitimate: a value seeded at start and read
         # but never mutated has nothing to journal, and `ctx.change` already
         # refuses at the point of use. A fold with no state to fold into is not.
         if !body.method_defined?(:initial_state) && body.method_defined?(:apply_change)
-          raise DeclarationError.new("<procedure>", procedure_name,
+          raise DeclarationError.new("<tasklet>", tasklet_name,
                                      "declares apply_change but no initial_state; there is " \
                                      "nothing for a change to fold into")
         end
@@ -233,7 +233,7 @@ module Flezha
         # anyone would learn of it is a restart. Walk the declared starting
         # state now.
         if definition.initial_state? && !state_codec
-          Codec.assert_representable("#{procedure_name}.state",
+          Codec.assert_representable("#{tasklet_name}.state",
                                      definition.build_initial_state(nil))
         end
         definition

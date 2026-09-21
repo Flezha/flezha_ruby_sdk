@@ -1,23 +1,23 @@
 # frozen_string_literal: true
 
 require_relative "codec"
-require_relative "procedure"
+require_relative "tasklet"
 
 module Flezha
-  # The single-entity procedure `Builder#route_latest` expands to. Its input is
+  # The single-cell tasklet `Builder#route_latest` expands to. Its input is
   # what the merge's two mappings make of a value, `{ document: }` or
   # `{ traffic: key }`; the traffic item itself never reaches it.
   #
   # The state is `{ document:, version:, delivered: { key => version } }` and
-  # rides the change journal like any procedure's: `{ retain: document }`
+  # rides the change journal like any tasklet's: `{ retain: document }`
   # replaces the document and advances the version, and
   # `{ delivered: key, version: }` records one key's delivery.
-  class RouteLatest < Procedure
-    procedure_name "route_latest"
+  class RouteLatest < Tasklet
+    tasklet_name "route_latest"
 
     # Version 0 is "nothing retained", so the first document lands at 1 and
     # every key's absent entry is already behind it.
-    def initial_state(_entity_key) = { document: nil, version: 0, delivered: {} }
+    def initial_state(_cell_key) = { document: nil, version: 0, delivered: {} }
 
     def apply_change(state, change)
       if change.key?(:retain)

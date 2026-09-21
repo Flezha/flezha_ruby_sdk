@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 # Twins of the rust_runner e2e fixtures (test/apps/rust_runner/src/main.rs)
-# under the same factory ids, procedure names, channel names and output bytes.
+# under the same factory ids, tasklet names, channel names and output bytes.
 #
 # Entry payloads and plugin frames are UTF-8 text on the wire, the same as the
 # reference: every entry names the text codec, and a sink naming none sends a
-# String as its own bytes, as the reference's does. An inter-procedure hop
-# between two Ruby procedures carries MessagePack, which no one else reads.
+# String as its own bytes, as the reference's does. An inter-tasklet hop
+# between two Ruby tasklets carries MessagePack, which no one else reads.
 
 require "flezha"
 
@@ -19,8 +19,8 @@ module Fixtures
 
   # -- do_nothing / bench_echo ---------------------------------------------
 
-  class DoNothing < Flezha::Procedure
-    procedure_name "do_nothing_procedure"
+  class DoNothing < Flezha::Tasklet
+    tasklet_name "do_nothing_tasklet"
     def run(input, _ctx) = input
   end
 
@@ -47,10 +47,10 @@ module Fixtures
   # -- compare_filter -------------------------------------------------------
 
   # State seeded by the controller's init values and then only read: there is
-  # nothing to journal, so the procedure declares no change fold.
-  class CompareFilter < Flezha::Procedure
-    procedure_name "compare_filter_procedure"
-    def initial_state(_entity_key) = { comparable: "default", inverted: false }
+  # nothing to journal, so the tasklet declares no change fold.
+  class CompareFilter < Flezha::Tasklet
+    tasklet_name "compare_filter_tasklet"
+    def initial_state(_cell_key) = { comparable: "default", inverted: false }
     def run(input, ctx) = ctx.state[:comparable] == input ? input : nil
   end
 
@@ -62,23 +62,23 @@ module Fixtures
     end
   end
 
-  # -- static_entity / sugar_static_entity / mixed_operative ---------------
+  # -- static_cell / sugar_static_cell / mixed_operative ---------------
 
   STATIC_KEYS = %w[a b c d].freeze
 
   # The static fan-out every static fixture shares.
   module StaticFanOut
-    def entities_for(input)
+    def cells_for(input)
       first = input.to_s[0]
       [STATIC_KEYS.include?(first) ? first : "d"]
     end
   end
 
-  class StaticEntry < Flezha::Procedure
+  class StaticEntry < Flezha::Tasklet
     include StaticFanOut
-    procedure_name "static_entry_procedure"
-    entity_keys(*STATIC_KEYS)
-    def initial_state(_entity_key) = { seen: [] }
+    tasklet_name "static_entry_tasklet"
+    cell_keys(*STATIC_KEYS)
+    def initial_state(_cell_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
 
     def run(input, ctx)
@@ -88,23 +88,23 @@ module Fixtures
   end
 
   class MacroStaticEntry < StaticEntry
-    procedure_name "macro_static_entry_procedure"
+    tasklet_name "macro_static_entry_tasklet"
   end
 
-  class PassThrough < Flezha::Procedure
+  class PassThrough < Flezha::Tasklet
     def run(input, _ctx) = input
   end
 
   class StaticDownstream < PassThrough
-    procedure_name "static_downstream_procedure"
+    tasklet_name "static_downstream_tasklet"
   end
 
   class MacroStaticDownstream < PassThrough
-    procedure_name "macro_static_downstream_procedure"
+    tasklet_name "macro_static_downstream_tasklet"
   end
 
-  class StaticEntityOperative < Flezha::StreamOperative
-    factory_id "static_entity"
+  class StaticCellOperative < Flezha::StreamOperative
+    factory_id "static_cell"
     channels do |c|
       c.input("input", codec: :text).into(StaticEntry).named("hop")
        .into(StaticDownstream)
@@ -114,8 +114,8 @@ module Fixtures
 
   # The reference pipeline sugar leaves the hop unnamed and lets the sink name
   # the producing channel.
-  class SugarStaticEntityOperative < Flezha::StreamOperative
-    factory_id "sugar_static_entity"
+  class SugarStaticCellOperative < Flezha::StreamOperative
+    factory_id "sugar_static_cell"
     channels do |c|
       c.input("input", codec: :text).into(MacroStaticEntry)
        .into(MacroStaticDownstream)
@@ -124,11 +124,11 @@ module Fixtures
   end
 
   class MixedMacroEntry < PassThrough
-    procedure_name "mixed_macro_entry_procedure"
+    tasklet_name "mixed_macro_entry_tasklet"
   end
 
   class MixedHandDownstream < PassThrough
-    procedure_name "mixed_hand_downstream"
+    tasklet_name "mixed_hand_downstream"
   end
 
   class MixedOperative < Flezha::StreamOperative
@@ -142,8 +142,8 @@ module Fixtures
 
   # -- the §5 short forms --------------------------------------------------
   #
-  # One operative class each, carrying its one procedure's `run` body instead
-  # of `channels`; `runner.rb` registers the class itself. No procedure stands
+  # One operative class each, carrying its one tasklet's `run` body instead
+  # of `channels`; `runner.rb` registers the class itself. No tasklet stands
   # beside them.
 
   class SugarDoNothing < Flezha::StreamOperative
@@ -157,7 +157,7 @@ module Fixtures
     factory_id "sugar_store_input"
     sink "sugar_store_sink"
     codec :text
-    def initial_state(_entity_key) = { text_inputs: [] }
+    def initial_state(_cell_key) = { text_inputs: [] }
     def apply_change(state, change) = state[:text_inputs] << change[:push]
 
     def run(input, ctx)
@@ -187,7 +187,7 @@ module Fixtures
     factory_id "sugar_state_only"
     input "ticks"
     codec :text
-    def initial_state(_entity_key) = { seen: [] }
+    def initial_state(_cell_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
 
     def run(input, ctx)
@@ -198,31 +198,31 @@ module Fixtures
 
   # -- hybrid_channel ------------------------------------------------------
   #
-  # One emit reaching two destinations: an inter-procedure consumer and a
+  # One emit reaching two destinations: an inter-tasklet consumer and a
   # plugin wire with its own serializer. The serializer refuses a sentinel
   # value, so an operator can observe end to end that a refusal is isolated to
   # the emit rather than failing the item.
 
   HYBRID_SENTINEL = 0xdeadbeef
 
-  class HybridProducer < Flezha::Procedure
-    procedure_name "hybrid_producer_procedure"
+  class HybridProducer < Flezha::Tasklet
+    tasklet_name "hybrid_producer_tasklet"
     def run(input, ctx)
       parsed = Integer(input.to_s, exception: false) || 0
       value = parsed.between?(0, 0xffffffff) ? parsed : 0
       begin
         ctx.emit(value)
       rescue StandardError => e
-        warn("hybrid_producer_procedure: serializer refused an emit: #{e.message}")
+        warn("hybrid_producer_tasklet: serializer refused an emit: #{e.message}")
       end
       nil
     end
   end
 
-  class HybridConsumer < Flezha::Procedure
-    procedure_name "hybrid_consumer_procedure"
+  class HybridConsumer < Flezha::Tasklet
+    tasklet_name "hybrid_consumer_tasklet"
     def run(input, _ctx)
-      puts("hybrid_consumer_procedure: received #{input}")
+      puts("hybrid_consumer_tasklet: received #{input}")
       nil
     end
   end
@@ -249,7 +249,7 @@ module Fixtures
 
   # -- merged_input ----------------------------------------------------------
   #
-  # Two entry channels merged into one procedure. Each source's mapping tags
+  # Two entry channels merged into one tasklet. Each source's mapping tags
   # the value with the channel it came from, the merge keys on the symbol the
   # mapping read, and the emitted line is `<source>:<payload>`.
 
@@ -257,9 +257,9 @@ module Fixtures
     ->(payload) { { source: source, symbol: PREFIX.call(payload), payload: payload } }
   end
 
-  class MergeLabel < Flezha::Procedure
-    procedure_name "merge_label_procedure"
-    dynamic_entities
+  class MergeLabel < Flezha::Tasklet
+    tasklet_name "merge_label_tasklet"
+    dynamic_cells
     def run(input, _ctx) = "#{input[:source]}:#{input[:payload]}"
   end
 
@@ -282,8 +282,8 @@ module Fixtures
   # prefix.
 
   class TransformLabel < PassThrough
-    procedure_name "transform_label_procedure"
-    dynamic_entities
+    tasklet_name "transform_label_tasklet"
+    dynamic_cells
   end
 
   class TransformChainOperative < Flezha::StreamOperative
@@ -299,37 +299,37 @@ module Fixtures
     end
   end
 
-  # -- entity_stress -------------------------------------------------------
+  # -- cell_stress -------------------------------------------------------
 
   STRESS_KEYS = %w[p0 p1 p2 p3 p4 p5 p6 p7].freeze
 
-  class StressA < Flezha::Procedure
-    procedure_name "stress_a"
-    entity_keys(*STRESS_KEYS)
-    def entities_for(_input) = STRESS_KEYS
+  class StressA < Flezha::Tasklet
+    tasklet_name "stress_a"
+    cell_keys(*STRESS_KEYS)
+    def cells_for(_input) = STRESS_KEYS
     def run(input, _ctx) = input
   end
 
-  class StressToP0 < Flezha::Procedure
-    entity_keys(*STRESS_KEYS)
-    def entities_for(_input) = ["p0"]
+  class StressToP0 < Flezha::Tasklet
+    cell_keys(*STRESS_KEYS)
+    def cells_for(_input) = ["p0"]
     def run(input, _ctx) = input
   end
 
   class StressB < StressToP0
-    procedure_name "stress_b"
+    tasklet_name "stress_b"
   end
 
   class StressC < StressToP0
-    procedure_name "stress_c"
+    tasklet_name "stress_c"
   end
 
   class StressD < StressToP0
-    procedure_name "stress_d"
+    tasklet_name "stress_d"
   end
 
-  class EntityStressOperative < Flezha::StreamOperative
-    factory_id "entity_stress"
+  class CellStressOperative < Flezha::StreamOperative
+    factory_id "cell_stress"
     channels do |c|
       c.input("input", codec: :text).into(StressA).named("a_to_b")
        .into(StressB).named("b_to_c")
@@ -341,8 +341,8 @@ module Fixtures
 
   # -- poison_probe / wedge_probe ------------------------------------------
 
-  class PoisonProbe < Flezha::Procedure
-    procedure_name "poison_probe_procedure"
+  class PoisonProbe < Flezha::Tasklet
+    tasklet_name "poison_probe_tasklet"
     ANTIDOTE = { taken: false }
 
     def run(input, _ctx)
@@ -371,10 +371,10 @@ module Fixtures
   #   "abort" — ends its activation as violently as this host allows, WITHOUT
   #     emitting, once per process. Ruby has no way for user code to kill a
   #     worker outright — the dispatcher rescues per item and the raise rides
-  #     the retry ladder — so what the scenario asserts is that the Entity is
+  #     the retry ladder — so what the scenario asserts is that the Cell is
   #     served again and the aborting item does not produce twice.
-  class WedgeProbe < Flezha::Procedure
-    procedure_name "wedge_probe_procedure"
+  class WedgeProbe < Flezha::Tasklet
+    tasklet_name "wedge_probe_tasklet"
     ABORTED = { done: false }
 
     def run(input, _ctx)
@@ -405,11 +405,11 @@ module Fixtures
   # wrong. With it, the engine rewinds behind 200, replays the retained input
   # log sorted by event time, and the fold order becomes [100, 200, 300].
 
-  class Candle < Flezha::Procedure
-    procedure_name "candle_procedure"
+  class Candle < Flezha::Tasklet
+    tasklet_name "candle_tasklet"
     clock :event_time
     # Event times in fold order: the assertion surface.
-    def initial_state(_entity_key) = { folded: [] }
+    def initial_state(_cell_key) = { folded: [] }
     def apply_change(state, change) = state[:folded] << change[:fold]
     def event_time(input) = AS_INT.call(input.to_s.split(":", 2).first)
 
@@ -438,13 +438,13 @@ module Fixtures
   # -- session_timeout ------------------------------------------------------
   #
   # The worked session-timeout shape: each input pushes the idle deadline out,
-  # and the firing closes the session. Single-entity so the e2e's crash-resume
-  # half exercises a durable Entity. The timeout is read from
+  # and the firing closes the session. Single-cell so the e2e's crash-resume
+  # half exercises a durable Cell. The timeout is read from
   # `TIMER_TEST_TIMEOUT_MS` (the e2e sets it short).
 
-  class SessionTimeout < Flezha::Procedure
-    procedure_name "session_timeout_procedure"
-    def initial_state(_entity_key) = { touched: [], closed_at: [] }
+  class SessionTimeout < Flezha::Tasklet
+    tasklet_name "session_timeout_tasklet"
+    def initial_state(_cell_key) = { touched: [], closed_at: [] }
 
     def apply_change(state, change)
       if change.key?(:touched)
@@ -480,9 +480,9 @@ module Fixtures
 
   # -- bounded_mailbox_{drop_nothing,drop_newest,drop_oldest} --------------
 
-  class BoundedMailbox < Flezha::Procedure
+  class BoundedMailbox < Flezha::Tasklet
     mailbox_capacity 4
-    def initial_state(_entity_key) = { processed: 0 }
+    def initial_state(_cell_key) = { processed: 0 }
     def apply_change(state, _change) = state[:processed] += 1
 
     def run(input, ctx)
@@ -491,17 +491,17 @@ module Fixtures
     end
   end
 
-  # One operative per overflow policy, over the same bounded procedure. The
+  # One operative per overflow policy, over the same bounded tasklet. The
   # capacity and the fold come from the base class: a subclass inherits every
   # declaration its parent made.
   BOUNDED_MAILBOX = %w[drop_nothing drop_newest drop_oldest].map do |policy|
-    procedure = Class.new(BoundedMailbox) { procedure_name "#{policy}_test_procedure" }
+    tasklet = Class.new(BoundedMailbox) { tasklet_name "#{policy}_test_tasklet" }
 
     Class.new(Flezha::StreamOperative) do
       factory_id "bounded_mailbox_#{policy}"
       channels do |c|
         c.input("#{policy}_input", codec: :text).on_full(policy.to_sym)
-         .into(procedure)
+         .into(tasklet)
          .sink("#{policy}_echo")
       end
     end
@@ -515,10 +515,10 @@ module Fixtures
   # forwarded frame keeps its producing channel's name, and that is what
   # selects the receiving operative's entry channel — so the entry here is `in`.
 
-  class PartitionRelay < Flezha::Procedure
-    procedure_name "partition_relay_procedure"
-    dynamic_entities
-    def initial_state(_entity_key) = { seen: [] }
+  class PartitionRelay < Flezha::Tasklet
+    tasklet_name "partition_relay_tasklet"
+    dynamic_cells
+    def initial_state(_cell_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
 
     def run(input, ctx)
@@ -537,12 +537,12 @@ module Fixtures
     end
   end
 
-  # -- dynamic_entity ------------------------------------------------------
+  # -- dynamic_cell ------------------------------------------------------
 
-  class DynamicEntity < Flezha::Procedure
-    procedure_name "dynamic_entity_procedure"
-    dynamic_entities idle_ttl_ms: (ENV["DYN_TEST_TTL_MS"].to_i if ENV["DYN_TEST_TTL_MS"].to_i.positive?)
-    def initial_state(_entity_key) = { seen: [] }
+  class DynamicCell < Flezha::Tasklet
+    tasklet_name "dynamic_cell_tasklet"
+    dynamic_cells idle_ttl_ms: (ENV["DYN_TEST_TTL_MS"].to_i if ENV["DYN_TEST_TTL_MS"].to_i.positive?)
+    def initial_state(_cell_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
 
     def run(input, ctx)
@@ -551,15 +551,15 @@ module Fixtures
     end
   end
 
-  class DynamicEntityOperative < Flezha::StreamOperative
-    factory_id "dynamic_entity"
+  class DynamicCellOperative < Flezha::StreamOperative
+    factory_id "dynamic_cell"
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
        # Filtered before keying: a dropped value answers no key, so the core
-       # never mints an entity for it.
+       # never mints a cell for it.
        .filter { |input| input != "drop" }
        .key_by { |value| PREFIX.call(value) }
-       .into(DynamicEntity)
+       .into(DynamicCell)
        .sink("kafka")
     end
   end
@@ -568,9 +568,9 @@ module Fixtures
 
   # On each input, spawns `stateless_loop_workflow` once under a generated id
   # and once under the input, and prints both results: a handle's answer is
-  # observable nowhere but in the procedure that read it.
-  class SpawnRequester < Flezha::Procedure
-    procedure_name "spawn_requester"
+  # observable nowhere but in the tasklet that read it.
+  class SpawnRequester < Flezha::Tasklet
+    tasklet_name "spawn_requester"
 
     def run(input, ctx)
       handles = {
@@ -599,11 +599,11 @@ module Fixtures
   # Every operative this app registers, in declaration order.
   ALL = [
     DoNothingOperative, BenchEchoOperative, CompareFilterOperative,
-    StaticEntityOperative, SugarStaticEntityOperative, MixedOperative,
+    StaticCellOperative, SugarStaticCellOperative, MixedOperative,
     HybridChannelOperative,
-    MergedInputOperative, TransformChainOperative, EntityStressOperative, *STATE,
+    MergedInputOperative, TransformChainOperative, CellStressOperative, *STATE,
     CandleOperative, PoisonProbeOperative, WedgeProbeOperative, SessionTimeoutOperative, *BOUNDED_MAILBOX,
-    PartitionRelayOperative, DynamicEntityOperative, SpawnRequesterOperative
+    PartitionRelayOperative, DynamicCellOperative, SpawnRequesterOperative
   ].freeze
 
   # The §5 short forms this app registers.

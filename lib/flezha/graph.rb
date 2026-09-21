@@ -53,7 +53,7 @@ module Flezha
     # first, so an author reads "no event_time method" rather than a topology
     # verdict about a clock the class does declare.
     def validate(spec, core)
-      check_procedures(spec)
+      check_tasklets(spec)
       derived = submit(spec, core)
       bind_edges(spec, derived)
       derived
@@ -90,8 +90,8 @@ module Flezha
       end
     end
 
-    def check_procedures(spec)
-      spec.procedures.each do |node|
+    def check_tasklets(spec)
+      spec.tasklets.each do |node|
         check_clocks(spec, node)
         check_schema(spec, node)
       end
@@ -151,20 +151,20 @@ module Flezha
       )
     end
 
-    def procedure_json(node)
+    def tasklet_json(node)
       definition = node.definition
       compact(
         "name" => node.name,
-        "entity_mode" => definition.entity_mode.to_s,
-        "entity_keys" => definition.entity_keys || [],
+        "cell_mode" => definition.cell_mode.to_s,
+        "cell_keys" => definition.cell_keys || [],
         "idle_ttl_ms" => definition.idle_ttl_ms,
-        "max_entities" => definition.max_entities,
-        "entities_for_overridden" => definition.entities_for?,
+        "max_cells" => definition.max_cells,
+        "cells_for_overridden" => definition.cells_for?,
         "compensate_overridden" => definition.compensate?,
         "clock" => definition.clock.to_s,
         "mailbox_capacity" => definition.mailbox_capacity || 1024,
-        # A procedure with no state journals nothing, so a logical clock over
-        # it never advances. Ruby has no per-procedure Change type; the
+        # A tasklet with no state journals nothing, so a logical clock over
+        # it never advances. Ruby has no per-tasklet Change type; the
         # presence of an initial state IS the same statement.
         "change_is_nochange" => !definition.initial_state?,
         "schema_version" => definition.schema_version || 1,
@@ -209,7 +209,7 @@ module Flezha
         "compact_after_bytes" => spec.compact_after_bytes,
         "sync_durability" => spec.sync_durability,
         "channels" => spec.channels.map { |channel| channel_json(channel) },
-        "procedures" => spec.procedures.map { |node| procedure_json(node) },
+        "tasklets" => spec.tasklets.map { |node| tasklet_json(node) },
         "workflow" => spec.workflow && compact(
           "loop_mode" => spec.workflow[:loop_mode].to_s,
           "rollback_mode" => spec.workflow[:rollback_mode].to_s,

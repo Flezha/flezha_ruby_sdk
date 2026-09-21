@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# Fixtures whose subject is persisted Entity state: the keyed upsert the bench
+# Fixtures whose subject is persisted Cell state: the keyed upsert the bench
 # shares, and the counter and resume twins — the same partition as
 # test/apps/python_runner/fixtures_state.py and the reference's state.rs.
 
@@ -15,8 +15,8 @@ module Fixtures
   # The reference's `TierStoreState` and its upsert fold: `tier_store`,
   # `checkpoint_store` and `bench_checkpoint` are the same keyed upsert under
   # three acknowledgement postures; only `run` differs.
-  class KeyedUpsert < Flezha::Procedure
-    def initial_state(_entity_key) = { values: {} }
+  class KeyedUpsert < Flezha::Tasklet
+    def initial_state(_cell_key) = { values: {} }
     def apply_change(state, change) = state[:values][change[:key]] = change[:value]
 
     # Record and emit one `key:value` input under its natural key.
@@ -29,11 +29,11 @@ module Fixtures
   end
 
   class TierStore < KeyedUpsert
-    procedure_name "tier_store_procedure"
+    tasklet_name "tier_store_tasklet"
 
     def run(input, ctx)
       # Dead-letter e2e: a "poison" value fails every attempt, exhausting the
-      # retry budget so the tier-on atomic park advances the entity past it.
+      # retry budget so the tier-on atomic park advances the cell past it.
       raise "poison value" if input.to_s.split(":", 2)[1] == "poison"
 
       upsert(input, ctx)
@@ -42,7 +42,7 @@ module Fixtures
 
   # `tier_store`'s twin, whose interval closes on a `commit:` input.
   class CheckpointStore < KeyedUpsert
-    procedure_name "checkpoint_store_procedure"
+    tasklet_name "checkpoint_store_tasklet"
 
     def run(input, ctx)
       if input.to_s.split(":", 2)[0] == "commit"
@@ -56,12 +56,12 @@ module Fixtures
 
   # `checkpoint_store` driven by a DECLARED cadence rather than an input.
   class BenchCheckpoint < KeyedUpsert
-    procedure_name "bench_checkpoint_procedure"
+    tasklet_name "bench_checkpoint_tasklet"
     def run(input, ctx) = upsert(input, ctx)
   end
 
   # The same keyed upsert under both durability postures, so the round-trip
-  # bench can isolate the cost of per-Entity persistence.
+  # bench can isolate the cost of per-Cell persistence.
   class KeyedUpsertOperative < Flezha::StreamOperative
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
@@ -70,7 +70,7 @@ module Fixtures
     end
   end
 
-  # Per-entity persistence off: this is the heap-only posture the bench
+  # Per-cell persistence off: this is the heap-only posture the bench
   # isolates against the durable one.
   class BenchKeyedNoPersistOperative < KeyedUpsertOperative
     factory_id "bench_keyed_nopersist"
@@ -106,11 +106,11 @@ module Fixtures
     end
   end
 
-  # The same procedure declared `outputs_at_checkpoint`: the interval's outputs
+  # The same tasklet declared `outputs_at_checkpoint`: the interval's outputs
   # are held with its changes and ship inside its checkpoint record.
   # `checkpoint_every` is deliberately absent so the test drives the close
   # itself — with `commit:` for the batch case, and with the delay alone for
-  # the quiet-Entity case.
+  # the quiet-Cell case.
   class CheckpointBatchedOperative < Flezha::StreamOperative
     factory_id "checkpoint_batched_store"
     channels do |c|
@@ -127,7 +127,7 @@ module Fixtures
 
   # `checkpoint_store` driven by a DECLARED cadence instead of a `commit:`
   # input: acknowledging every `FLEZHA_BENCH_CHECKPOINT_EVERY` inputs (default
-  # 500) per Entity. `FLEZHA_BENCH_CHECKPOINT_OUTPUTS=at_checkpoint` (with
+  # 500) per Cell. `FLEZHA_BENCH_CHECKPOINT_OUTPUTS=at_checkpoint` (with
   # `FLEZHA_BENCH_CHECKPOINT_DELAY_MS`) additionally holds the interval's
   # outputs until it closes.
   class BenchCheckpointOperative < Flezha::StreamOperative
@@ -147,9 +147,9 @@ module Fixtures
   # -- store_input -----------------------------------------------------------
 
   # The durable-state reference: every input is appended through a change.
-  class StoreInput < Flezha::Procedure
-    procedure_name "store_input_procedure"
-    def initial_state(_entity_key) = { binary_inputs: [], text_inputs: [] }
+  class StoreInput < Flezha::Tasklet
+    tasklet_name "store_input_tasklet"
+    def initial_state(_cell_key) = { binary_inputs: [], text_inputs: [] }
     def apply_change(state, change) = state[:text_inputs] << change[:push_text]
 
     def run(input, ctx)
@@ -168,14 +168,14 @@ module Fixtures
 
   # -- stateful_counter / persistence_off_counter ----------------------------
 
-  class CounterEntry < Flezha::Procedure
-    procedure_name "counter_entry_procedure"
+  class CounterEntry < Flezha::Tasklet
+    tasklet_name "counter_entry_tasklet"
     def run(input, _ctx) = AS_INT.call(input)
   end
 
-  class Counter < Flezha::Procedure
-    procedure_name "counter_procedure"
-    def initial_state(_entity_key) = { value: 0 }
+  class Counter < Flezha::Tasklet
+    tasklet_name "counter_tasklet"
+    def initial_state(_cell_key) = { value: 0 }
     def apply_change(state, change) = state[:value] += change[:delta]
 
     def run(input, ctx)
@@ -191,23 +191,23 @@ module Fixtures
     end
   end
 
-  # The same topology with per-Entity persistence off, under the reference's
+  # The same topology with per-Cell persistence off, under the reference's
   # node names: the toggle is a class property, not a different computation.
   class PersistenceOffCounterOperative < Flezha::StreamOperative
     factory_id "persistence_off_counter"
     persistent false
     channels do |c|
       c.input("input", codec: :text)
-       .into(CounterEntry, "persistence_off_entry_procedure").named("ticks")
-       .into(Counter, "persistence_off_counter_procedure")
+       .into(CounterEntry, "persistence_off_entry_tasklet").named("ticks")
+       .into(Counter, "persistence_off_counter_tasklet")
     end
   end
 
   # -- coalescing_counter ----------------------------------------------------
 
   # Wire format: `<interval>:<ts>:<delta>`; a missing or unparsable part reads 0.
-  class TickEntry < Flezha::Procedure
-    procedure_name "tick_entry_procedure"
+  class TickEntry < Flezha::Tasklet
+    tasklet_name "tick_entry_tasklet"
 
     def run(input, _ctx)
       interval, ts, delta = input.to_s.split(":", 3)
@@ -220,9 +220,9 @@ module Fixtures
   # uncoalesced — a throughput property, not a semantic one: the fold is
   # idempotent per `(interval, ts)` either way, so replay produces the same
   # state.
-  class Tick < Flezha::Procedure
-    procedure_name "tick_procedure"
-    def initial_state(_entity_key) = { last: 0 }
+  class Tick < Flezha::Tasklet
+    tasklet_name "tick_tasklet"
+    def initial_state(_cell_key) = { last: 0 }
     def apply_change(state, change) = state[:last] = change[:delta]
 
     def run(input, ctx)
@@ -242,9 +242,9 @@ module Fixtures
 
   # Emits the running total, so a resume is observable on the wire. Default +
   # change replay rebuilds the total on restore; no snapshot fast path needed.
-  class ResumeProbe < Flezha::Procedure
-    procedure_name "resume_probe_procedure"
-    def initial_state(_entity_key) = { total: 0 }
+  class ResumeProbe < Flezha::Tasklet
+    tasklet_name "resume_probe_tasklet"
+    def initial_state(_cell_key) = { total: 0 }
     def apply_change(state, change) = state[:total] += change[:add]
 
     def run(input, ctx)
@@ -266,7 +266,7 @@ module Fixtures
   # -- schema_evolution_v1 / schema_evolution_v2 -----------------------------
   #
   # The same class either side of a deploy that edits its own state type. Both
-  # halves declare the SAME procedure name, so an operative started under v1
+  # halves declare the SAME tasklet name, so an operative started under v1
   # and restarted under v2 restores from the very WAL v1 wrote — which is what
   # a deploy does, with the two binaries collapsed into one fixture file.
   #
@@ -274,9 +274,9 @@ module Fixtures
   # 1 through a declared migration. Output is `total:currency` so the e2e can
   # read the migrated field off the wire.
 
-  class EvolvingCartV1 < Flezha::Procedure
-    procedure_name "evolving_cart"
-    def initial_state(_entity_key) = { total: 0 }
+  class EvolvingCartV1 < Flezha::Tasklet
+    tasklet_name "evolving_cart"
+    def initial_state(_cell_key) = { total: 0 }
     def apply_change(state, change) = state[:total] += change[:add]
 
     def run(input, ctx)
@@ -287,8 +287,8 @@ module Fixtures
     end
   end
 
-  class EvolvingCartV2 < Flezha::Procedure
-    procedure_name "evolving_cart"
+  class EvolvingCartV2 < Flezha::Tasklet
+    tasklet_name "evolving_cart"
     schema_version 2
     min_readable_schema_version 1
     migrate_state do |from_version, bytes|
@@ -304,7 +304,7 @@ module Fixtures
       { add: old.fetch(:add, 0), note: "migrated" }
     end
 
-    def initial_state(_entity_key) = { total: 0, currency: "" }
+    def initial_state(_cell_key) = { total: 0, currency: "" }
     def apply_change(state, change) = state[:total] += change[:add]
 
     def run(input, ctx)

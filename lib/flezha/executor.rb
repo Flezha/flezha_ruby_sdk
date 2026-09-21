@@ -9,8 +9,8 @@ module Flezha
   # The concurrency host: what runs `poll -> dispatch -> complete`, and on what.
   #
   # Two members in v1, and the seam between them may never observe or affect
-  # per-entity ordering. Exclusivity is the core's handout guarantee — one
-  # outstanding activation per Entity — and an activation is completed only
+  # per-cell ordering. Exclusivity is the core's handout guarantee — one
+  # outstanding activation per Cell — and an activation is completed only
   # after its dispatch has returned, so ordering holds for any executor that
   # does not complete early. That invariant is this seam's entire contract.
   module Executor
@@ -153,7 +153,7 @@ module Flezha
 
     # Stop fetching and drain. The core says when: a worker leaves on the poll
     # that reports the core shutting down, which the core reports only once
-    # the shutdown sequence has shipped every Entity's state through these
+    # the shutdown sequence has shipped every Cell's state through these
     # same workers; a worker inside a handler finishes it, completes it, and
     # only then observes it. Bounded by `DRAIN_TIMEOUT_S` — a handler that
     # never returns must not keep the runner alive forever — and the flag is

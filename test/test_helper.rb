@@ -139,7 +139,7 @@ module Flezha
     # One activation, with the fields every kind carries; a caller merges what
     # its own kind adds.
     def self.activation(factory:, **extra)
-      { token: 1, operative: "op-1", procedure: 0, entity_key: nil, change_seq: 0,
+      { token: 1, operative: "op-1", tasklet: 0, cell_key: nil, change_seq: 0,
         factory: factory, kind: :work }.merge(extra)
     end
 

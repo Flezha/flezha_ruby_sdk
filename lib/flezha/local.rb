@@ -10,8 +10,8 @@ module Flezha
   # `LocalOperative.start` takes the operative class you deploy and runs the
   # `channels` graph it already declares — no local-mode member on the class,
   # no second declaration. What runs is the deployed machinery: entry decode,
-  # edge transforms and keying, one Entity per resolved key with its own
-  # mailbox, the retry ladder, and inter-procedure delivery performed by the
+  # edge transforms and keying, one Cell per resolved key with its own
+  # mailbox, the retry ladder, and inter-tasklet delivery performed by the
   # runtime.
   #
   #   run = Flezha::LocalOperative.start(WordCount)
@@ -58,7 +58,7 @@ module Flezha
     end
 
     # Deliver every value released on the sink +channel+ to the block, in
-    # release order. A sink channel takes the producing procedure's name
+    # release order. A sink channel takes the producing tasklet's name
     # unless the declaration named it.
     def on_sink(channel, &callback)
       # Registered with the core first: a channel the declaration does not
@@ -80,7 +80,7 @@ module Flezha
       @core.local_run_until_idle(budget_ms)
     end
 
-    # End the run and release its Entities. Idempotent.
+    # End the run and release its Cells. Idempotent.
     def close
       return if @closed
 

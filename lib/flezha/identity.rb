@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
 module Flezha
-  # Entity identity bytes and the replay-stable identifier derived from them.
+  # Cell identity bytes and the replay-stable identifier derived from them.
   #
   # Both algorithms are fixed by the SDK contract rather than by a library, so
-  # every SDK derives the same value from the same entity: the identity is
-  # length-prefixed `instance | procedure | key`, and the identifier is FNV-1a
+  # every SDK derives the same value from the same cell: the identity is
+  # length-prefixed `instance | tasklet | key`, and the identifier is FNV-1a
   # over `identity | change seq | per-invocation ordinal`.
   module Identity
     FNV128_OFFSET_BASIS = 0x6c62272e07bb014262b821756295c58d
@@ -23,19 +23,19 @@ module Flezha
       hash
     end
 
-    # `[len instance][instance][len procedure][procedure][u16 len key][key]`,
+    # `[len instance][instance][len tasklet][tasklet][u16 len key][key]`,
     # big-endian lengths. The same layout every SDK writes, so an identifier
-    # derived here matches one derived there for the same entity.
-    def entity_identity(instance_id, procedure_name, entity_key)
+    # derived here matches one derived there for the same cell.
+    def cell_identity(instance_id, tasklet_name, cell_key)
       instance = instance_id.to_s.b
-      procedure = procedure_name.to_s.b
-      key = entity_key.to_s.b
-      if instance.bytesize > 255 || procedure.bytesize > 255
-        raise Error, "operative class / procedure id must be at most 255 bytes"
+      tasklet = tasklet_name.to_s.b
+      key = cell_key.to_s.b
+      if instance.bytesize > 255 || tasklet.bytesize > 255
+        raise Error, "operative class / tasklet id must be at most 255 bytes"
       end
-      raise Error, "entity key must be at most 65535 bytes" if key.bytesize > 0xffff
+      raise Error, "cell key must be at most 65535 bytes" if key.bytesize > 0xffff
 
-      [instance.bytesize, instance, procedure.bytesize, procedure, key.bytesize, key]
+      [instance.bytesize, instance, tasklet.bytesize, tasklet, key.bytesize, key]
         .pack("Ca*Ca*na*")
     end
 

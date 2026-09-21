@@ -8,8 +8,8 @@ Three files, one for each part the guides describe:
 
 | File | Part | What it does |
 |---|---|---|
-| `echo_procedure.rb` | the procedure | the processing stage: prefixes each message |
-| `echo_operative.rb` | the operative | the graph: `in` feeds the procedure, output lands on `out` |
+| `echo_tasklet.rb` | the tasklet | the processing stage: prefixes each message |
+| `echo_operative.rb` | the operative | the graph: `in` feeds the tasklet, output lands on `out` |
 | `runner.rb` | the runner | this process: offers the operative and waits |
 
 ## Run it

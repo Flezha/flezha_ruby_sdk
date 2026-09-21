@@ -7,8 +7,8 @@ Flezha::TestSupport.require_test_app("fixtures")
 # The entry point's contract: declare, warm up, then serve — and the JIT
 # decision the operator can always take back.
 class RunnerTest < Minitest::Test
-  class Echo < Flezha::Procedure
-    procedure_name "runner_echo"
+  class Echo < Flezha::Tasklet
+    tasklet_name "runner_echo"
     def run(input, _ctx) = input
   end
 
@@ -191,34 +191,34 @@ class RunnerTest < Minitest::Test
   # The short forms under test are the test app's own, the classes the
   # end-to-end run registers. Each twin is the full form an author would write
   # instead.
-  class DoNothingProcedure < Fixtures::PassThrough
-    procedure_name "sugar_do_nothing"
+  class DoNothingTasklet < Fixtures::PassThrough
+    tasklet_name "sugar_do_nothing"
   end
 
   class DoNothingTwin < Flezha::StreamOperative
     factory_id "sugar_do_nothing"
-    channels { |c| c.input("input", codec: :text).into(DoNothingProcedure).sink("sugar_do_nothing_echo") }
+    channels { |c| c.input("input", codec: :text).into(DoNothingTasklet).sink("sugar_do_nothing_echo") }
   end
 
-  class WorkflowProcedure < Fixtures::PassThrough
-    procedure_name "sugar_workflow"
+  class WorkflowTasklet < Fixtures::PassThrough
+    tasklet_name "sugar_workflow"
   end
 
   class WorkflowTwin < Flezha::WorkflowOperative
     factory_id "sugar_workflow"
-    channels { |c| c.input("order", codec: :text).into(WorkflowProcedure).sink("sugar_workflow_placed") }
+    channels { |c| c.input("order", codec: :text).into(WorkflowTasklet).sink("sugar_workflow_placed") }
   end
 
-  class StateOnlyProcedure < Flezha::Procedure
-    procedure_name "sugar_state_only"
-    def initial_state(_entity_key) = { seen: [] }
+  class StateOnlyTasklet < Flezha::Tasklet
+    tasklet_name "sugar_state_only"
+    def initial_state(_cell_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
     def run(_input, _ctx) = nil
   end
 
   class StateOnlyTwin < Flezha::StreamOperative
     factory_id "sugar_state_only"
-    channels { |c| c.input("ticks", codec: :text).into(StateOnlyProcedure) }
+    channels { |c| c.input("ticks", codec: :text).into(StateOnlyTasklet) }
   end
 
   def test_a_stream_short_form_is_its_hand_written_twin
@@ -226,11 +226,11 @@ class RunnerTest < Minitest::Test
 
     assert_equal decl(DoNothingTwin), decl(short)
     assert_equal :stream, short.spec.kind
-    assert_equal "sugar_do_nothing", short.procedure.procedure_name,
-                 "the generated procedure is named after the factory id, verbatim"
+    assert_equal "sugar_do_nothing", short.tasklet.tasklet_name,
+                 "the generated tasklet is named after the factory id, verbatim"
     assert_equal "héllo", short.spec.channels.first.decode.call("héllo".b),
                  "the entry decodes text"
-    refute_operator short, :<, Flezha::Procedure, "a short form is an operative, not a procedure"
+    refute_operator short, :<, Flezha::Tasklet, "a short form is an operative, not a tasklet"
   end
 
   def test_a_workflow_short_form_is_a_once_workflow_equal_to_its_twin
@@ -242,13 +242,13 @@ class RunnerTest < Minitest::Test
     assert_equal %w[order sugar_workflow_placed], short.spec.channels.map(&:name)
   end
 
-  def test_a_short_form_with_no_sink_declares_its_entry_and_its_procedure_only
+  def test_a_short_form_with_no_sink_declares_its_entry_and_its_tasklet_only
     short = Fixtures::SugarStateOnly
 
     assert_equal decl(StateOnlyTwin), decl(short)
     assert_equal [%w[ticks entry]], decl(short)["channels"].map { |c| [c["name"], c["kind"]] },
                  "no plugin channel"
-    assert_equal ["sugar_state_only"], short.spec.procedures.map(&:name)
+    assert_equal ["sugar_state_only"], short.spec.tasklets.map(&:name)
     assert_equal %w[sugar_state_only], declared(Flezha::Runner.new("test-ns").register_factory(short)),
                  "an entry name and a codec need no sink"
   end
@@ -261,8 +261,8 @@ class RunnerTest < Minitest::Test
     assert_equal [%w[ticks entry]], derived["channels"].map { |c| [c["name"], c["kind"]] }
   end
 
-  def test_the_generated_procedure_runs_the_class_s_run_body_and_journals_its_changes
-    harness = Flezha::Testing::Harness.new(Fixtures::SugarStateOnly.procedure)
+  def test_the_generated_tasklet_runs_the_class_s_run_body_and_journals_its_changes
+    harness = Flezha::Testing::Harness.new(Fixtures::SugarStateOnly.tasklet)
     harness.feed("one")
     harness.feed("two")
 
@@ -271,8 +271,8 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_channels_body_still_declares_a_full_form
-    assert_nil DoNothingTwin.procedure, "a full form generates no procedure"
-    assert_equal [DoNothingProcedure], DoNothingTwin.spec.procedures.map(&:klass)
+    assert_nil DoNothingTwin.tasklet, "a full form generates no tasklet"
+    assert_equal [DoNothingTasklet], DoNothingTwin.spec.tasklets.map(&:klass)
   end
 
   def test_register_factory_takes_a_short_form_of_either_kind
@@ -296,7 +296,7 @@ class RunnerTest < Minitest::Test
   def test_a_run_body_beside_a_channels_body_is_refused
     both = Class.new(Flezha::StreamOperative) do
       factory_id "both"
-      channels { |c| c.input("input").into(DoNothingProcedure) }
+      channels { |c| c.input("input").into(DoNothingTasklet) }
       def run(input, _ctx) = input
     end
 
@@ -314,7 +314,7 @@ class RunnerTest < Minitest::Test
     assert_includes refused(derived).message, "factory_id"
   end
 
-  def test_a_malformed_short_form_is_refused_before_its_procedure_is_generated
+  def test_a_malformed_short_form_is_refused_before_its_tasklet_is_generated
     derived = Class.new(Flezha::StreamOperative) do
       sink "out"
       def run(input, _ctx) = input
@@ -325,9 +325,9 @@ class RunnerTest < Minitest::Test
       def run(input, _ctx) = input
     end
 
-    assert_includes assert_raises(Flezha::DeclarationError) { derived.procedure }.message,
+    assert_includes assert_raises(Flezha::DeclarationError) { derived.tasklet }.message,
                     "factory_id"
-    assert_includes assert_raises(Flezha::DeclarationError) { chained.procedure }.message,
+    assert_includes assert_raises(Flezha::DeclarationError) { chained.tasklet }.message,
                     "loop_mode"
   end
 
@@ -351,11 +351,11 @@ class RunnerTest < Minitest::Test
     assert_includes refused(chained).message, "loop_mode"
   end
 
-  def test_a_short_form_key_or_a_procedure_setting_on_a_full_form_is_refused_naming_it
+  def test_a_short_form_key_or_a_tasklet_setting_on_a_full_form_is_refused_naming_it
     { sink: "out", input: "ticks", codec: :text, clock: :logical }.each do |key, value|
       full = Class.new(Flezha::StreamOperative) do
         factory_id "full"
-        channels { |c| c.input("input").into(DoNothingProcedure) }
+        channels { |c| c.input("input").into(DoNothingTasklet) }
         public_send(key, value)
       end
 
@@ -365,22 +365,22 @@ class RunnerTest < Minitest::Test
     end
   end
 
-  def test_a_short_form_hands_its_procedure_settings_to_the_generated_procedure
+  def test_a_short_form_hands_its_tasklet_settings_to_the_generated_tasklet
     keyed = Class.new(Flezha::StreamOperative) do
       factory_id "keyed_short"
-      entity_keys "a", "b"
+      cell_keys "a", "b"
       mailbox_capacity 8
-      def entities_for(_input) = ["a"]
+      def cells_for(_input) = ["a"]
       def run(input, _ctx) = input
     end
 
     Flezha::Runner.new("test-ns").register_factory(keyed)
-    definition = keyed.procedure.definition
-    assert_equal %w[a b], definition.entity_keys
+    definition = keyed.tasklet.definition
+    assert_equal %w[a b], definition.cell_keys
     assert_equal 8, definition.mailbox_capacity
-    procedure = decl(keyed)["procedures"].first
+    tasklet = decl(keyed)["tasklets"].first
     assert_equal ["keyed_short", "static", 8, true],
-                 procedure.values_at("name", "entity_mode", "mailbox_capacity", "entities_for_overridden")
+                 tasklet.values_at("name", "cell_mode", "mailbox_capacity", "cells_for_overridden")
   end
 
   def test_a_duplicate_factory_id_across_kinds_is_refused_by_name
@@ -397,18 +397,18 @@ class RunnerTest < Minitest::Test
     assert_includes error.message, "sugar_do_nothing"
   end
 
-  def test_a_sink_on_a_procedure_is_refused_naming_the_operative_bases
+  def test_a_sink_on_a_tasklet_is_refused_naming_the_operative_bases
     error = assert_raises(Flezha::DeclarationError) do
-      Class.new(Flezha::Procedure) { sink "out" }
+      Class.new(Flezha::Tasklet) { sink "out" }
     end
 
     assert_includes error.message, "Flezha::StreamOperative"
     assert_includes error.message, "Flezha::WorkflowOperative"
   end
 
-  def test_registering_a_procedure_is_refused
+  def test_registering_a_tasklet_is_refused
     error = assert_raises(Flezha::Error) do
-      Flezha::Runner.new("test-ns").register_factory(DoNothingProcedure)
+      Flezha::Runner.new("test-ns").register_factory(DoNothingTasklet)
     end
     assert error.message.start_with?("UnknownOperativeKind"), error.message
   end

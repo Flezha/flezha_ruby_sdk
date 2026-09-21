@@ -19,16 +19,16 @@ module Flezha
     # Metadata keys the runtime owns. A handler that sets one is refused.
     RESERVED_PREFIX = "flz."
 
-    attr_reader :changes, :outputs, :timers, :entity_key, :replay
+    attr_reader :changes, :outputs, :timers, :cell_key, :replay
 
-    def initialize(spec:, node:, outgoing:, operative:, entity_key:, change_seq:,
+    def initialize(spec:, node:, outgoing:, operative:, cell_key:, change_seq:,
                    now:, replay:, state:, bridge:, token:)
       @token = token
       @spec = spec
       @node = node
       @outgoing = outgoing
       @operative = operative
-      @entity_key = entity_key
+      @cell_key = cell_key
       @change_seq = change_seq
       @now = now
       @replay = replay
@@ -44,18 +44,18 @@ module Flezha
       @identity = nil
     end
 
-    # The entity's state. Mutated only through `change`: a field assigned
+    # The cell's state. Mutated only through `change`: a field assigned
     # directly is live in this process and gone after a restart.
     attr_reader :state
 
     # The core-evaluated declared clock for this item. Never ambient time.
     def now = @now
 
-    # A replay-stable identifier, distinct per invocation within the entity.
+    # A replay-stable identifier, distinct per invocation within the cell.
     def stable_id
       # Lazily, because most invocations never ask and the identity is the one
       # part of the derivation that costs an allocation.
-      @identity ||= Identity.entity_identity(@operative, @node.name, @entity_key.to_s)
+      @identity ||= Identity.cell_identity(@operative, @node.name, @cell_key.to_s)
       id = Identity.stable_id(@identity, @change_seq, @ordinal)
       @ordinal += 1
       id
@@ -80,7 +80,7 @@ module Flezha
       definition.fold_change(@state, change)
     end
 
-    # Emit one output value on the procedure's declared output.
+    # Emit one output value on the tasklet's declared output.
     def emit(value, key: nil, channel: nil, metadata: nil)
       targets = channel ? @outgoing.select { |c| c.name == channel } : @outgoing
       if targets.empty?
@@ -95,7 +95,7 @@ module Flezha
       nil
     end
 
-    # Emit onto a named channel — the spelling for a procedure with several.
+    # Emit onto a named channel — the spelling for a tasklet with several.
     def emit_to(channel, value, key: nil, metadata: nil)
       emit(value, key: key, channel: channel, metadata: metadata)
     end
@@ -128,7 +128,7 @@ module Flezha
       nil
     end
 
-    # End the workflow instance this procedure runs in, with `result`.
+    # End the workflow instance this tasklet runs in, with `result`.
     #
     # The rest of the iteration still runs and commits; the instance then ends
     # with status `ok` instead of waiting for its next input. In a `once`
@@ -137,7 +137,7 @@ module Flezha
     # else as JSON; nil carries an empty result. A later call in the same
     # invocation replaces an earlier one.
     #
-    # A stream never completes: a stream procedure calling this fails its
+    # A stream never completes: a stream tasklet calling this fails its
     # input, without a retry, with an error naming `CompleteOutsideWorkflow`.
     def complete(result = nil)
       @completion = result.nil? ? "".b : Codec.plain_payload(result, @node.name).b
@@ -201,7 +201,7 @@ module Flezha
     def workflow_output(channel, edge, value)
       payload = Codec.encode(value)
       {
-        target: "edge", channel: channel.index, consumer: edge.procedure,
+        target: "edge", channel: channel.index, consumer: edge.tasklet,
         plugin_channel: nil, key: nil, event_time: nil, metadata: [], payload: payload
       }
     end
@@ -209,16 +209,16 @@ module Flezha
     # One consumer's frames, with its own transforms, key and clock: none when
     # a filter dropped the value, one per value when a flat_map fanned it.
     def edge_outputs(channel, edge, value, key, metadata)
-      definition = @spec.procedures[edge.procedure].definition
+      definition = @spec.tasklets[edge.tasklet].definition
       # Producer-side, in declaration order: the core routes on `(edge, key)`
       # and never evaluates a host closure.
       Flezha.apply_transforms(edge.transforms, value).map do |transformed|
         {
           target: "edge",
           channel: channel.index,
-          consumer: edge.procedure,
+          consumer: edge.tasklet,
           plugin_channel: nil,
-          key: key || (edge.key_by && edge.key_by.call(transformed)) || @entity_key,
+          key: key || (edge.key_by && edge.key_by.call(transformed)) || @cell_key,
           event_time: definition.event_time? ? definition.event_time_of(transformed) : nil,
           metadata: meta_list(metadata),
           payload: Codec.encode(transformed)
@@ -229,11 +229,11 @@ module Flezha
     # The plugin frame, serialized once from the value as emitted: an edge's
     # transforms belong to that edge, so they never reach the sink.
     def plugin_output(channel, value, key, metadata)
-      resolved = key || @entity_key
+      resolved = key || @cell_key
       if channel.keyed && resolved.nil?
         raise EmitError,
               "#{@node.name}: emits on keyed channel `#{channel.name}` with no key, and has " \
-              "no entity key of its own to fall back on; pass `key:` on the emit"
+              "no cell key of its own to fall back on; pass `key:` on the emit"
       end
 
       pairs = meta_list(metadata)
@@ -255,7 +255,7 @@ module Flezha
     def stamp_identity(pairs, channel, key)
       if channel.keyed && !@spec.effectively_once
         pairs.push(
-          ["flz.entity", "#{@operative}/#{@node.name}/#{@entity_key}"],
+          ["flz.cell", "#{@operative}/#{@node.name}/#{@cell_key}"],
           ["flz.seq", "#{@change_seq}.#{@emit_ordinal}"],
           ["flz.key", key.to_s]
         )
@@ -270,7 +270,7 @@ module Flezha
         if key.to_s.start_with?(RESERVED_PREFIX)
           raise EmitError,
                 "#{@node.name}: metadata key `#{key}` is inside the reserved " \
-                "`#{RESERVED_PREFIX}` namespace, which the runtime stamps itself (entity " \
+                "`#{RESERVED_PREFIX}` namespace, which the runtime stamps itself (cell " \
                 "identity, sequence, key and offset); choose a key outside it"
         end
 

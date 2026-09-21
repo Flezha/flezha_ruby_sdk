@@ -3,17 +3,17 @@
 require_relative "builder"
 require_relative "declarative"
 require_relative "errors"
-require_relative "procedure"
+require_relative "tasklet"
 
 module Flezha
   # The base an authored operative subclasses. Its class body declares the
-  # factory id and one body: a `channels` graph, or, for the single-procedure
-  # short form, that procedure's `run` instance method. `spec` resolves the
+  # factory id and one body: a `channels` graph, or, for the single-tasklet
+  # short form, that tasklet's `run` instance method. `spec` resolves the
   # declaration once.
   class Operative
     extend Declarative
-    # A short form's procedure settings, handed to the procedure it generates.
-    extend ProcedureSettings
+    # A short form's tasklet settings, handed to the tasklet it generates.
+    extend TaskletSettings
 
     # The channels graph. The block receives the builder.
     block_setting :channels
@@ -22,7 +22,7 @@ module Flezha
     SHORT_FORM_KEYS = %i[input codec sink].freeze
     setting(*SHORT_FORM_KEYS)
     # The declarations only a short form reads.
-    SHORT_FORM_ONLY = (SHORT_FORM_KEYS + ProcedureSettings::NAMES).freeze
+    SHORT_FORM_ONLY = (SHORT_FORM_KEYS + TaskletSettings::NAMES).freeze
     declares :persistent
     # `factory_id` is deliberately NOT inherited: two operatives cannot share
     # one, and a subclass silently taking its parent's would be refused by the
@@ -35,7 +35,7 @@ module Flezha
         @factory_id = id.to_s
       end
 
-      # Whether change bytes are flushed to the per-entity WAL. Default true.
+      # Whether change bytes are flushed to the per-cell WAL. Default true.
       def persistent(flag = nil)
         return @persistent.nil? ? true : @persistent if flag.nil?
 
@@ -46,19 +46,19 @@ module Flezha
         @spec ||= build_spec
       end
 
-      # The procedure a short form generates, or `nil` for a full form. Named
-      # after the factory id, verbatim: a procedure's name is part of every
-      # entity's state path, so the full form that replaces this one keeps
-      # its entities by naming its procedure the same.
-      def procedure
+      # The tasklet a short form generates, or `nil` for a full form. Named
+      # after the factory id, verbatim: a tasklet's name is part of every
+      # cell's state path, so the full form that replaces this one keeps
+      # its cells by naming its tasklet the same.
+      def tasklet
         return nil unless short_form?
 
         check_declaration!
-        @procedure ||= Class.new(Procedure).tap do |generated|
+        @tasklet ||= Class.new(Tasklet).tap do |generated|
           operative = self
-          generated.procedure_name(@factory_id)
+          generated.tasklet_name(@factory_id)
           generated.define_singleton_method(:body) { operative }
-          hand_down(generated, ProcedureSettings::NAMES)
+          hand_down(generated, TaskletSettings::NAMES)
         end
       end
 
@@ -76,7 +76,7 @@ module Flezha
             raise DeclarationError.new(
               @factory_id, "run",
               "ShortFormWithTopology: defines a `run` body beside `channels`; a short form's " \
-              "one procedure is `run`, and a graph of procedures is `channels`, so keep one",
+              "one tasklet is `run`, and a graph of tasklets is `channels`, so keep one",
               ["ShortFormWithTopology"]
             )
           end
@@ -89,17 +89,17 @@ module Flezha
         elsif channels
           refuse_written(SHORT_FORM_ONLY,
                          ", which only a short form reads; a full form wires it in `channels`, " \
-                         "a channel key on the channel and a procedure setting on the procedure")
+                         "a channel key on the channel and a tasklet setting on the tasklet")
         else
           raise DeclarationError.new(@factory_id, nil,
                                      "declares no body; write the graph in `channels`, or a " \
-                                     "single procedure's body as `run`")
+                                     "single tasklet's body as `run`")
         end
       end
 
       private
 
-      # A short form carries its one procedure's `run` body instead of a
+      # A short form carries its one tasklet's `run` body instead of a
       # `channels` graph.
       def short_form? = method_defined?(:run)
 
@@ -118,9 +118,9 @@ module Flezha
         builder
       end
 
-      # `input -> procedure`, and on to the plugin sink when one is declared.
+      # `input -> tasklet`, and on to the plugin sink when one is declared.
       def wire_short_form(builder)
-        edge = builder.input(input || "input", codec: codec).into(procedure)
+        edge = builder.input(input || "input", codec: codec).into(tasklet)
         edge.sink(sink) if sink
       end
     end
@@ -146,13 +146,13 @@ module Flezha
           beyond_window_policy: builder.beyond_window_policy_value,
           compact_after_bytes: builder.compact_after_bytes_value,
           sync_durability: builder.sync_durability_flag,
-          procedures: builder.procedures, channels: builder.channels
+          tasklets: builder.tasklets, channels: builder.channels
         )
       end
     end
   end
 
-  # A workflow operative: a chain of procedures over a channels graph, run
+  # A workflow operative: a chain of tasklets over a channels graph, run
   # once or looping.
   class WorkflowOperative < Operative
     setting :loop_mode, :rollback_mode, :retry_attempts, :retry_backoff_ms,
@@ -169,7 +169,7 @@ module Flezha
           effectively_once: builder.effectively_once_flag, checkpoint_ack: false,
           checkpoint_outputs: :as_produced, beyond_window_policy: :process_as_arrival,
           sync_durability: sync_durability_declared?,
-          procedures: builder.procedures, channels: builder.channels,
+          tasklets: builder.tasklets, channels: builder.channels,
           workflow: {
             loop_mode: (loop_mode || :once).to_sym,
             rollback_mode: (rollback_mode || :all_or_nothing).to_sym,

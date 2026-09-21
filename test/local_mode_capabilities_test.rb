@@ -44,23 +44,23 @@ class LocalModeCapabilitiesTest < Minitest::Test
     assert_equal %w[a:1 b:1 a:2], payloads(released)
     assert_equal %w[a b a], released.map { |output| output.metadata["flz.key"] },
                  "each release carries the key its own value resolved to"
-    %w[flz.entity flz.seq].each do |stamp|
+    %w[flz.cell flz.seq].each do |stamp|
       assert_includes released.first.metadata, stamp, "a keyed sink carries #{stamp}"
     end
   end
 
-  # The class's sink is not keyed, so a released value carries no entity stamp
+  # The class's sink is not keyed, so a released value carries no cell stamp
   # and the per-key minting is not visible on this channel. It is asserted
-  # above, on `partition_relay`, whose procedure is dynamic too and whose sink
+  # above, on `partition_relay`, whose tasklet is dynamic too and whose sink
   # IS keyed. What this class shows that that one does not is the declared
   # filter: a value it rejects answers no key, so the core is never asked to
-  # mint an Entity for it.
-  def test_dynamic_entity_the_declared_filter_runs_before_keying_and_nothing_else_is_lost
-    released = release(declares("dynamic_entity", "dynamic_entity"),
+  # mint a Cell for it.
+  def test_dynamic_cell_the_declared_filter_runs_before_keying_and_nothing_else_is_lost
+    released = release(declares("dynamic_cell", "dynamic_cell"),
                        "input", "kafka", %w[a:1 b:1 drop a:2])
 
     assert_equal %w[a:1 b:1 a:2], payloads(released),
-                 "the filter dropped `drop` before it was keyed, and every other value reached its Entity"
+                 "the filter dropped `drop` before it was keyed, and every other value reached its Cell"
     assert_equal %w[kafka kafka kafka], released.map { |output| output.metadata["channel"] },
                  "an unkeyed sink carries its channel and no identity stamps"
   end
@@ -79,8 +79,8 @@ class LocalModeCapabilitiesTest < Minitest::Test
                  "the mailbox holds 4 and 24 were fed: under `drop_nothing` the feed waits, in order"
   end
 
-  def test_entity_timers_a_declared_timer_fires_locally_with_its_scheduled_time
-    operative = declares("entity_timers", "session_timeout")
+  def test_cell_timers_a_declared_timer_fires_locally_with_its_scheduled_time
+    operative = declares("cell_timers", "session_timeout")
 
     # The class reads its own deadline from the environment, the way the e2e
     # sets it; 200 ms keeps the run short without changing what is proved.

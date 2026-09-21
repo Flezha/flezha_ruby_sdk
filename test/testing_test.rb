@@ -6,9 +6,9 @@ require_relative "test_helper"
 # mutated only through declared changes, and this SDK has no runtime guard
 # enforcing it — so `replay_equals!` is what makes the rule safe.
 class TestingTest < Minitest::Test
-  class Counter < Flezha::Procedure
-    procedure_name "harness_counter"
-    def initial_state(_entity_key) = { total: 0, seen: [] }
+  class Counter < Flezha::Tasklet
+    tasklet_name "harness_counter"
+    def initial_state(_cell_key) = { total: 0, seen: [] }
 
     def apply_change(state, change)
       state[:total] += change[:by]
@@ -27,7 +27,7 @@ class TestingTest < Minitest::Test
   # Mutates the state without recording a change: live in this process, gone
   # after a restart, and reported nowhere until then.
   class Unrecorded < Counter
-    procedure_name "harness_unrecorded"
+    tasklet_name "harness_unrecorded"
     def run(input, ctx)
       ctx.state[:total] += Integer(input)
       ctx.state[:total]
@@ -38,7 +38,7 @@ class TestingTest < Minitest::Test
   # neither the state nor the change carries, so a replay, where the handler
   # never ran, produces a different answer.
   class ImpureFold < Counter
-    procedure_name "harness_impure"
+    tasklet_name "harness_impure"
     def run(input, ctx)
       @handled = (@handled || 0) + 1
       super
@@ -50,7 +50,7 @@ class TestingTest < Minitest::Test
     end
   end
 
-  def test_the_harness_runs_the_procedure_and_records_what_it_produced
+  def test_the_harness_runs_the_tasklet_and_records_what_it_produced
     harness = Flezha::Testing::Harness.new(Counter)
 
     first = harness.feed("3")
@@ -94,8 +94,8 @@ class TestingTest < Minitest::Test
   end
 
   def test_a_registered_timer_is_anchored_on_now
-    inner = Class.new(Flezha::Procedure) do
-      procedure_name "timer_registrar"
+    inner = Class.new(Flezha::Tasklet) do
+      tasklet_name "timer_registrar"
       def run(_input, ctx) = ctx.timer_after(50)
     end
     harness = Flezha::Testing::Harness.new(inner)
@@ -126,8 +126,8 @@ class TestingTest < Minitest::Test
   # A handle already resolved to what a controller would have answered.
   def test_a_spawn_answers_a_resolved_handle_and_a_replay_skips_it
     handles = []
-    spawner = Class.new(Flezha::Procedure) do
-      procedure_name "spawner"
+    spawner = Class.new(Flezha::Tasklet) do
+      tasklet_name "spawner"
 
       define_method(:run) do |input, ctx|
         handles.replace([ctx.spawn_workflow("stateless_loop_workflow", input),
@@ -149,8 +149,8 @@ class TestingTest < Minitest::Test
   end
 
   def test_stable_id_is_replay_stable_within_an_invocation
-    identifier = Class.new(Flezha::Procedure) do
-      procedure_name "identifier"
+    identifier = Class.new(Flezha::Tasklet) do
+      tasklet_name "identifier"
       def run(_input, ctx) = [ctx.stable_id, ctx.stable_id]
     end
 
@@ -162,8 +162,8 @@ class TestingTest < Minitest::Test
     assert_equal 32, first[0].length
   end
 
-  class Emitter < Flezha::Procedure
-    procedure_name "harness_emitter"
+  class Emitter < Flezha::Tasklet
+    tasklet_name "harness_emitter"
 
     def run(input, ctx)
       ctx.emit({ said: input })

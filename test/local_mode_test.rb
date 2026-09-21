@@ -3,7 +3,7 @@
 require_relative "test_helper"
 
 # The Ruby SDK's local mode: a user's own operative class, its declared
-# two-procedure graph, and no controller anywhere.
+# two-tasklet graph, and no controller anywhere.
 #
 # The graph and its expected sink output are read from
 # `test/fixtures/local_mode_word_count.txt`, which the Rust, Java, Node,
@@ -11,18 +11,18 @@ require_relative "test_helper"
 # against one recorded expectation instead of by inspection.
 class LocalModeTest < Minitest::Test
   # One line into its words: the hop to `Tally` is the runtime's job.
-  class Split < Flezha::Procedure
-    procedure_name "split"
+  class Split < Flezha::Tasklet
+    tasklet_name "split"
     def run(line, ctx)
       line.split.each { |word| ctx.emit(word.downcase) }
       nil
     end
   end
 
-  # One Entity per word, minted on first sight of it.
-  class Tally < Flezha::Procedure
-    procedure_name "tally"
-    dynamic_entities idle_ttl_ms: 300_000
+  # One Cell per word, minted on first sight of it.
+  class Tally < Flezha::Tasklet
+    tasklet_name "tally"
+    dynamic_cells idle_ttl_ms: 300_000
     def initial_state(_key) = { seen: 0 }
     def apply_change(state, change) = state[:seen] = change[:seen]
 
@@ -75,9 +75,9 @@ class LocalModeTest < Minitest::Test
     counted = released.each_with_object(Hash.new(0)) { |o, acc| acc[o.payload.dup.force_encoding("UTF-8")] += 1 }
 
     assert_equal expected, counted,
-                 "both procedures ran, the runtime performed the hop, and one Entity per word counted"
+                 "both tasklets ran, the runtime performed the hop, and one Cell per word counted"
     assert_equal "totals", released.first.channel
-    %w[flz.entity flz.seq flz.key].each do |stamp|
+    %w[flz.cell flz.seq flz.key].each do |stamp|
       assert_includes released.first.metadata, stamp,
                       "a keyed sink carries the identity stamps a deployed run stamps"
     end
@@ -96,8 +96,8 @@ class LocalModeTest < Minitest::Test
   end
 
   # Reads the map an undeclared entry decodes, and emits a string and a map.
-  class Defaults < Flezha::Procedure
-    procedure_name "defaults"
+  class Defaults < Flezha::Tasklet
+    tasklet_name "defaults"
     def run(value, ctx)
       ctx.emit("a is #{value[:a]}")
       ctx.emit({ a: value[:a] })

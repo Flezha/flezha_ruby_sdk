@@ -2,7 +2,7 @@
 
 require_relative "test_helper"
 
-# A procedure's spawn: the call answers a handle at once and never raises what
+# A tasklet's spawn: the call answers a handle at once and never raises what
 # the controller decided, and a read answers the result or raises the kind of
 # failure. The double scripts the core's answers; the native tests drive the
 # core itself over a local run, where no control plane listens.
@@ -10,8 +10,8 @@ class SpawnTest < Minitest::Test
   FakeCore = Flezha::TestSupport::FakeCore
 
   def ctx(core, replay: false)
-    Flezha::Ctx.new(spec: nil, node: Flezha::ProcNode.new(0, "spawner"), outgoing: [], operative: "op",
-                    entity_key: nil, change_seq: 0, now: 0, replay: replay, state: nil, bridge: core,
+    Flezha::Ctx.new(spec: nil, node: Flezha::TaskNode.new(0, "spawner"), outgoing: [], operative: "op",
+                    cell_key: nil, change_seq: 0, now: 0, replay: replay, state: nil, bridge: core,
                     token: 7)
   end
 
@@ -120,8 +120,8 @@ class SpawnTest < Minitest::Test
     end
   end
 
-  class Waiter < Flezha::Procedure
-    procedure_name "waiter"
+  class Waiter < Flezha::Tasklet
+    tasklet_name "waiter"
     def run(input, ctx) = ctx.spawn_workflow("worker", input, id: "w1").wait.outcome.to_s
   end
 
@@ -136,8 +136,8 @@ class SpawnTest < Minitest::Test
 
   # Reads a spawn without an id and one with, reads the second again, then
   # leaves a third unread and hands it out, and emits its input.
-  class Spawner < Flezha::Procedure
-    procedure_name "spawner"
+  class Spawner < Flezha::Tasklet
+    tasklet_name "spawner"
 
     def run(input, ctx)
       unnamed = ctx.spawn_workflow("worker", input)

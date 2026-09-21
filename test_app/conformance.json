@@ -50,13 +50,13 @@
       "do_nothing"
     ],
     "graph_builder": [
-      "sugar_static_entity",
-      "static_entity",
+      "sugar_static_cell",
+      "static_cell",
       "mixed_operative",
       "hybrid_channel",
       "merged_input",
       "transform_chain",
-      "entity_stress",
+      "cell_stress",
       "bench_keyed_nopersist"
     ],
     "shorthand": [
@@ -89,7 +89,7 @@
       "checkpoint_batched_store",
       "bench_checkpoint"
     ],
-    "entity_timers": [
+    "cell_timers": [
       "session_timeout"
     ],
     "correction_window": [
@@ -100,10 +100,10 @@
     ],
     "partitioned": [
       "partition_relay",
-      "dynamic_entity"
+      "dynamic_cell"
     ],
-    "dynamic_entity": [
-      "dynamic_entity"
+    "dynamic_cell": [
+      "dynamic_cell"
     ],
     "pool_wedge": [
       "wedge_probe"

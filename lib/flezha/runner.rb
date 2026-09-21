@@ -51,7 +51,7 @@ module Flezha
     def register_factory(klass)
       unless klass.is_a?(Class) && (klass < StreamOperative || klass < WorkflowOperative)
         raise Error, "UnknownOperativeKind: `#{klass}` is neither a Flezha::StreamOperative nor " \
-                     "a Flezha::WorkflowOperative; a procedure is registered by the operative " \
+                     "a Flezha::WorkflowOperative; a tasklet is registered by the operative " \
                      "that wires it"
       end
 

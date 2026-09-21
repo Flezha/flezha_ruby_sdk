@@ -14,8 +14,8 @@ class DeclKeysTest < Minitest::Test
   KEYS_FILE = Flezha::TestSupport.contract_file("test/fixtures/host_class_decl_keys.txt")
 
   # A declaration populated far enough that every optional key is present.
-  class Entry < Flezha::Procedure
-    procedure_name "entry"
+  class Entry < Flezha::Tasklet
+    tasklet_name "entry"
     clock :event_time
     mailbox_capacity 8
     schema_version 3
@@ -27,17 +27,17 @@ class DeclKeysTest < Minitest::Test
     def run(input, ctx) = ctx.change({ push: input })
   end
 
-  class Downstream < Flezha::Procedure
-    procedure_name "downstream"
-    dynamic_entities idle_ttl_ms: 1_000, max_entities: 16
+  class Downstream < Flezha::Tasklet
+    tasklet_name "downstream"
+    dynamic_cells idle_ttl_ms: 1_000, max_cells: 16
     def run(input, _ctx) = input
     def compensate(_outputs, _ctx) = nil
   end
 
-  class Fanned < Flezha::Procedure
-    procedure_name "fanned"
-    entity_keys "a", "b"
-    def entities_for(_input) = ["a"]
+  class Fanned < Flezha::Tasklet
+    tasklet_name "fanned"
+    cell_keys "a", "b"
+    def cells_for(_input) = ["a"]
     def run(input, _ctx) = input
   end
 
@@ -77,7 +77,7 @@ class DeclKeysTest < Minitest::Test
     keys = stream.keys.map { |key| "class.#{key}" }
     keys |= workflow.keys.map { |key| "class.#{key}" }
     keys |= stream["channels"].flat_map { |c| c.keys.map { |key| "channel.#{key}" } }
-    keys |= stream["procedures"].flat_map { |p| p.keys.map { |key| "procedure.#{key}" } }
+    keys |= stream["tasklets"].flat_map { |p| p.keys.map { |key| "tasklet.#{key}" } }
     keys |= workflow["workflow"].keys.map { |key| "workflow.#{key}" }
     keys.sort
   end
@@ -115,8 +115,8 @@ class DeclKeysTest < Minitest::Test
     end
     transform = { "link" => "transform" }
     key = { "link" => "key" }
-    first = { "link" => "merge", "procedure" => 0, "group" => 0 }
-    second = { "link" => "merge", "procedure" => 1, "group" => 1 }
+    first = { "link" => "merge", "tasklet" => 0, "group" => 0 }
+    second = { "link" => "merge", "tasklet" => 1, "group" => 1 }
 
     assert_equal [[[transform, key, first]], [[transform, transform, key, first]],
                   [[transform, second]], [[transform, second]]],
@@ -167,13 +167,13 @@ class ReferenceTopologiesTest < Minitest::Test
 
   BYTES = ->(value) { value.to_s }
 
-  class HybridProducer < Flezha::Procedure
-    procedure_name "hybrid_producer_procedure"
+  class HybridProducer < Flezha::Tasklet
+    tasklet_name "hybrid_producer_tasklet"
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class HybridConsumer < Flezha::Procedure
-    procedure_name "hybrid_consumer_procedure"
+  class HybridConsumer < Flezha::Tasklet
+    tasklet_name "hybrid_consumer_tasklet"
     def run(_input, _ctx) = nil
   end
 
@@ -185,13 +185,13 @@ class ReferenceTopologiesTest < Minitest::Test
     end
   end
 
-  class TierCommitA < Flezha::Procedure
-    procedure_name "tier_commit_a"
+  class TierCommitA < Flezha::Tasklet
+    tasklet_name "tier_commit_a"
     def run(input, ctx) = ctx.emit(input, key: "job")
   end
 
-  class BlockB < Flezha::Procedure
-    procedure_name "block_b"
+  class BlockB < Flezha::Tasklet
+    tasklet_name "block_b"
     def run(_input, _ctx) = nil
   end
 
@@ -220,7 +220,7 @@ class ReferenceTopologiesTest < Minitest::Test
       [
         topology, index, channel["name"], channel["kind"],
         channel["producer"] || "-",
-        consumers.empty? ? "-" : consumers.map { |edge| edge["procedure"] }.join(","),
+        consumers.empty? ? "-" : consumers.map { |edge| edge["tasklet"] }.join(","),
         channel["sink"] || "-"
       ].join(" | ")
     end
