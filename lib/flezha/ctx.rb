@@ -145,10 +145,13 @@ module Flezha
     end
 
     # Spawn a workflow instance of `factory_id` with `payload` as its first
-    # input, answering a `SpawnHandle` at once. With an `id` already running,
-    # `if_running: "deliver"` (the default) hands it `payload` instead, and
-    # `"error"` resolves to `SpawnError::AlreadyRunning`. A replayed invocation
-    # sends nothing and resolves to `:skipped_on_replay`.
+    # message, answering a `SpawnHandle` at once. The payload is encoded as a
+    # sink naming no codec encodes a value, the rule `complete` applies: a
+    # String as its bytes and anything else as JSON, so the instance's `text`
+    # or `json` entry channel reads it as it reads a send. With an `id` already
+    # running, `if_running: "deliver"` (the default) hands it `payload` instead,
+    # and `"error"` resolves to `SpawnError::AlreadyRunning`. A replayed
+    # invocation sends nothing and resolves to `:skipped_on_replay`.
     #
     # Without an `id` the controller generates one and always starts a new
     # instance, so a spawn reissued after a lost or timed-out answer starts a
@@ -162,7 +165,8 @@ module Flezha
               "always starts a new one"
       end
 
-      handle = @bridge.spawn_request(@token, factory_id, id.to_s, Codec.encode(payload),
+      handle = @bridge.spawn_request(@token, factory_id, id.to_s,
+                                     Codec.plain_payload(payload, @node.name).b,
                                      if_running.to_s, @replay)
       SpawnHandle.new(@bridge, handle)
     end

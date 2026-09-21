@@ -84,6 +84,24 @@ module Flezha
       error.respond_to?(:non_retryable?) && error.non_retryable?
     end
 
+    # An entry channel's decoder, or the entry edge's transforms over what it
+    # decoded, rejected a message. Only the entrance raises this: the verdict
+    # it becomes tells the core the message is unreadable rather than that the
+    # handler failed, so a workflow parks it and keeps waiting instead of
+    # ending.
+    class UnreadableMessage < StandardError
+      def initialize(cause)
+        super(Dispatch.error_message(cause))
+      end
+    end
+
+    # An item's failure as its verdict and the message the wire carries.
+    def failure_of(error)
+      return ["unreadable", error.message] if error.is_a?(UnreadableMessage)
+
+      [non_retryable?(error) ? "non_retryable" : "retryable", error_message(error)]
+    end
+
     # A payload as the handler sees it: the entry channel's decoder, or the
     # class codec for a payload between tasklets, then its transforms in
     # declaration order. Empty when a filter rejected it, several values when
@@ -184,9 +202,11 @@ module Flezha
                            "#{Array(e.backtrace).first(8).join("\n")}")
           # Items after this one are re-handed by the core, so the batch stops
           # here rather than reporting effects the cell never saw.
+          verdict, message = failure_of(e)
           effects << {
-            verdict: non_retryable?(e) ? "non_retryable" : "retryable",
-            message: error_message(e), event_time: now,
+            verdict: verdict,
+            message: message,
+            event_time: now,
             consumed_offset: item[:consumed_offset]
           }
           break
@@ -222,7 +242,17 @@ module Flezha
       untransformed =
         channel.nil? || channel.kind == :entry || registered.spec.structured_workflow?
       edge = untransformed ? edge_into(channel, node.index) : nil
-      values = values_of(channel, edge, item[:payload] || "".b)
+      # The entrance (the entry channel's decoder and the entry edge's
+      # transforms) is where a message the operative cannot read is told
+      # apart from a handler that fails on one it can.
+      values =
+        begin
+          values_of(channel, edge, item[:payload] || "".b)
+        rescue StandardError => e
+          raise unless channel&.kind == :entry
+
+          raise UnreadableMessage, e
+        end
       values = values.select { |value| routes_to?(edge, definition, value, ctx.cell_key) } if edge
       # A filtered value reaches no handler and a fanned one reaches it once
       # per value. Either way the item is one effect, so its offset advances

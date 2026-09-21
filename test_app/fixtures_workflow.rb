@@ -91,8 +91,8 @@ module Fixtures
 
   # -- echo_workflow --------------------------------------------------------
   #
-  # One tasklet, run once (workflow.rs): its single pass is seeded with the
-  # start values and emits them back, so the pass ends and the controller
+  # One tasklet, run once (workflow.rs): its single pass runs on the first
+  # message and emits it back, so the pass ends and the controller
   # deregisters the instance.
 
   class Echo < Flezha::Tasklet
@@ -103,6 +103,29 @@ module Fixtures
   class EchoWorkflow < Flezha::WorkflowOperative
     factory_id "echo_workflow"
     channels { |c| c.input("in", codec: :text).into(Echo).sink("out") }
+  end
+
+  # -- typed_once_workflow --------------------------------------------------
+  #
+  # A `once` workflow whose entry decodes JSON: its one pass runs over the
+  # message it was spawned or sent with, prints what it read, emits it to the
+  # `placed` sink and completes with it.
+
+  class OncePlaced < Flezha::Tasklet
+    tasklet_name "once_placed"
+
+    def run(input, ctx)
+      text = input.fetch(:text).to_s
+      puts("once_ran #{text}")
+      $stdout.flush
+      ctx.complete(text)
+      "placed:#{text}"
+    end
+  end
+
+  class TypedOnceWorkflow < Flezha::WorkflowOperative
+    factory_id "typed_once_workflow"
+    channels { |c| c.input("order", codec: :json).into(OncePlaced).sink("placed") }
   end
 
   # -- commit_block_workflow / sync_durable_workflow ------------------------
@@ -524,6 +547,29 @@ module Fixtures
     end
   end
 
+  # The reply that blocks on the turn `reply-crash` while the release env is
+  # unset, after the root has committed.
+  REPLY_CRASH_TURN = "reply-crash"
+
+  class BlockingReply < Flezha::Tasklet
+    tasklet_name "blocking_reply"
+
+    def run(input, _ctx)
+      Fixtures.block_until_released if input == REPLY_CRASH_TURN
+      "reply:#{input}"
+    end
+  end
+
+  # The chat loop with the block moved AFTER the root's commit, so a SIGKILL
+  # lands between a root's `task_committed` and the pass's `iter_committed`.
+  class ReplyBlockLoopWorkflow < LoopWorkflow
+    factory_id "reply_block_loop_workflow"
+    channels do |c|
+      c.input("in", codec: :text).into(ChatTurn).named("mid")
+       .into(BlockingReply).sink("out")
+    end
+  end
+
   # -- the bench chains -----------------------------------------------------
   #
   # What `mix bench.workflow --scenario chain` drives (workflow_loop.rs:232): K
@@ -593,9 +639,10 @@ module Fixtures
 
   # Every workflow operative this app registers, in the reference's order.
   WORKFLOWS = [
-    EchoWorkflow, CommitBlockWorkflow, SyncDurableWorkflow, OptoutCommitBlock,
+    EchoWorkflow, TypedOnceWorkflow, CommitBlockWorkflow, SyncDurableWorkflow, OptoutCommitBlock,
     TierCommitBlockWorkflow, SagaBlockWorkflow, OutboxBlockWorkflow, UndoOutboxWorkflow,
-    ChatLoopWorkflow, StatelessLoopWorkflow, ChatRewindWorkflow, RetryWorkflow,
+    ChatLoopWorkflow, StatelessLoopWorkflow, ChatRewindWorkflow, ReplyBlockLoopWorkflow,
+    RetryWorkflow,
     BranchWorkflow, DiamondWorkflow, *BENCH_CHAINS, BenchLoopWorkflow
   ].freeze
 end

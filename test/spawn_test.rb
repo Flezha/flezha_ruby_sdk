@@ -25,8 +25,8 @@ class SpawnTest < Minitest::Test
     core = FakeCore.new(spawns: [resolved("worker-k7m2qzxw4pd3fn2a", "spawned")])
     handle = ctx(core).spawn_workflow("worker", "p1")
 
-    assert_equal [[7, "worker", "", Flezha::Codec.encode("p1"), "", false]], core.spawn_requests,
-                 "the activation token, an empty id and no policy"
+    assert_equal [[7, "worker", "", "p1".b, "", false]], core.spawn_requests,
+                 "the activation token, an empty id, the payload's own bytes and no policy"
     assert_equal Flezha::SpawnResult.new(id: "worker-k7m2qzxw4pd3fn2a", outcome: :spawned), handle.wait
   end
 
@@ -39,7 +39,22 @@ class SpawnTest < Minitest::Test
     assert_equal Flezha::SpawnResult.new(id: "w1", outcome: :spawned), first.wait
     assert_equal Flezha::SpawnResult.new(id: "w1", outcome: :delivered), second.wait
     assert_equal [%w[w1 p1], %w[w1 p2]],
-                 core.spawn_requests.map { |request| [request[2], Flezha::Codec.decode(request[3])] }
+                 core.spawn_requests.map { |request| [request[2], request[3]] }
+  end
+
+  # The payload takes the no-codec sink rule `complete` applies: a String is
+  # its bytes and anything else its JSON, so the spawned workflow's `text` or
+  # `json` entry decodes it as it decodes a send's payload.
+  def test_a_spawn_payload_is_what_a_text_or_json_entry_reads
+    core = FakeCore.new(spawns: [resolved("a", "spawned"), resolved("b", "spawned")])
+    context = ctx(core)
+    context.spawn_workflow("place", "o-1")
+    context.spawn_workflow("place", { "symbol" => "AAPL", "quantity" => 10 })
+
+    text, json = core.spawn_requests.map { |request| request[3] }
+    assert_equal "o-1".b, text
+    assert_equal Encoding::ASCII_8BIT, text.encoding
+    assert_equal({ "symbol" => "AAPL", "quantity" => 10 }, JSON.parse(json))
   end
 
   def test_the_error_policy_is_sent_and_an_existing_instance_raises_already_running

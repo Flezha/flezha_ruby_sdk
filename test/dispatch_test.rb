@@ -532,7 +532,8 @@ class DispatchTest < Minitest::Test
   end
 
   # An entry naming no codec reads JSON, so plain text fails its decode: the
-  # item rides the retry ladder and the handler is never handed it.
+  # verdict says the message is unreadable (the core parks it under the entry
+  # channel, and a workflow keeps waiting), and the handler is never handed it.
   class JsonEntryOperative < Flezha::StreamOperative
     factory_id "json_entry_op"
     channels { |c| c.input("in").into(WfB) }
@@ -542,9 +543,47 @@ class DispatchTest < Minitest::Test
     DELIVERED.clear
     effects = answer_on(JsonEntryOperative, items: [input_item('{"a":1}'), input_item("hello")])[:effects]
 
-    assert_equal %w[ok retryable], effects.map { |e| e[:verdict] }
+    assert_equal %w[ok unreadable], effects.map { |e| e[:verdict] }
     assert_includes effects[1][:message], "JSON::ParserError"
     assert_equal [{ a: 1 }], DELIVERED
+  end
+
+  # Only the entrance answers `unreadable`: a readable message the handler
+  # raises on is the handler's failure, retryable as before.
+  class Refusing < Flezha::Tasklet
+    tasklet_name "refusing"
+    def run(_input, _ctx) = raise(ArgumentError, "cannot place this")
+  end
+
+  class RefusingEntryOperative < Flezha::StreamOperative
+    factory_id "refusing_entry_op"
+    channels { |c| c.input("in").into(Refusing) }
+  end
+
+  def test_an_unreadable_message_is_told_apart_from_a_handler_failure
+    unreadable = answer_on(RefusingEntryOperative, items: [input_item("not json")])[:effects][0]
+    failed = answer_on(RefusingEntryOperative, items: [input_item('{"a":1}')])[:effects][0]
+
+    assert_equal "unreadable", unreadable[:verdict]
+    assert_equal "retryable", failed[:verdict]
+    assert_includes failed[:message], "ArgumentError: cannot place this"
+  end
+
+  # The entry edge's transforms run at the entrance too, so a mapping that
+  # rejects a message parks it as an unreadable one rather than failing the
+  # handler that never saw it.
+  class StrictEntryOperative < Flezha::StreamOperative
+    factory_id "strict_entry_op"
+    channels { |c| c.input("in").map { |value| value.fetch(:k) }.into(WfB) }
+  end
+
+  def test_an_entry_edge_transform_that_raises_makes_the_message_unreadable
+    DELIVERED.clear
+    effects = answer_on(StrictEntryOperative, items: [input_item('{"k":"fine"}'), input_item('{"other":1}')])[:effects]
+
+    assert_equal %w[ok unreadable], effects.map { |e| e[:verdict] }
+    assert_includes effects[1][:message], "KeyError"
+    assert_equal ["fine"], DELIVERED
   end
 
   # -- merge ----------------------------------------------------------------

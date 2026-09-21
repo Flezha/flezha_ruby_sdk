@@ -577,14 +577,18 @@ module Fixtures
         "unnamed" => ctx.spawn_workflow("stateless_loop_workflow", input),
         "named" => ctx.spawn_workflow("stateless_loop_workflow", input, id: input)
       }
-      handles.each do |label, handle|
-        result = handle.wait
-        puts("spawn_result #{label} #{result.id} #{result.outcome}")
-      rescue Flezha::SpawnError => e
-        puts("spawn_result #{label} error #{e.kind}")
-      end
-      $stdout.flush
+      handles.each { |label, handle| SpawnRequester.report(label, handle) }
       nil
+    end
+
+    # A spawn handle's answer on stdout, as `spawn_result <label> <id> <outcome>`.
+    def self.report(label, handle)
+      result = handle.wait
+      puts("spawn_result #{label} #{result.id} #{result.outcome}")
+    rescue Flezha::SpawnError => e
+      puts("spawn_result #{label} error #{e.kind}")
+    ensure
+      $stdout.flush
     end
   end
 
@@ -596,6 +600,29 @@ module Fixtures
     end
   end
 
+  # -- spawn_once_requester ------------------------------------------------
+
+  # On each input, spawns `typed_once_workflow` once with no id, carrying the
+  # input inside a JSON object its `order` entry decodes, and prints the
+  # result as `spawn_result once <id> <outcome>`: a spawn's payload is the
+  # spawned instance's first message, encoded by the no-codec sink rule.
+  class SpawnOnceRequester < Flezha::Tasklet
+    tasklet_name "spawn_once_requester"
+
+    def run(input, ctx)
+      SpawnRequester.report("once", ctx.spawn_workflow("typed_once_workflow", { "text" => input }))
+      nil
+    end
+  end
+
+  class SpawnOnceRequesterOperative < Flezha::StreamOperative
+    factory_id "spawn_once_requester"
+    channels do |c|
+      c.input("in", codec: :text).into(SpawnOnceRequester)
+       .sink("out")
+    end
+  end
+
   # Every operative this app registers, in declaration order.
   ALL = [
     DoNothingOperative, BenchEchoOperative, CompareFilterOperative,
@@ -603,7 +630,8 @@ module Fixtures
     HybridChannelOperative,
     MergedInputOperative, TransformChainOperative, CellStressOperative, *STATE,
     CandleOperative, PoisonProbeOperative, WedgeProbeOperative, SessionTimeoutOperative, *BOUNDED_MAILBOX,
-    PartitionRelayOperative, DynamicCellOperative, SpawnRequesterOperative
+    PartitionRelayOperative, DynamicCellOperative, SpawnRequesterOperative,
+    SpawnOnceRequesterOperative
   ].freeze
 
   # The §5 short forms this app registers.
