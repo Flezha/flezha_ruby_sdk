@@ -229,6 +229,50 @@ module Fixtures
     end
   end
 
+  # -- keyed_block_workflow / keyed_saga_workflow ---------------------------
+  #
+  # The entry's comma-separated key list is split into one value per key, and
+  # a `key_by` on that value mints one Cell per key of a durable compensable
+  # tasklet that declares no keys; each Cell commits one idempotent change. The
+  # third tasklet blocks until the release variable, or fails, so the keyed
+  # stage is rolled back once per key.
+
+  class KeySplit < Flezha::Tasklet
+    tasklet_name "key_split"
+
+    def run(input, ctx)
+      input.split(",").each { |key| ctx.emit(key) }
+      nil
+    end
+  end
+
+  class KeyedCommit < DurableStep
+    tasklet_name "keyed_commit"
+    dynamic_cells
+    def compensate(_outputs, _ctx) = nil
+  end
+
+  class KeyedFail < Flezha::Tasklet
+    tasklet_name "keyed_fail"
+    def run(_input, _ctx) = raise("keyed_fail always fails")
+  end
+
+  KEYED_COMMITS = lambda do |c|
+    c.input("in", codec: :text).into(KeySplit).named("keys")
+     .key_by { |key| key }
+     .into(KeyedCommit).named("committed")
+  end
+
+  class KeyedBlockWorkflow < Flezha::WorkflowOperative
+    factory_id "keyed_block_workflow"
+    channels { |c| KEYED_COMMITS.call(c).into(BlockB) }
+  end
+
+  class KeyedSagaWorkflow < Flezha::WorkflowOperative
+    factory_id "keyed_saga_workflow"
+    channels { |c| KEYED_COMMITS.call(c).into(KeyedFail) }
+  end
+
   # -- outbox_block_workflow ------------------------------------------------
   #
   # The transactional outbox. Task A commits durable state AND emits
@@ -681,7 +725,8 @@ module Fixtures
   # Every workflow operative this app registers, in the reference's order.
   WORKFLOWS = [
     EchoWorkflow, TypedOnceWorkflow, CommitBlockWorkflow, SyncDurableWorkflow, OptoutCommitBlock,
-    TierCommitBlockWorkflow, SagaBlockWorkflow, OutboxBlockWorkflow, UndoOutboxWorkflow,
+    TierCommitBlockWorkflow, SagaBlockWorkflow, KeyedBlockWorkflow, KeyedSagaWorkflow,
+    OutboxBlockWorkflow, UndoOutboxWorkflow,
     ChatLoopWorkflow, StatelessLoopWorkflow, ChatRewindWorkflow, ReplyBlockLoopWorkflow,
     RetryWorkflow,
     BranchWorkflow, DiamondWorkflow, *BENCH_CHAINS, BenchLoopWorkflow, WorkflowTimerRefused,
