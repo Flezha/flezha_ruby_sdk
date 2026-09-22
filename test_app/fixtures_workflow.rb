@@ -179,11 +179,10 @@ module Fixtures
 
   # -- tier_commit_block_workflow -------------------------------------------
   #
-  # The effectively-once fixture. Task A commits durable state AND emits
-  # `committed:<input>` under a stable key on a keyed hybrid channel, captured
-  # into the atomic effect record; task B blocks. A SIGKILL lands with A's
-  # effect record durable and B unfinished, and the resume re-runs A — the
-  # change is idempotent and the re-emit deterministic.
+  # The keyed hybrid twin. Task A commits durable state AND emits
+  # `committed:<input>` under a stable key on a keyed hybrid channel; task B
+  # blocks. A SIGKILL lands with A's stage committed and B unfinished, and the
+  # resume re-runs B alone.
 
   class TierCommitA < DurableStep
     tasklet_name "tier_commit_a"
@@ -193,7 +192,6 @@ module Fixtures
   class TierCommitBlockWorkflow < Flezha::WorkflowOperative
     factory_id "tier_commit_block_workflow"
     channels do |c|
-      c.effectively_once
       c.input("in", codec: :text).into(TierCommitA).keyed
        .sink("mid")
        .into(BlockB)
@@ -335,16 +333,16 @@ module Fixtures
 
   class BranchWorkflow < Flezha::WorkflowOperative
     factory_id "branch_workflow"
-    # Fail fast: the compensation scenario is about the rollback order, not the
-    # ladder that precedes it.
-    retry_attempts 0
     channels do |c|
       # One channel, two consumers: THE fan-out. Both branches read exactly
       # what BranchA released on it (held handle, wired twice).
       mid = c.input("in", codec: :text).into(BranchA)
              .sink("mid", encode: ->(value) { "a:#{value}" })
+      # Fail fast into the one tasklet that fails: the compensation scenario
+      # is about the rollback order, not the ladder that precedes it.
       mid.into(BranchB)
          .sink("bmid", encode: ->(value) { "b:#{value}" })
+         .retry_max(1)
          .into(BranchD).sink("d_out")
       mid.into(BranchC).sink("c_out")
     end
@@ -637,12 +635,32 @@ module Fixtures
     end
   end
 
+  # -- workflow_timer_refused -----------------------------------------------
+  #
+  # A tasklet that registers a timer inside a workflow. Timers do not fire
+  # there yet, so the ctx refuses naming `TimersUnavailable` and the instance
+  # ends in error rather than losing the timer.
+
+  class WorkflowTimer < Flezha::Tasklet
+    tasklet_name "workflow_timer_refused"
+
+    def run(_input, ctx)
+      ctx.timer_after(60_000)
+      nil
+    end
+  end
+
+  class WorkflowTimerRefused < Flezha::WorkflowOperative
+    factory_id "workflow_timer_refused"
+    channels { |c| c.input("input", codec: :text).into(WorkflowTimer) }
+  end
+
   # Every workflow operative this app registers, in the reference's order.
   WORKFLOWS = [
     EchoWorkflow, TypedOnceWorkflow, CommitBlockWorkflow, SyncDurableWorkflow, OptoutCommitBlock,
     TierCommitBlockWorkflow, SagaBlockWorkflow, OutboxBlockWorkflow, UndoOutboxWorkflow,
     ChatLoopWorkflow, StatelessLoopWorkflow, ChatRewindWorkflow, ReplyBlockLoopWorkflow,
     RetryWorkflow,
-    BranchWorkflow, DiamondWorkflow, *BENCH_CHAINS, BenchLoopWorkflow
+    BranchWorkflow, DiamondWorkflow, *BENCH_CHAINS, BenchLoopWorkflow, WorkflowTimerRefused
   ].freeze
 end

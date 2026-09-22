@@ -101,24 +101,25 @@ module Flezha
     end
 
     # Register a processing-time timer `ms` from `now`. Answers its time.
+    # Inside a workflow each timer call raises naming `TimersUnavailable`.
     def timer_after(milliseconds)
       # Anchored on `now`, never an ambient read: that is what makes a replayed
       # invocation register the timestamp the live one did.
       at = @now + Integer(milliseconds)
-      @timers << { kind: "processing_time", scheduled_at: at, register: true }
+      timer(kind: "processing_time", scheduled_at: at, register: true)
       at
     end
 
     # Register an event-time timer at an absolute time. Answers it.
     def timer_at_event_time(at)
       at = Integer(at)
-      @timers << { kind: "event_time", scheduled_at: at, register: true }
+      timer(kind: "event_time", scheduled_at: at, register: true)
       at
     end
 
     # Cancel a registered timer by the value its registration answered.
     def cancel_timer(kind, at)
-      @timers << { kind: kind.to_s, scheduled_at: Integer(at), register: false }
+      timer(kind: kind.to_s, scheduled_at: Integer(at), register: false)
       nil
     end
 
@@ -186,6 +187,16 @@ module Flezha
     end
 
     private
+
+    def timer(operation)
+      if @spec.structured_workflow?
+        raise EmitError,
+              "TimersUnavailable: #{@node.name}: timers are not available inside a workflow; " \
+              "only a stream operative's tasklets may register or cancel them"
+      end
+
+      @timers << operation
+    end
 
     def release(channel, value, key, metadata)
       # A channel with no consumer releases nothing on the edge path: on a

@@ -182,6 +182,14 @@ module Fixtures
     def run(input, _ctx) = input
   end
 
+  class SugarWorkflowPerInput < Flezha::WorkflowOperative
+    factory_id "sugar_workflow_per_input"
+    sink "sugar_workflow_per_input_out"
+    codec :text
+    loop_mode :per_input
+    def run(input, _ctx) = input
+  end
+
   # No sink: what it was sent is proven by its state.
   class SugarStateOnly < Flezha::StreamOperative
     factory_id "sugar_state_only"
@@ -636,6 +644,7 @@ module Fixtures
 
   # The §5 short forms this app registers.
   SHORTHAND = [
-    SugarDoNothing, SugarStoreInput, SugarNamedInput, SugarWorkflow, SugarStateOnly
+    SugarDoNothing, SugarStoreInput, SugarNamedInput, SugarWorkflow, SugarWorkflowPerInput,
+    SugarStateOnly
   ].freeze
 end

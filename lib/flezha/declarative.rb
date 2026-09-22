@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "errors"
+
 module Flezha
   # The class-level declaration DSL the authoring surface shares.
   #
@@ -28,11 +30,21 @@ module Flezha
     end
 
     # A declaration read by its bare name and written by naming a value.
-    def setting(*names)
+    # `one_of` closes the values it takes: any other is refused where the
+    # class body writes it.
+    def setting(*names, one_of: nil)
       declares(*names)
       names.each do |name|
         singleton_class.define_method(name) do |value = nil|
           return instance_variable_get(:"@#{name}") if value.nil?
+
+          if one_of && !one_of.include?(value.to_s.to_sym)
+            raise DeclarationError.new(
+              @factory_id || to_s, nil,
+              "declares `#{name} #{value.inspect}`, which is not one of " \
+              "`#{one_of.join('`, `')}`"
+            )
+          end
 
           instance_variable_set(:"@#{name}", value)
         end

@@ -62,9 +62,6 @@ class DeclKeysTest < Minitest::Test
     factory_id "decl_keys_workflow"
     loop_mode :chained
     rollback_mode :keep_progress
-    retry_attempts 4
-    retry_backoff_ms 100
-    barrier_retry_attempts 2
     max_duration_ms 60_000
     wake_after_ms 5_000
     sync_durability
@@ -123,19 +120,18 @@ class DeclKeysTest < Minitest::Test
                  Flezha::Graph.to_host_class_decl(klass.spec)["channels"].map { |c| c["chains"] }
   end
 
-  # --- the keys a workflow class may not put on the wire --------------------
+  # --- what the author wrote reaches the core, whatever the kind -----------
   #
-  # `flz_core::host::register::refuse_workflow_facts` refuses
-  # `effectively_once` and `correction_window_ms` on a workflow class outright,
-  # and `refuse_tier_facts` refuses the checkpoint family without the
-  # checkpoint acknowledgement the first refusal leaves unreachable there. One
-  # builder serves both kinds, so the gate lives in it.
-  REFUSED_ON_WORKFLOW = %w[
+  # `flz_core::host::register::refuse_workflow_facts` names each stream-only
+  # key a workflow class may not carry. This builder puts every one on the
+  # wire for either kind, so the refusal is the core's, by name, and never a
+  # drop.
+  STREAM_ONLY = %w[
     effectively_once checkpoint_ack checkpoint_every checkpoint_outputs
     checkpoint_max_delay_ms correction_window_ms beyond_window_policy
   ].freeze
 
-  # The stream fixture's spec re-kinded: every refused key populated at once.
+  # The stream fixture's spec re-kinded: every stream-only key populated at once.
   def tier_spec(kind)
     spec = FullStream.spec.dup
     spec.kind = kind
@@ -143,14 +139,11 @@ class DeclKeysTest < Minitest::Test
     spec
   end
 
-  def test_a_workflow_class_declares_none_of_the_keys_the_core_refuses
-    emitted = REFUSED_ON_WORKFLOW & Flezha::Graph.to_host_class_decl(tier_spec(:workflow)).keys
-    assert_empty emitted, "keys the core refuses on a workflow class: #{emitted.join(', ')}"
-  end
-
-  def test_a_stream_class_still_declares_every_one_of_them
-    missing = REFUSED_ON_WORKFLOW - Flezha::Graph.to_host_class_decl(tier_spec(:stream)).keys
-    assert_empty missing, "stream keys the gate dropped: #{missing.join(', ')}"
+  def test_every_stream_setting_reaches_the_wire_for_either_kind
+    %i[stream workflow].each do |kind|
+      dropped = STREAM_ONLY - Flezha::Graph.to_host_class_decl(tier_spec(kind)).keys
+      assert_empty dropped, "#{kind} keys dropped before the core could judge them: #{dropped.join(', ')}"
+    end
   end
 end
 
@@ -198,7 +191,6 @@ class ReferenceTopologiesTest < Minitest::Test
   class CommitBlockChain < Flezha::WorkflowOperative
     factory_id "commit_block_chain"
     channels do |c|
-      c.effectively_once
       c.input("in").into(TierCommitA).keyed
        .sink("mid", encode: BYTES).into(BlockB)
     end

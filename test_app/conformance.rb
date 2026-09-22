@@ -33,8 +33,8 @@ module Conformance
   # The authoring surfaces this builder carries, read from the app's
   # `conformance.json` so the skip and the manifest the gate reads are one
   # statement. A row needing anything else is skipped BY NAME, which is what
-  # makes the skip checkable. The class flag a typed builder cannot spell is a
-  # plain builder call here.
+  # makes the skip checkable. The class flag a typed stream builder cannot
+  # spell is a class-body flag here, on either kind.
   SURFACES = JSON.parse(File.read(File.join(__dir__, "conformance.json"))).fetch("topology_surfaces").freeze
 
   # The two topologies the fixture cites rather than re-spells: this app's own
@@ -175,19 +175,17 @@ module Conformance
     end
 
     # `class.<flag>[(<value>)]` — the facts the class declares on the builder.
-    # `persistent` is an operative-level declaration, read as the row's class
-    # was minted; `workflow` is a class KIND no stream row can carry, and every
-    # row needing one is skipped before it reaches here.
+    # `persistent`, `sync_durability` and `workflow` are class-body
+    # declarations, read as the row's class was minted.
     def class_flag(builder, rest)
       flag, value = Conformance.split_call(rest)
       case flag
-      when "persistent" then nil
+      when "persistent", "sync_durability", "workflow" then nil
       when "effectively_once" then builder.effectively_once
       when "checkpoint_ack" then builder.checkpoint_ack
       when "checkpoint_every" then builder.checkpoint_every(Integer(value))
       when "correction_window" then builder.correction_window(Integer(value))
       when "outputs_at_checkpoint" then builder.outputs_at_checkpoint(Integer(value))
-      when "sync_durability" then builder.sync_durability
       else raise "the fixture spells a class flag this interpreter does not map: #{flag}"
       end
     end
@@ -255,12 +253,17 @@ module Conformance
   end
 
   # A row's operative class. Fresh per row: an operative memoises its own spec,
-  # and `persistent` is a class declaration rather than a builder call.
+  # and `persistent`, `sync_durability` and the class kind are class
+  # declarations rather than builder calls. A `class.workflow` row is a real
+  # workflow class carrying the row's builder flags, so the core judges what
+  # that kind may carry.
   def self.operative_for(row)
     interpreter = Interpreter.new(row[:steps])
-    klass = Class.new(Flezha::StreamOperative)
+    workflow = row[:steps].include?("class.workflow")
+    klass = Class.new(workflow ? Flezha::WorkflowOperative : Flezha::StreamOperative)
     klass.factory_id(row[:topology])
     klass.persistent(row[:steps].include?("class.persistent"))
+    klass.sync_durability if row[:steps].include?("class.sync_durability")
     klass.channels { |builder| interpreter.declare(builder) }
     klass
   end

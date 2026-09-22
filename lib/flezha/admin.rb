@@ -32,10 +32,9 @@ module Flezha
     # lost answer starts a second operative, and a second stream runs until it
     # is stopped. With an `id`, a start of a running one leaves it untouched
     # and answers `:already_running`.
-    def start_operative(factory_id, id: nil, kind: nil, init_values: nil, opts: nil)
+    def start_operative(factory_id, id: nil, init_values: nil, opts: nil)
       fields = { "factory_id" => factory_id }
       fields["id"] = id if id
-      fields["kind"] = kind if kind
       fields["init_values"] = init_values if init_values
       fields["opts"] = opts if opts
       answer = call("Operative.start", fields)

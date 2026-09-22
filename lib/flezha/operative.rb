@@ -23,7 +23,12 @@ module Flezha
     setting(*SHORT_FORM_KEYS)
     # The declarations only a short form reads.
     SHORT_FORM_ONLY = (SHORT_FORM_KEYS + TaskletSettings::NAMES).freeze
+    # The one class setting a short form keeps: a loop is still one tasklet.
+    SHORT_FORM_SETTINGS = %i[loop_mode].freeze
     declares :persistent
+    # A workflow's setting. A stream carries it too, so that the core refuses
+    # it there by name rather than this SDK dropping it.
+    flag :sync_durability
     # `factory_id` is deliberately NOT inherited: two operatives cannot share
     # one, and a subclass silently taking its parent's would be refused by the
     # core at declare time rather than here.
@@ -83,9 +88,9 @@ module Flezha
 
           # Everything else a class declares is a class setting, left at its
           # default on a short form.
-          refuse_written(settings - SHORT_FORM_ONLY,
-                         " on a short form, whose class settings are the defaults; write the " \
-                         "full form in `channels` to change one")
+          refuse_written(settings - SHORT_FORM_ONLY - SHORT_FORM_SETTINGS,
+                         " on a short form, whose class settings but the loop mode are the " \
+                         "defaults; write the full form in `channels` to change one")
         elsif channels
           refuse_written(SHORT_FORM_ONLY,
                          ", which only a short form reads; a full form wires it in `channels`, " \
@@ -123,20 +128,15 @@ module Flezha
         edge = builder.input(input || "input", codec: codec).into(tasklet)
         edge.sink(sink) if sink
       end
-    end
-  end
 
-  # A stream operative: fed by the controller through its entry channels.
-  class StreamOperative < Operative
-    class << self
-      private
-
-      def build_spec
+      # Every flag the builder recorded, for either kind: the core judges which
+      # a kind may carry and refuses the rest by name.
+      def class_spec(kind, workflow)
         # Sealed before the channels are read: filing every declared sequence
         # on its channel is what can still create one.
         builder = build_builder.seal
         ClassSpec.new(
-          factory_id: @factory_id, kind: :stream, persistent: persistent,
+          factory_id: @factory_id, kind: kind, persistent: persistent,
           effectively_once: builder.effectively_once_flag,
           checkpoint_ack: builder.checkpoint_ack_flag,
           checkpoint_every: builder.checkpoint_every_value,
@@ -145,42 +145,40 @@ module Flezha
           correction_window_ms: builder.correction_window_ms_value,
           beyond_window_policy: builder.beyond_window_policy_value,
           compact_after_bytes: builder.compact_after_bytes_value,
-          sync_durability: builder.sync_durability_flag,
-          tasklets: builder.tasklets, channels: builder.channels
+          sync_durability: @sync_durability || false,
+          tasklets: builder.tasklets, channels: builder.channels, workflow: workflow
         )
       end
     end
   end
 
+  # A stream operative: fed by the controller through its entry channels.
+  class StreamOperative < Operative
+    class << self
+      private
+
+      def build_spec = class_spec(:stream, nil)
+    end
+  end
+
   # A workflow operative: a chain of tasklets over a channels graph, run
-  # once or looping.
+  # once or looping. Retry is the edges', as on a stream.
   class WorkflowOperative < Operative
-    setting :loop_mode, :rollback_mode, :retry_attempts, :retry_backoff_ms,
-            :barrier_retry_attempts, :max_duration_ms, :wake_after_ms
-    flag :sync_durability
+    setting :loop_mode, one_of: %i[once per_input chained]
+    setting :rollback_mode, one_of: %i[all_or_nothing keep_progress]
+    setting :max_duration_ms, :wake_after_ms
 
     class << self
       private
 
       def build_spec
-        builder = build_builder.seal
-        ClassSpec.new(
-          factory_id: @factory_id, kind: :workflow, persistent: persistent,
-          effectively_once: builder.effectively_once_flag, checkpoint_ack: false,
-          checkpoint_outputs: :as_produced, beyond_window_policy: :process_as_arrival,
-          sync_durability: sync_durability_declared?,
-          tasklets: builder.tasklets, channels: builder.channels,
-          workflow: {
-            loop_mode: (loop_mode || :once).to_sym,
-            rollback_mode: (rollback_mode || :all_or_nothing).to_sym,
-            retry_attempts: retry_attempts, retry_backoff_ms: retry_backoff_ms,
-            barrier_retry_attempts: barrier_retry_attempts,
-            max_duration_ms: max_duration_ms, wake_after_ms: wake_after_ms
-          }
-        )
+        facts = {
+          loop_mode: (loop_mode || :once).to_sym,
+          rollback_mode: (rollback_mode || :all_or_nothing).to_sym,
+          max_duration_ms: max_duration_ms, wake_after_ms: wake_after_ms
+        }
+        class_spec(:workflow, facts)
       end
-
-      def sync_durability_declared? = @sync_durability || false
     end
   end
 end

@@ -72,8 +72,7 @@ module Flezha
     attr_reader :factory_id, :tasklets, :channels, :effectively_once_flag,
                 :checkpoint_ack_flag, :checkpoint_every_value, :checkpoint_outputs_value,
                 :checkpoint_max_delay_ms_value, :correction_window_ms_value,
-                :beyond_window_policy_value, :compact_after_bytes_value,
-                :sync_durability_flag
+                :beyond_window_policy_value, :compact_after_bytes_value
 
     def initialize(factory_id)
       @factory_id = factory_id
@@ -87,7 +86,6 @@ module Flezha
       @checkpoint_ack_flag = false
       @checkpoint_outputs_value = :as_produced
       @beyond_window_policy_value = :process_as_arrival
-      @sync_durability_flag = false
     end
 
     def effectively_once
@@ -126,11 +124,6 @@ module Flezha
 
     def compact_after_bytes(bytes)
       @compact_after_bytes_value = bytes
-      self
-    end
-
-    def sync_durability
-      @sync_durability_flag = true
       self
     end
 

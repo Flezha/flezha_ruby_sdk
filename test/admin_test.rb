@@ -25,14 +25,16 @@ class AdminTest < Minitest::Test
 
   def test_a_start_with_an_id_names_it_and_a_running_one_answers_already_running
     answer = '{"id":"my_echo","outcome":"already_running"}'
-    calls, result = start(answer, "echo", id: "my_echo", kind: "stream")
+    calls, result = start(answer, "echo", id: "my_echo")
 
-    assert_equal [["Operative.start", [{ "factory_id" => "echo", "id" => "my_echo", "kind" => "stream" }]]],
+    assert_equal [["Operative.start", [{ "factory_id" => "echo", "id" => "my_echo" }]]],
                  calls
     assert_equal Flezha::StartResult.new(id: "my_echo", outcome: :already_running), result
   end
 
   def test_a_refused_start_raises_as_every_refused_admin_call_does
+    skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
+
     core = Flezha::TestSupport::FakeCore.new
     refusal = ->(*) { raise Flezha::Native::Error, "max_operatives reached" }
 

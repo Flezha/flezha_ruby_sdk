@@ -172,30 +172,9 @@ module Flezha
       )
     end
 
-    # The tier, checkpoint and correction keys, which only a stream class puts
-    # on the wire. The core refuses `effectively_once` and
-    # `correction_window_ms` on a workflow class outright, and the checkpoint
-    # family rests on a checkpoint acknowledgement that refusal leaves
-    # unreachable there.
-    #
-    # The spec keeps the flag either way: `Ctx#stamp_identity` reads it to
-    # decide whether a keyed plugin frame carries its own identity, so gating
-    # the declaration must not gate the in-process tier.
-    def stream_tier_json(spec)
-      return {} unless spec.kind == :stream
-
-      {
-        "effectively_once" => spec.effectively_once,
-        "checkpoint_ack" => spec.checkpoint_ack,
-        "checkpoint_every" => spec.checkpoint_every,
-        "checkpoint_outputs" => spec.checkpoint_outputs.to_s,
-        "checkpoint_max_delay_ms" => spec.checkpoint_max_delay_ms,
-        "correction_window_ms" => spec.correction_window_ms,
-        "beyond_window_policy" => spec.beyond_window_policy.to_s
-      }
-    end
-
-    # The declaration the core deserializes. Every key here is pinned by
+    # The declaration the core deserializes. Every key the author wrote is here
+    # whatever the class's kind: which keys a kind may carry is the core's
+    # judgement, answered by name. Every key is pinned by
     # `test/fixtures/host_class_decl_keys.txt`, which this gem's own test
     # reads: a key the core learns that Ruby cannot spell fails that test.
     def to_host_class_decl(spec)
@@ -205,7 +184,13 @@ module Flezha
         "sdk_lang" => SDK_LANG_RUBY,
         "sdk_version" => SDK_VERSION,
         "change_format_id" => FORMAT_ID_MSGPACK,
-        **stream_tier_json(spec),
+        "effectively_once" => spec.effectively_once,
+        "checkpoint_ack" => spec.checkpoint_ack,
+        "checkpoint_every" => spec.checkpoint_every,
+        "checkpoint_outputs" => spec.checkpoint_outputs.to_s,
+        "checkpoint_max_delay_ms" => spec.checkpoint_max_delay_ms,
+        "correction_window_ms" => spec.correction_window_ms,
+        "beyond_window_policy" => spec.beyond_window_policy.to_s,
         "compact_after_bytes" => spec.compact_after_bytes,
         "sync_durability" => spec.sync_durability,
         "channels" => spec.channels.map { |channel| channel_json(channel) },
@@ -213,9 +198,6 @@ module Flezha
         "workflow" => spec.workflow && compact(
           "loop_mode" => spec.workflow[:loop_mode].to_s,
           "rollback_mode" => spec.workflow[:rollback_mode].to_s,
-          "retry_attempts" => spec.workflow[:retry_attempts],
-          "retry_backoff_ms" => spec.workflow[:retry_backoff_ms],
-          "barrier_retry_attempts" => spec.workflow[:barrier_retry_attempts],
           "max_duration_ms" => spec.workflow[:max_duration_ms],
           "wake_after_ms" => spec.workflow[:wake_after_ms]
         )

@@ -209,6 +209,16 @@ class RunnerTest < Minitest::Test
     channels { |c| c.input("order", codec: :text).into(WorkflowTasklet).sink("sugar_workflow_placed") }
   end
 
+  class PerInputTasklet < Fixtures::PassThrough
+    tasklet_name "sugar_workflow_per_input"
+  end
+
+  class PerInputTwin < Flezha::WorkflowOperative
+    factory_id "sugar_workflow_per_input"
+    loop_mode :per_input
+    channels { |c| c.input("input", codec: :text).into(PerInputTasklet).sink("sugar_workflow_per_input_out") }
+  end
+
   class StateOnlyTasklet < Flezha::Tasklet
     tasklet_name "sugar_state_only"
     def initial_state(_cell_key) = { seen: [] }
@@ -240,6 +250,15 @@ class RunnerTest < Minitest::Test
     assert_equal :workflow, short.spec.kind
     assert_equal :once, short.spec.workflow[:loop_mode]
     assert_equal %w[order sugar_workflow_placed], short.spec.channels.map(&:name)
+  end
+
+  def test_a_workflow_short_form_keeps_its_loop_mode
+    short = Fixtures::SugarWorkflowPerInput
+
+    assert_equal decl(PerInputTwin), decl(short)
+    assert_equal "per_input", decl(short)["workflow"]["loop_mode"]
+    assert_equal %w[sugar_workflow_per_input],
+                 declared(Flezha::Runner.new("test-ns").register_factory(short))
   end
 
   def test_a_short_form_with_no_sink_declares_its_entry_and_its_tasklet_only
@@ -319,16 +338,16 @@ class RunnerTest < Minitest::Test
       sink "out"
       def run(input, _ctx) = input
     end
-    chained = Class.new(Flezha::WorkflowOperative) do
-      factory_id "chained"
-      loop_mode :chained
+    time_limited = Class.new(Flezha::WorkflowOperative) do
+      factory_id "time_limited"
+      max_duration_ms 60_000
       def run(input, _ctx) = input
     end
 
     assert_includes assert_raises(Flezha::DeclarationError) { derived.tasklet }.message,
                     "factory_id"
-    assert_includes assert_raises(Flezha::DeclarationError) { chained.tasklet }.message,
-                    "loop_mode"
+    assert_includes assert_raises(Flezha::DeclarationError) { time_limited.tasklet }.message,
+                    "max_duration_ms"
   end
 
   def test_an_operative_with_neither_body_is_refused_naming_both
@@ -342,13 +361,19 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_class_level_setting_on_a_short_form_is_refused
-    chained = Class.new(Flezha::WorkflowOperative) do
-      factory_id "chained"
-      loop_mode :chained
+    rollback = Class.new(Flezha::WorkflowOperative) do
+      factory_id "rollback"
+      rollback_mode :keep_progress
+      def run(input, _ctx) = input
+    end
+    synced = Class.new(Flezha::StreamOperative) do
+      factory_id "synced"
+      sync_durability
       def run(input, _ctx) = input
     end
 
-    assert_includes refused(chained).message, "loop_mode"
+    assert_includes refused(rollback).message, "rollback_mode"
+    assert_includes refused(synced).message, "sync_durability"
   end
 
   def test_a_short_form_key_or_a_tasklet_setting_on_a_full_form_is_refused_naming_it

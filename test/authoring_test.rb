@@ -23,8 +23,8 @@ class AuthoringTest < Minitest::Test
     end
   end
 
-  def operative(factory, &channels)
-    klass = Class.new(Flezha::StreamOperative)
+  def operative(factory, base: Flezha::StreamOperative, &channels)
+    klass = Class.new(base)
     klass.factory_id factory
     klass.channels(&channels)
     klass
@@ -377,23 +377,69 @@ class AuthoringTest < Minitest::Test
     assert_equal [0], derived["channels"][0]["consumers"].map { |e| e["tasklet"] }
   end
 
-  # The reference declares exactly this — `tier_commit_block_workflow` opens
-  # with `c.effectively_once()` on a workflow class in Rust and Java — so the
-  # flag is read where the workflow spec is assembled rather than written false.
-  # It stays off the wire: the core refuses `effectively_once` on a workflow
-  # class, and Java's `HostClassDeclaration.forWorkflow` never writes it either.
-  def test_a_workflow_class_carries_its_effectively_once_declaration
-    klass = Class.new(Flezha::WorkflowOperative)
-    klass.factory_id "tier_workflow"
-    klass.channels do |c|
-      c.effectively_once
-      c.input("in").into(pass_through("producer")).keyed.sink("out")
-    end
-    validate(klass.spec)
+  # What an author writes reaches the core whatever the kind, and a setting of
+  # the other kind is refused there by its own name rather than dropped here.
+  STREAM_SETTINGS_ON_A_WORKFLOW = {
+    "EffectivelyOnceOnWorkflow" => ->(c) { c.effectively_once },
+    "CheckpointOnWorkflow" => ->(c) { c.checkpoint_every(500) },
+    "CorrectionWindowOnWorkflow" => ->(c) { c.correction_window(60_000) }
+  }.freeze
 
-    assert_equal true, klass.spec.effectively_once
-    refute_includes Flezha::Graph.to_host_class_decl(klass.spec).keys, "effectively_once"
+  def test_a_stream_setting_on_a_workflow_is_refused_by_name
+    STREAM_SETTINGS_ON_A_WORKFLOW.each do |name, write|
+      step = pass_through("producer")
+      klass = operative("stream_setting_workflow", base: Flezha::WorkflowOperative) do |c|
+        write.call(c)
+        c.input("in").into(step)
+      end
+
+      assert_equal [name], refusal { validate(klass.spec) }.refusals
+    end
   end
+
+  def test_sync_durability_on_a_stream_is_refused_by_name
+    step = pass_through("producer")
+    klass = operative("sync_stream") { |c| c.input("in").into(step) }
+    klass.sync_durability
+
+    assert_equal ["SyncDurabilityOnStream"], refusal { validate(klass.spec) }.refusals
+  end
+
+  # A mode outside its declared values is refused where the class body writes
+  # it, on the full form and the short form alike.
+  def refused_mode(setting, value)
+    [->(c) { c.channels { |b| b.input("in") } }, ->(c) { c.define_method(:run) { |i, _| i } }]
+      .map do |body|
+        refusal do
+          Class.new(Flezha::WorkflowOperative) do
+            factory_id "mode"
+            body.call(self)
+            public_send(setting, value)
+          end
+        end
+      end
+  end
+
+  def test_a_loop_mode_outside_its_values_is_refused_where_it_is_written
+    refused_mode(:loop_mode, :forever).each do |error|
+      assert_includes error.message, "loop_mode :forever"
+      assert_includes error.message, "`once`, `per_input`, `chained`"
+    end
+  end
+
+  def test_a_rollback_mode_outside_its_values_is_refused_where_it_is_written
+    refused_mode(:rollback_mode, :best_effort).each do |error|
+      assert_includes error.message, "rollback_mode :best_effort"
+      assert_includes error.message, "`all_or_nothing`, `keep_progress`"
+    end
+  end
+
+  def test_the_retired_class_retry_settings_are_not_declared
+    %i[retry_attempts retry_backoff_ms barrier_retry_attempts].each do |retired|
+      assert_raises(NoMethodError) { Class.new(Flezha::WorkflowOperative).public_send(retired, 5) }
+    end
+  end
+
   # -- merge and the latest-document router -----------------------------------
   #
   # A merge is recorded, never judged: each source's mapping is its own edge

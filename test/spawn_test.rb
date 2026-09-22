@@ -67,6 +67,14 @@ class SpawnTest < Minitest::Test
     assert_equal :already_running, error.kind
   end
 
+  def test_a_spawn_naming_a_stream_factory_raises_factory_not_workflow
+    handle = ctx(FakeCore.new(spawns: [failed("w1", "factory_not_workflow")]))
+             .spawn_workflow("prices", "p", id: "w1")
+
+    error = assert_raises(Flezha::SpawnError::FactoryNotWorkflow) { handle.wait }
+    assert_equal :factory_not_workflow, error.kind
+  end
+
   def test_if_running_without_an_id_raises_at_the_call_and_sends_nothing
     core = FakeCore.new
     error = assert_raises(ArgumentError) { ctx(core).spawn_workflow("worker", "p", if_running: "error") }

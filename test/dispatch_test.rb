@@ -247,6 +247,50 @@ class DispatchTest < Minitest::Test
     refute effect.key?(:complete), "a failed item's effect carries no completion"
   end
 
+  # -- timers inside a workflow ----------------------------------------------
+  #
+  # Refused by name until they fire there, so a timer is never folded away.
+
+  class TimerSetter < Flezha::Tasklet
+    tasklet_name "timer_setter"
+
+    def run(call, ctx)
+      case call
+      when "after" then ctx.timer_after(60_000)
+      when "event_time" then ctx.timer_at_event_time(60_000)
+      else ctx.cancel_timer(:processing_time, 60_000)
+      end
+      nil
+    end
+  end
+
+  class TimerWorkflow < Flezha::WorkflowOperative
+    factory_id "timer_workflow"
+    channels { |c| c.input("in", codec: :text).into(TimerSetter) }
+  end
+
+  class TimerStream < Flezha::StreamOperative
+    factory_id "timer_stream"
+    channels { |c| c.input("in", codec: :text).into(TimerSetter) }
+  end
+
+  def test_a_timer_call_inside_a_workflow_is_refused_naming_timers_unavailable
+    %w[after event_time cancel].each do |call|
+      effect, = answer_on(TimerWorkflow, items: [input_item(call)])[:effects]
+
+      assert_equal "retryable", effect[:verdict], call
+      assert_includes effect[:message], "TimersUnavailable", call
+      refute effect.key?(:timers), "#{call}: a refused timer rides in no effect"
+    end
+  end
+
+  def test_a_stream_tasklet_still_registers_its_timer
+    effect, = answer_on(TimerStream, items: [input_item("after")])[:effects]
+
+    assert_equal "ok", effect[:verdict]
+    assert_equal [true], effect[:timers].map { |timer| timer[:register] }
+  end
+
   def test_a_result_json_cannot_carry_is_refused_naming_the_tasklet
     klass = Class.new(Flezha::Tasklet) do
       tasklet_name "completes_with_nan"
