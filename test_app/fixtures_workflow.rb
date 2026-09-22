@@ -655,12 +655,36 @@ module Fixtures
     channels { |c| c.input("input", codec: :text).into(WorkflowTimer) }
   end
 
+  # -- static_cell_workflow -------------------------------------------------
+  #
+  # A per-input loop whose one tasklet declares three static cells and routes
+  # every message to two of them; each cell that runs emits `<cell key>:<message>`,
+  # so one message yields exactly two outputs (workflow.rs).
+
+  class StaticCellStep < Flezha::Tasklet
+    tasklet_name "static_cell_step"
+    cell_keys "a", "b", "c"
+
+    def cells_for(_input) = %w[a b]
+
+    def run(input, ctx)
+      ctx.emit("#{ctx.cell_key}:#{input}")
+      nil
+    end
+  end
+
+  class StaticCellWorkflow < LoopWorkflow
+    factory_id "static_cell_workflow"
+    channels { |c| c.input("in", codec: :text).into(StaticCellStep).sink("out") }
+  end
+
   # Every workflow operative this app registers, in the reference's order.
   WORKFLOWS = [
     EchoWorkflow, TypedOnceWorkflow, CommitBlockWorkflow, SyncDurableWorkflow, OptoutCommitBlock,
     TierCommitBlockWorkflow, SagaBlockWorkflow, OutboxBlockWorkflow, UndoOutboxWorkflow,
     ChatLoopWorkflow, StatelessLoopWorkflow, ChatRewindWorkflow, ReplyBlockLoopWorkflow,
     RetryWorkflow,
-    BranchWorkflow, DiamondWorkflow, *BENCH_CHAINS, BenchLoopWorkflow, WorkflowTimerRefused
+    BranchWorkflow, DiamondWorkflow, *BENCH_CHAINS, BenchLoopWorkflow, WorkflowTimerRefused,
+    StaticCellWorkflow
   ].freeze
 end
