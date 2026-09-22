@@ -181,6 +181,7 @@ module Flezha
       compact(
         "factory_id" => spec.factory_id,
         "persistent" => spec.persistent,
+        "sleep_when_idle" => spec.sleep_when_idle,
         "sdk_lang" => SDK_LANG_RUBY,
         "sdk_version" => SDK_VERSION,
         "change_format_id" => FORMAT_ID_MSGPACK,

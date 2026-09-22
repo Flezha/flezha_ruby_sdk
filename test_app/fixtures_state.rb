@@ -203,6 +203,34 @@ module Fixtures
     end
   end
 
+  # -- sleeping_counter ------------------------------------------------------
+  #
+  # A stream that sleeps when idle: `key:delta` inputs fold into one running
+  # total per key, and every input emits `key=total` on the `totals` sink. The
+  # sleep e2e reads the total after a wake to prove the Cell came back with the
+  # state it slept with.
+
+  class SleepingCounter < Flezha::Tasklet
+    tasklet_name "sleeping_counter_tasklet"
+    def initial_state(_cell_key) = { value: 0 }
+    def apply_change(state, change) = state[:value] += change[:delta]
+
+    def run(input, ctx)
+      key, _, delta = input.to_s.partition(":")
+      ctx.change({ delta: AS_INT.call(delta) })
+      "#{key}=#{ctx.state[:value]}"
+    end
+  end
+
+  class SleepingCounterOperative < Flezha::StreamOperative
+    factory_id "sleeping_counter"
+    sleep_when_idle
+    channels do |c|
+      c.input("input", codec: :text).key_by { |value| PREFIX.call(value) }
+       .into(SleepingCounter).sink("totals")
+    end
+  end
+
   # -- coalescing_counter ----------------------------------------------------
 
   # Wire format: `<interval>:<ts>:<delta>`; a missing or unparsable part reads 0.
@@ -335,9 +363,9 @@ module Fixtures
   # The persisted-state family, in declaration order.
   STATE = [
     BenchKeyedNoPersistOperative, StoreInputOperative, StatefulCounterOperative,
-    PersistenceOffCounterOperative, CoalescingCounterOperative, ResumeProbeOperative,
-    BenchKeyedOperative, SchemaEvolutionV1Operative, SchemaEvolutionV2Operative,
-    TierStoreOperative, CheckpointStoreOperative, CheckpointBatchedOperative,
-    BenchCheckpointOperative
+    PersistenceOffCounterOperative, SleepingCounterOperative, CoalescingCounterOperative,
+    ResumeProbeOperative, BenchKeyedOperative, SchemaEvolutionV1Operative,
+    SchemaEvolutionV2Operative, TierStoreOperative, CheckpointStoreOperative,
+    CheckpointBatchedOperative, BenchCheckpointOperative
   ].freeze
 end

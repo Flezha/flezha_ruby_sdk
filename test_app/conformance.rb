@@ -175,12 +175,12 @@ module Conformance
     end
 
     # `class.<flag>[(<value>)]` — the facts the class declares on the builder.
-    # `persistent`, `sync_durability` and `workflow` are class-body
-    # declarations, read as the row's class was minted.
+    # `persistent`, `sync_durability`, `sleep_when_idle` and `workflow` are
+    # class-body declarations, read as the row's class was minted.
     def class_flag(builder, rest)
       flag, value = Conformance.split_call(rest)
       case flag
-      when "persistent", "sync_durability", "workflow" then nil
+      when "persistent", "sync_durability", "sleep_when_idle", "workflow" then nil
       when "effectively_once" then builder.effectively_once
       when "checkpoint_ack" then builder.checkpoint_ack
       when "checkpoint_every" then builder.checkpoint_every(Integer(value))
@@ -253,8 +253,8 @@ module Conformance
   end
 
   # A row's operative class. Fresh per row: an operative memoises its own spec,
-  # and `persistent`, `sync_durability` and the class kind are class
-  # declarations rather than builder calls. A `class.workflow` row is a real
+  # and `persistent`, `sync_durability`, `sleep_when_idle` and the class kind
+  # are class declarations rather than builder calls. A `class.workflow` row is a real
   # workflow class carrying the row's builder flags, so the core judges what
   # that kind may carry.
   def self.operative_for(row)
@@ -264,6 +264,7 @@ module Conformance
     klass.factory_id(row[:topology])
     klass.persistent(row[:steps].include?("class.persistent"))
     klass.sync_durability if row[:steps].include?("class.sync_durability")
+    klass.sleep_when_idle if row[:steps].include?("class.sleep_when_idle")
     klass.channels { |builder| interpreter.declare(builder) }
     klass
   end

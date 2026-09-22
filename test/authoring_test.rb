@@ -405,6 +405,31 @@ class AuthoringTest < Minitest::Test
     assert_equal ["SyncDurabilityOnStream"], refusal { validate(klass.spec) }.refusals
   end
 
+  def test_sleeping_defaults_to_persistence_on_a_workflow_only
+    step = pass_through("step")
+    sleeps = lambda do |base, persistent|
+      klass = operative("sleep_default", base: base) { |c| c.input("in").into(step) }
+      klass.persistent(persistent)
+      Flezha::Graph.to_host_class_decl(klass.spec)["sleep_when_idle"]
+    end
+
+    assert_equal [true, false, false],
+                 [sleeps.call(Flezha::WorkflowOperative, true),
+                  sleeps.call(Flezha::WorkflowOperative, false),
+                  sleeps.call(Flezha::StreamOperative, true)]
+  end
+
+  def test_sleeping_without_persistence_is_refused_by_name
+    step = pass_through("step")
+    [Flezha::StreamOperative, Flezha::WorkflowOperative].each do |base|
+      klass = operative("sleep_no_persist", base: base) { |c| c.input("in").into(step) }
+      klass.persistent(false)
+      klass.sleep_when_idle
+
+      assert_includes refusal { validate(klass.spec) }.message, "SleepWithoutPersistence"
+    end
+  end
+
   # A mode outside its declared values is refused where the class body writes
   # it, on the full form and the short form alike.
   def refused_mode(setting, value)

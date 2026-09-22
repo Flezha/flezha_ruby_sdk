@@ -36,7 +36,7 @@ module Flezha
 
   # Everything the graph knows about one declared class.
   ClassSpec = Struct.new(
-    :factory_id, :kind, :persistent, :effectively_once, :checkpoint_ack,
+    :factory_id, :kind, :persistent, :sleep_when_idle, :effectively_once, :checkpoint_ack,
     :checkpoint_every, :checkpoint_outputs, :checkpoint_max_delay_ms,
     :correction_window_ms, :beyond_window_policy, :compact_after_bytes,
     :sync_durability, :tasklets, :channels, :workflow,

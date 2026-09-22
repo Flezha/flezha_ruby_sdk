@@ -26,6 +26,10 @@ module Flezha
     # The one class setting a short form keeps: a loop is still one tasklet.
     SHORT_FORM_SETTINGS = %i[loop_mode].freeze
     declares :persistent
+    # Whether an idle instance is written out and dropped from memory until
+    # its next input. Unwritten, a workflow sleeps when it persists and a
+    # stream never does.
+    flag :sleep_when_idle
     # A workflow's setting. A stream carries it too, so that the core refuses
     # it there by name rather than this SDK dropping it.
     flag :sync_durability
@@ -137,6 +141,7 @@ module Flezha
         builder = build_builder.seal
         ClassSpec.new(
           factory_id: @factory_id, kind: kind, persistent: persistent,
+          sleep_when_idle: @sleep_when_idle.nil? ? kind == :workflow && persistent : @sleep_when_idle,
           effectively_once: builder.effectively_once_flag,
           checkpoint_ack: builder.checkpoint_ack_flag,
           checkpoint_every: builder.checkpoint_every_value,
