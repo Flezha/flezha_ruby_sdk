@@ -586,6 +586,33 @@ module Fixtures
     end
   end
 
+  # keyed_loop_workflow is a durable per-input loop keyed on its entry edge
+  # by the text before the first `:`, so one Cell counts one symbol's messages
+  # and emits `<symbol>:<count>`: the shape a partition group of workflow
+  # members takes.
+  class KeyedLoopCount < Flezha::Tasklet
+    tasklet_name "keyed_loop_count"
+    dynamic_cells
+    def initial_state(_cell_key) = { value: 0 }
+    def apply_change(state, change) = state[:value] += change[:delta]
+
+    def run(input, ctx)
+      symbol = PREFIX.call(input)
+      ctx.change({ delta: 1 })
+      ctx.emit("#{symbol}:#{ctx.state[:value]}")
+      nil
+    end
+  end
+
+  class KeyedLoopWorkflow < LoopWorkflow
+    factory_id "keyed_loop_workflow"
+    channels do |c|
+      c.input("trades", codec: :text).key_by { |value| PREFIX.call(value) }
+       .into(KeyedLoopCount)
+       .sink("keyed_loop_workflow_out")
+    end
+  end
+
   class ChatRewindWorkflow < LoopWorkflow
     factory_id "chat_rewind_workflow"
     channels do |c|
@@ -793,7 +820,8 @@ module Fixtures
     EchoWorkflow, TypedOnceWorkflow, CommitBlockWorkflow, SyncDurableWorkflow, OptoutCommitBlock,
     TierCommitBlockWorkflow, SagaBlockWorkflow, KeyedBlockWorkflow, KeyedSagaWorkflow,
     OutboxBlockWorkflow, UndoOutboxWorkflow,
-    ChatLoopWorkflow, StatelessLoopWorkflow, ChatRewindWorkflow, ReplyBlockLoopWorkflow,
+    ChatLoopWorkflow, StatelessLoopWorkflow, KeyedLoopWorkflow, ChatRewindWorkflow,
+    ReplyBlockLoopWorkflow,
     RetryWorkflow,
     BranchWorkflow, DiamondWorkflow, *BENCH_CHAINS, BenchLoopWorkflow,
     StaticCellWorkflow, TimerLoopWorkflow, EventTimerWorkflow
