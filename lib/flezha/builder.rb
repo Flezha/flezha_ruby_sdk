@@ -49,6 +49,11 @@ module Flezha
     # key) belongs to the consumer. The producer and the consumer read this one
     # predicate, so they cannot disagree about which side applies the edge.
     def structured_workflow? = kind == :workflow
+
+    # Whether each invocation's output rides one effect record the controller
+    # stamps at flush: under the effectively-once tier, and for a durable
+    # workflow, whose stage commit names the record.
+    def records_effects? = effectively_once || (kind == :workflow && persistent)
   end
 
   # Run an edge's transform chain over one value and answer the values that

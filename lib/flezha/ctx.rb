@@ -265,12 +265,13 @@ module Flezha
     end
 
     # Output identity for one plugin frame, appended after the user's metadata.
-    # Written only off the tier: under it the controller derives the identity
-    # from the durable effect record, and a second answer here would contradict
-    # it. The ordinal advances on every plugin output, stamped or not, so hosts
-    # of one topology agree on the sequence.
+    # Written only when the class records no effects: under the tier, and for a
+    # durable workflow, the controller derives the identity from the durable
+    # effect record, and a second answer here would contradict it. The ordinal
+    # advances on every plugin output, stamped or not, so hosts of one topology
+    # agree on the sequence.
     def stamp_identity(pairs, channel, key)
-      if channel.keyed && !@spec.effectively_once
+      if channel.keyed && !@spec.records_effects?
         pairs.push(
           ["flz.cell", "#{@operative}/#{@node.name}/#{@cell_key}"],
           ["flz.seq", "#{@change_seq}.#{@emit_ordinal}"],
