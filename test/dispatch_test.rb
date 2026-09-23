@@ -249,7 +249,8 @@ class DispatchTest < Minitest::Test
 
   # -- timers inside a workflow ----------------------------------------------
   #
-  # Refused by name until they fire there, so a timer is never folded away.
+  # A workflow tasklet arms and cancels timers exactly as a stream one does;
+  # only a compensate hook refuses them.
 
   class TimerSetter < Flezha::Tasklet
     tasklet_name "timer_setter"
@@ -274,14 +275,35 @@ class DispatchTest < Minitest::Test
     channels { |c| c.input("in", codec: :text).into(TimerSetter) }
   end
 
-  def test_a_timer_call_inside_a_workflow_is_refused_naming_timers_unavailable
-    %w[after event_time cancel].each do |call|
+  def test_a_timer_call_inside_a_workflow_reaches_the_item_effect
+    {
+      "after" => { kind: "processing_time", scheduled_at: 60_100, register: true },
+      "event_time" => { kind: "event_time", scheduled_at: 60_000, register: true },
+      "cancel" => { kind: "processing_time", scheduled_at: 60_000, register: false }
+    }.each do |call, operation|
       effect, = answer_on(TimerWorkflow, items: [input_item(call)])[:effects]
 
-      assert_equal "retryable", effect[:verdict], call
-      assert_includes effect[:message], "TimersUnavailable", call
-      refute effect.key?(:timers), "#{call}: a refused timer rides in no effect"
+      assert_equal "ok", effect[:verdict], call
+      assert_equal [operation], effect[:timers], call
     end
+  end
+
+  class ArmsOnUndo < Flezha::Tasklet
+    tasklet_name "arms_on_undo"
+    def run(input, _ctx) = input
+    def compensate(_outputs, ctx) = ctx.timer_after(1_000)
+  end
+
+  class ArmsOnUndoWorkflow < Flezha::WorkflowOperative
+    factory_id "arms_on_undo_workflow"
+    channels { |c| c.input("in", codec: :text).into(ArmsOnUndo) }
+  end
+
+  def test_a_timer_call_inside_a_compensate_hook_is_refused
+    result = answer_on(ArmsOnUndoWorkflow, kind: :compensate_run, outputs: [])
+
+    assert_equal "failed", result[:outcome]
+    assert_includes result[:error], "TimersUnavailable: arms_on_undo"
   end
 
   def test_a_stream_tasklet_still_registers_its_timer

@@ -176,7 +176,7 @@ module Flezha
         operative: activation[:operative], cell_key: activation[:cell_key],
         change_seq: activation[:change_seq], now: now, replay: replay,
         state: registered.state_of(node, activation[:cell_key]), bridge: deps.bridge,
-        token: activation[:token]
+        token: activation[:token], compensating: activation[:kind] == :compensate_run
       )
       begin
         [ctx, yield(ctx)]

@@ -63,7 +63,6 @@ class DeclKeysTest < Minitest::Test
     loop_mode :chained
     rollback_mode :keep_progress
     max_duration_ms 60_000
-    wake_after_ms 5_000
     sync_durability
     channels { |c| c.input("input").into(Downstream).sink }
   end

@@ -459,8 +459,8 @@ class AuthoringTest < Minitest::Test
     end
   end
 
-  def test_the_retired_class_retry_settings_are_not_declared
-    %i[retry_attempts retry_backoff_ms barrier_retry_attempts].each do |retired|
+  def test_the_retired_class_retry_and_wake_settings_are_not_declared
+    %i[retry_attempts retry_backoff_ms barrier_retry_attempts wake_after_ms].each do |retired|
       assert_raises(NoMethodError) { Class.new(Flezha::WorkflowOperative).public_send(retired, 5) }
     end
   end

@@ -35,6 +35,11 @@ module Fixtures
     RELEASE_GATE.pop unless ENV.key?(RELEASE_ENV)
   end
 
+  # Park at `point` when this runner was booted to hold there, until the release.
+  def self.hold_at(point)
+    block_until_released if ENV["FLEZHA_WORKFLOW_E2E_HOLD"] == point
+  end
+
   # Insert into a sorted, de-duplicated array.
   #
   # The reference's `SeenState` is a `BTreeSet<String>`, chosen because a set
@@ -648,8 +653,9 @@ module Fixtures
   #
   # The long-lived loop the `turns` scenario drives (workflow_loop.rs:359): the
   # chat loop's shape with a BOUNDED per-turn state, so a million-turn soak
-  # snapshots the same few bytes at every iteration, and a wake deadline for
-  # the timer-wake measurements.
+  # snapshots the same few bytes at every iteration. With
+  # `FLEZHA_BENCH_WAKE_AFTER_MS` set each turn arms a timer that far out, whose
+  # firing sends the bench's wake marker, `wake:<fired_at>`, for the timer-wake measurements.
 
   WAKE_AFTER_ENV = "FLEZHA_BENCH_WAKE_AFTER_MS"
 
@@ -664,39 +670,99 @@ module Fixtures
 
     def run(input, ctx)
       ctx.change({ turn: input })
+      after = Integer(ENV.fetch(WAKE_AFTER_ENV, ""), exception: false)
+      ctx.timer_after(after) if after && after >= 0
       input
     end
+
+    def on_timer(firing, ctx) = ctx.emit("wake:#{firing[:scheduled_at]}")
   end
 
   class BenchLoopWorkflow < LoopWorkflow
     factory_id "bench_loop_workflow"
     # A day, not the chat loop's ten minutes: a soak outlives 600 s.
     max_duration_ms 24 * 3_600_000
-    wake_after_ms ENV[WAKE_AFTER_ENV].to_i if ENV[WAKE_AFTER_ENV].to_i.positive?
     channels do |c|
       c.input("in", codec: :text).into(BenchTurn).named("mid")
        .into(ChatReply).sink("out")
     end
   end
 
-  # -- workflow_timer_refused -----------------------------------------------
+  # -- timer_loop_workflow --------------------------------------------------
   #
-  # A tasklet that registers a timer inside a workflow. Timers do not fire
-  # there yet, so the ctx refuses naming `TimersUnavailable` and the instance
-  # ends in error rather than losing the timer.
+  # `in -> tick -> relay -> out`, a per-input loop whose `tick` arms a
+  # processing-time timer of the delay `after:<ms>` names and emits
+  # `armed:<at>`; its firing emits `fired:<at>` and opens a pass of its own.
+  # `slow:<ms>` holds `tick` that long, for a firing due mid-pass (workflow.rs).
+  # On a runner booted with `FLEZHA_WORKFLOW_E2E_HOLD` the firing parks at the
+  # gate: `timer` inside `on_timer`, before `tick` commits; `relay` in `relay`, after.
 
-  class WorkflowTimer < Flezha::Tasklet
-    tasklet_name "workflow_timer_refused"
+  class TimerTick < Flezha::Tasklet
+    tasklet_name "tick"
+    def initial_state(_cell_key) = { items: [] }
+    def apply_change(state, change) = Fixtures.insert_sorted(state[:items], change[:insert])
 
-    def run(_input, ctx)
-      ctx.timer_after(60_000)
-      nil
+    def run(input, ctx)
+      if input.start_with?("after:")
+        at = ctx.timer_after(millis(input, "after:"))
+        ctx.change({ insert: "armed:#{at}" })
+        return "armed:#{at}"
+      end
+      sleep(millis(input, "slow:") / 1000.0) if input.start_with?("slow:")
+      input
+    end
+
+    def on_timer(firing, ctx)
+      Fixtures.hold_at("timer")
+      ctx.emit("fired:#{firing[:scheduled_at]}")
+    end
+
+    private
+
+    def millis(input, prefix) = Integer(input.delete_prefix(prefix), exception: false) || 0
+  end
+
+  class TimerRelay < Flezha::Tasklet
+    tasklet_name "relay"
+
+    def run(input, _ctx)
+      Fixtures.hold_at("relay") if input.start_with?("fired:")
+      "relay:#{input}"
     end
   end
 
-  class WorkflowTimerRefused < Flezha::WorkflowOperative
-    factory_id "workflow_timer_refused"
-    channels { |c| c.input("input", codec: :text).into(WorkflowTimer) }
+  class TimerLoopWorkflow < LoopWorkflow
+    factory_id "timer_loop_workflow"
+    channels do |c|
+      c.input("in", codec: :text).into(TimerTick).named("ticked").into(TimerRelay).sink("out")
+    end
+  end
+
+  # -- event_timer_workflow -------------------------------------------------
+  #
+  # An entry-fed tasklet whose clock is the message's leading event time; each
+  # message arms an event-time timer 100 later and emits `seen:<t>`, and the
+  # firing emits `fired:<at>` (workflow.rs).
+
+  class EventTick < Flezha::Tasklet
+    tasklet_name "event_tick"
+    clock :event_time
+    def initial_state(_cell_key) = { items: [] }
+    def apply_change(state, change) = Fixtures.insert_sorted(state[:items], change[:insert])
+    def event_time(input) = Integer(input.to_s.split(":", 2).first, exception: false) || 0
+
+    def run(_input, ctx)
+      at = ctx.timer_at_event_time(ctx.now + 100)
+      ctx.change({ insert: "armed:#{at}" })
+      "seen:#{ctx.now}"
+    end
+
+    def on_timer(firing, ctx) = ctx.emit("fired:#{firing[:scheduled_at]}")
+  end
+
+  class EventTimerWorkflow < LoopWorkflow
+    factory_id "event_timer_workflow"
+    channels { |c| c.input("in", codec: :text).into(EventTick).sink("out") }
   end
 
   # -- static_cell_workflow -------------------------------------------------
@@ -729,7 +795,7 @@ module Fixtures
     OutboxBlockWorkflow, UndoOutboxWorkflow,
     ChatLoopWorkflow, StatelessLoopWorkflow, ChatRewindWorkflow, ReplyBlockLoopWorkflow,
     RetryWorkflow,
-    BranchWorkflow, DiamondWorkflow, *BENCH_CHAINS, BenchLoopWorkflow, WorkflowTimerRefused,
-    StaticCellWorkflow
+    BranchWorkflow, DiamondWorkflow, *BENCH_CHAINS, BenchLoopWorkflow,
+    StaticCellWorkflow, TimerLoopWorkflow, EventTimerWorkflow
   ].freeze
 end

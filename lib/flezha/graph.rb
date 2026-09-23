@@ -199,8 +199,7 @@ module Flezha
         "workflow" => spec.workflow && compact(
           "loop_mode" => spec.workflow[:loop_mode].to_s,
           "rollback_mode" => spec.workflow[:rollback_mode].to_s,
-          "max_duration_ms" => spec.workflow[:max_duration_ms],
-          "wake_after_ms" => spec.workflow[:wake_after_ms]
+          "max_duration_ms" => spec.workflow[:max_duration_ms]
         )
       )
     end

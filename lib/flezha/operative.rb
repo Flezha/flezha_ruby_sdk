@@ -171,7 +171,7 @@ module Flezha
   class WorkflowOperative < Operative
     setting :loop_mode, one_of: %i[once per_input chained]
     setting :rollback_mode, one_of: %i[all_or_nothing keep_progress]
-    setting :max_duration_ms, :wake_after_ms
+    setting :max_duration_ms
 
     class << self
       private
@@ -180,7 +180,7 @@ module Flezha
         facts = {
           loop_mode: (loop_mode || :once).to_sym,
           rollback_mode: (rollback_mode || :all_or_nothing).to_sym,
-          max_duration_ms: max_duration_ms, wake_after_ms: wake_after_ms
+          max_duration_ms: max_duration_ms
         }
         class_spec(:workflow, facts)
       end

@@ -22,8 +22,9 @@ module Flezha
     attr_reader :changes, :outputs, :timers, :cell_key, :replay
 
     def initialize(spec:, node:, outgoing:, operative:, cell_key:, change_seq:,
-                   now:, replay:, state:, bridge:, token:)
+                   now:, replay:, state:, bridge:, token:, compensating: false)
       @token = token
+      @compensating = compensating
       @spec = spec
       @node = node
       @outgoing = outgoing
@@ -101,7 +102,7 @@ module Flezha
     end
 
     # Register a processing-time timer `ms` from `now`. Answers its time.
-    # Inside a workflow each timer call raises naming `TimersUnavailable`.
+    # Inside a `compensate` hook each timer call raises naming `TimersUnavailable`.
     def timer_after(milliseconds)
       # Anchored on `now`, never an ambient read: that is what makes a replayed
       # invocation register the timestamp the live one did.
@@ -189,10 +190,11 @@ module Flezha
     private
 
     def timer(operation)
-      if @spec.structured_workflow?
+      # A rollback is no place to arm a deadline.
+      if @compensating
         raise EmitError,
-              "TimersUnavailable: #{@node.name}: timers are not available inside a workflow; " \
-              "only a stream operative's tasklets may register or cancel them"
+              "TimersUnavailable: #{@node.name}: timers are not available inside compensate; " \
+              "only a tasklet's run / on_timer may register or cancel them"
       end
 
       @timers << operation
