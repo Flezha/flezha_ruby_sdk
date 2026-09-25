@@ -287,7 +287,7 @@ module Fixtures
 
   class OutboxA < DurableStep
     tasklet_name "commit_a"
-    def released(input, ctx) = ctx.emit(input, key: "k", metadata: {"trace" => "t1"})
+    def released(input, ctx) = ctx.emit(input, key: "k", metadata: { "trace" => "t1" })
   end
 
   class OutboxBlockBounded < Flezha::BoundedOperator

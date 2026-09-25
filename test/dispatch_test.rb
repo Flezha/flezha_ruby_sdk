@@ -784,7 +784,7 @@ class DispatchTest < Minitest::Test
   def test_each_static_cell_a_fanned_payload_reaches_runs_only_its_own_values
     outputs = %w[a b].map do |key|
       answer_on(StaticFanOperator, cell_key: key,
-                                    items: [input_item("a:1,b:2,both:9,none:0,a:3")])[:effects][0][:outputs]
+                                   items: [input_item("a:1,b:2,both:9,none:0,a:3")])[:effects][0][:outputs]
     end
 
     assert_equal [%w[a:1 both:9 a:3], %w[b:2 both:9]], outputs.map { |frames| frames.map { |o| o[:payload] } }
