@@ -10,14 +10,14 @@ Flezha::TestSupport.require_test_app("fixtures")
 # what passes there cannot be two different graphs.
 #
 # The other ten capabilities in the vocabulary are the controller's:
-# persistence, effectively-once, correction, partitioning, workflows,
+# persistence, effectively-once, correction, partitioning, bounded operators,
 # liveness, restarts. Local mode refuses them by name rather than
 # approximating them, and `sdk-local-mode` says a sixth needs its own
 # proposal.
 #
 # What each test can assert is what a run with no controller can see. A
 # durable write reaches a null sink, a parked payload has nowhere to park, and
-# a partition member's key range arrives with `AddOperative`, so the
+# a partition member's key range arrives with `AddOperator`, so the
 # assertions here are the output side of each capability, which is the half
 # the language layer produces.
 class LocalModeCapabilitiesTest < Minitest::Test
@@ -35,7 +35,7 @@ class LocalModeCapabilitiesTest < Minitest::Test
 
   # `partition_relay` is the manifest's only keyed-channel class. Partitioning
   # itself is the controller's (a member's key-group range arrives with
-  # `AddOperative`), so what is asserted here is the half the language layer
+  # `AddOperator`), so what is asserted here is the half the language layer
   # owns: the key it resolves and the stamps it puts on the released value.
   def test_keyed_channels_a_keyed_sink_stamps_the_key_the_class_resolved
     released = release(declares("keyed_channels", "partition_relay"),
@@ -80,14 +80,14 @@ class LocalModeCapabilitiesTest < Minitest::Test
   end
 
   def test_cell_timers_a_declared_timer_fires_locally_with_its_scheduled_time
-    operative = declares("cell_timers", "session_timeout")
+    operator = declares("cell_timers", "session_timeout")
 
     # The class reads its own deadline from the environment, the way the e2e
     # sets it; 200 ms keeps the run short without changing what is proved.
     previous = ENV.fetch("TIMER_TEST_TIMEOUT_MS", nil)
     ENV["TIMER_TEST_TIMEOUT_MS"] = "200"
     begin
-      released = release(operative, "input", "kafka", ["open"])
+      released = release(operator, "input", "kafka", ["open"])
     ensure
       ENV["TIMER_TEST_TIMEOUT_MS"] = previous
     end
@@ -103,8 +103,8 @@ class LocalModeCapabilitiesTest < Minitest::Test
   # `tier_store` is effectively-once, which needs a durable store to release
   # from, so a local run says so instead of running the graph.
   def test_a_controller_capability_is_refused_by_name_not_approximated
-    operative = declares("effectively_once", "tier_store")
-    message = assert_raises(Flezha::Native::Error) { Flezha::LocalOperative.start(operative) }.message
+    operator = declares("effectively_once", "tier_store")
+    message = assert_raises(Flezha::Native::Error) { Flezha::LocalOperator.start(operator) }.message
 
     assert_includes message, "effectively_once"
     assert_includes message, "requires a controller"
@@ -122,14 +122,14 @@ class LocalModeCapabilitiesTest < Minitest::Test
     # By factory id, not by constant: one of these classes is built in a loop
     # over its overflow policy and has no name of its own.
     registered = Fixtures::ALL + Fixtures::SHORTHAND
-    registered.find { |operative| operative.factory_id == factory_id } ||
+    registered.find { |operator| operator.factory_id == factory_id } ||
       flunk("the test app registers no class whose factory id is #{factory_id}")
   end
 
   # Run one class over +inputs+ on +channel+, and return what +sink+ released.
-  def release(operative, channel, sink, inputs, budget_ms = 20_000)
+  def release(operator, channel, sink, inputs, budget_ms = 20_000)
     released = []
-    run = Flezha::LocalOperative.start(operative)
+    run = Flezha::LocalOperator.start(operator)
     begin
       run.on_sink(sink) { |output| released << output }
       inputs.each { |input| run.feed(channel, input) }

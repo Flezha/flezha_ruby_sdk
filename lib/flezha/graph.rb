@@ -196,10 +196,10 @@ module Flezha
         "sync_durability" => spec.sync_durability,
         "channels" => spec.channels.map { |channel| channel_json(channel) },
         "tasklets" => spec.tasklets.map { |node| tasklet_json(node) },
-        "workflow" => spec.workflow && compact(
-          "loop_mode" => spec.workflow[:loop_mode].to_s,
-          "rollback_mode" => spec.workflow[:rollback_mode].to_s,
-          "max_duration_ms" => spec.workflow[:max_duration_ms]
+        "bounded" => spec.bounded && compact(
+          "loop_mode" => spec.bounded[:loop_mode].to_s,
+          "rollback_mode" => spec.bounded[:rollback_mode].to_s,
+          "max_duration_ms" => spec.bounded[:max_duration_ms]
         )
       )
     end

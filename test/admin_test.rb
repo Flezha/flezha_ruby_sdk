@@ -10,7 +10,7 @@ class AdminTest < Minitest::Test
     calls = []
     core = Flezha::TestSupport::FakeCore.new
     result = core.stub(:admin_call, ->(verb, json) { calls << [verb, JSON.parse(json)] && answer }) do
-      Flezha::Admin.new(core).start_operative(*args, **options)
+      Flezha::Admin.new(core).start_operator(*args, **options)
     end
     [calls, result]
   end
@@ -18,7 +18,7 @@ class AdminTest < Minitest::Test
   def test_a_start_without_an_id_sends_none_and_answers_the_generated_one
     calls, result = start('{"id":"echo-k7m2qzxw4pd3fn2a","outcome":"started"}', "echo")
 
-    assert_equal [["Operative.start", [{ "factory_id" => "echo" }]]], calls
+    assert_equal [["Operator.start", [{ "factory_id" => "echo" }]]], calls
     assert_equal Flezha::StartResult.new(id: "echo-k7m2qzxw4pd3fn2a", outcome: :started), result
     assert_equal %i[id outcome], result.members
   end
@@ -27,7 +27,7 @@ class AdminTest < Minitest::Test
     answer = '{"id":"my_echo","outcome":"already_running"}'
     calls, result = start(answer, "echo", id: "my_echo")
 
-    assert_equal [["Operative.start", [{ "factory_id" => "echo", "id" => "my_echo" }]]],
+    assert_equal [["Operator.start", [{ "factory_id" => "echo", "id" => "my_echo" }]]],
                  calls
     assert_equal Flezha::StartResult.new(id: "my_echo", outcome: :already_running), result
   end
@@ -36,11 +36,11 @@ class AdminTest < Minitest::Test
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
     core = Flezha::TestSupport::FakeCore.new
-    refusal = ->(*) { raise Flezha::Native::Error, "max_operatives reached" }
+    refusal = ->(*) { raise Flezha::Native::Error, "max_operators reached" }
 
     error = assert_raises(Flezha::Native::Error) do
-      core.stub(:admin_call, refusal) { Flezha::Admin.new(core).start_operative("echo") }
+      core.stub(:admin_call, refusal) { Flezha::Admin.new(core).start_operator("echo") }
     end
-    assert_includes error.message, "max_operatives"
+    assert_includes error.message, "max_operators"
   end
 end

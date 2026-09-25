@@ -21,14 +21,14 @@ module Flezha
 
     attr_reader :changes, :outputs, :timers, :cell_key, :replay
 
-    def initialize(spec:, node:, outgoing:, operative:, cell_key:, change_seq:,
+    def initialize(spec:, node:, outgoing:, operator:, cell_key:, change_seq:,
                    now:, replay:, state:, bridge:, token:, compensating: false)
       @token = token
       @compensating = compensating
       @spec = spec
       @node = node
       @outgoing = outgoing
-      @operative = operative
+      @operator = operator
       @cell_key = cell_key
       @change_seq = change_seq
       @now = now
@@ -56,7 +56,7 @@ module Flezha
     def stable_id
       # Lazily, because most invocations never ask and the identity is the one
       # part of the derivation that costs an allocation.
-      @identity ||= Identity.cell_identity(@operative, @node.name, @cell_key.to_s)
+      @identity ||= Identity.cell_identity(@operator, @node.name, @cell_key.to_s)
       id = Identity.stable_id(@identity, @change_seq, @ordinal)
       @ordinal += 1
       id
@@ -130,23 +130,23 @@ module Flezha
       nil
     end
 
-    # End the workflow instance this tasklet runs in, with `result`.
+    # End the bounded instance this tasklet runs in, with `result`.
     #
     # The rest of the iteration still runs and commits; the instance then ends
     # with status `ok` instead of waiting for its next input. In a `once`
-    # workflow it sets the result the pass ends with. `result` is encoded as a
+    # bounded operator it sets the result the pass ends with. `result` is encoded as a
     # sink naming no codec encodes a value: a String as its bytes and anything
     # else as JSON; nil carries an empty result. A later call in the same
     # invocation replaces an earlier one.
     #
-    # A stream never completes: a stream tasklet calling this fails its
-    # input, without a retry, with an error naming `CompleteOutsideWorkflow`.
+    # An unbounded operator never completes: an unbounded tasklet calling this fails its
+    # input, without a retry, with an error naming `CompleteOutsideBounded`.
     def complete(result = nil)
       @completion = result.nil? ? "".b : Codec.plain_payload(result, @node.name).b
       nil
     end
 
-    # Spawn a workflow instance of `factory_id` with `payload` as its first
+    # Spawn a bounded instance of `factory_id` with `payload` as its first
     # message, answering a `SpawnHandle` at once. The payload is encoded as a
     # sink naming no codec encodes a value, the rule `complete` applies: a
     # String as its bytes and anything else as JSON, so the instance's `text`
@@ -159,10 +159,10 @@ module Flezha
     # instance, so a spawn reissued after a lost or timed-out answer starts a
     # second one, and a replayed invocation answers an empty id. Pass an id to
     # start at most one instance, or to get the id back on replay.
-    def spawn_workflow(factory_id, payload, id: nil, if_running: nil)
+    def spawn_bounded(factory_id, payload, id: nil, if_running: nil)
       if if_running && id.to_s.empty?
         raise ArgumentError,
-              "#{@node.name}: spawn_workflow was given if_running without an id; if_running " \
+              "#{@node.name}: spawn_bounded was given if_running without an id; if_running " \
               "decides what a running instance named by id gets, and a spawn without an id " \
               "always starts a new one"
       end
@@ -202,11 +202,11 @@ module Flezha
 
     def release(channel, value, key, metadata)
       # A channel with no consumer releases nothing on the edge path: on a
-      # workflow that is the plugin-bound terminal, and seeding the next stage
+      # bounded operator that is the plugin-bound terminal, and seeding the next stage
       # from it would hand the driver a terminal output.
-      if @spec.structured_workflow?
+      if @spec.structured_bounded?
         first = channel.consumers.first
-        @outputs << workflow_output(channel, first, value) if first
+        @outputs << bounded_output(channel, first, value) if first
       else
         channel.consumers.each do |edge|
           @outputs.concat(edge_outputs(channel, edge, value, key, metadata))
@@ -215,7 +215,7 @@ module Flezha
       @outputs << plugin_output(channel, value, key, metadata) if channel.sink
     end
 
-    def workflow_output(channel, edge, value)
+    def bounded_output(channel, edge, value)
       payload = Codec.encode(value)
       {
         target: "edge", channel: channel.index, consumer: edge.tasklet,
@@ -266,14 +266,14 @@ module Flezha
 
     # Output identity for one plugin frame, appended after the user's metadata.
     # Written only when the class records no effects: under the tier, and for a
-    # durable workflow, the controller derives the identity from the durable
+    # durable bounded operator, the controller derives the identity from the durable
     # effect record, and a second answer here would contradict it. The ordinal
     # advances on every plugin output, stamped or not, so hosts of one topology
     # agree on the sequence.
     def stamp_identity(pairs, channel, key)
       if channel.keyed && !@spec.records_effects?
         pairs.push(
-          ["flz.cell", "#{@operative}/#{@node.name}/#{@cell_key}"],
+          ["flz.cell", "#{@operator}/#{@node.name}/#{@cell_key}"],
           ["flz.seq", "#{@change_seq}.#{@emit_ordinal}"],
           ["flz.key", key.to_s]
         )

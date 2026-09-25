@@ -28,7 +28,7 @@ module Flezha
 
   # An emit the declaration cannot carry — a channel the tasklet does not
   # produce on, a reserved metadata key, a keyed channel with no key, a timer
-  # inside a workflow.
+  # inside a bounded operator.
   class EmitError < Error; end
 
   # A value the durable codec cannot represent, named by the declaring type and
@@ -58,14 +58,14 @@ module Flezha
 
     class AlreadyRunning < SpawnError; end
     class FactoryUnknown < SpawnError; end
-    class FactoryNotWorkflow < SpawnError; end
+    class FactoryNotBounded < SpawnError; end
     class Refused < SpawnError; end
     class Timeout < SpawnError; end
     class Unavailable < SpawnError; end
 
     KINDS = {
       already_running: AlreadyRunning, factory_unknown: FactoryUnknown,
-      factory_not_workflow: FactoryNotWorkflow, refused: Refused, timeout: Timeout,
+      factory_not_bounded: FactoryNotBounded, refused: Refused, timeout: Timeout,
       unavailable: Unavailable
     }.freeze
 

@@ -1,32 +1,32 @@
 # frozen_string_literal: true
 
 # Starts a runner: a process that connects to the controller and serves your
-# operatives.
+# operators.
 #
-# Declare every operative you want served before `boot`. One runner can serve
-# several, and the same call takes a workflow operative.
+# Declare every operator you want served before `boot`. One runner can serve
+# several, and the same call takes a bounded operator.
 
 require "flezha"
-require_relative "echo_operative"
+require_relative "echo_operator"
 
 namespace = ARGV[0] || "default"
 
-runner = Flezha.create_runner(namespace).register_factory(EchoOperative)
+runner = Flezha.create_runner(namespace).register_factory(EchoOperator)
 
 # `run` is `boot` followed by `await_termination`. Splitting them leaves room
 # for the admin calls below, and still blocks until shutdown.
 runner.boot
 
-# Everything `flz operative` and `flz plugin` do is also a method here.
+# Everything `flz operator` and `flz plugin` do is also a method here.
 # Uncomment to drive this namespace from the application instead of from a
 # terminal:
 #
 # admin = runner.admin
-# admin.start_operative("echo", id: "my_echo")
+# admin.start_operator("echo", id: "my_echo")
 # admin.enable_plugin("writer", {
 #   "id" => "writer",
-#   "provider" => "operative_file_sink",
-#   "operative_id" => "my_echo",
+#   "provider" => "operator_file_sink",
+#   "operator_id" => "my_echo",
 #   "opts" => { "path" => "echo-out.txt" },
 #   "hooks" => [["on_output", {}]]
 # })

@@ -39,21 +39,21 @@ module Flezha
     :factory_id, :kind, :persistent, :sleep_when_idle, :effectively_once, :checkpoint_ack,
     :checkpoint_every, :checkpoint_outputs, :checkpoint_max_delay_ms,
     :correction_window_ms, :beyond_window_policy, :compact_after_bytes,
-    :sync_durability, :tasklets, :channels, :workflow,
+    :sync_durability, :tasklets, :channels, :bounded,
     keyword_init: true
   ) do
     # Whether this class's producers release their values untransformed.
     #
-    # A workflow's stage releases ONE value per emit and the driver fans it out
+    # A bounded operator's stage releases ONE value per emit and the driver fans it out
     # to every consumer itself, so each consumer edge (its transforms and its
     # key) belongs to the consumer. The producer and the consumer read this one
     # predicate, so they cannot disagree about which side applies the edge.
-    def structured_workflow? = kind == :workflow
+    def structured_bounded? = kind == :bounded
 
     # Whether each invocation's output rides one effect record the controller
     # stamps at flush: under the effectively-once tier, and for a durable
-    # workflow, whose stage commit names the record.
-    def records_effects? = effectively_once || (kind == :workflow && persistent)
+    # bounded operator, whose stage commit names the record.
+    def records_effects? = effectively_once || (kind == :bounded && persistent)
   end
 
   # Run an edge's transform chain over one value and answer the values that
@@ -72,7 +72,7 @@ module Flezha
     end
   end
 
-  # The fluent channel builder an operative's `channels` block receives.
+  # The fluent channel builder an operator's `channels` block receives.
   class Builder
     attr_reader :factory_id, :tasklets, :channels, :effectively_once_flag,
                 :checkpoint_ack_flag, :checkpoint_every_value, :checkpoint_outputs_value,
@@ -174,7 +174,7 @@ module Flezha
       group
     end
 
-    # Turn an operative-wide document stream into per-key deliveries: every key
+    # Turn an operator-wide document stream into per-key deliveries: every key
     # seen on `traffic` receives each distinct document once, as
     # `[key, document]`, on that key's own next traffic item. The block answers
     # a traffic item's key.
@@ -185,7 +185,7 @@ module Flezha
     # rescale; a key its own traffic just reached is one it owns.
     #
     # Sugar over a merge into one packaged `RouteLatest` node named
-    # `route_latest`, so a second router in one operative names its own node
+    # `route_latest`, so a second router in one operator names its own node
     # with `route_latest_named`. Answers the router's output edge.
     def route_latest(documents, traffic, &key) = route_latest_named(documents, traffic, nil, &key)
 

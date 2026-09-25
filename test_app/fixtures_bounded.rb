@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-# Twins of the reference's durable structured workflow fixtures
-# (test/apps/rust_runner/src/workflow.rs and workflow_loop.rs) under the same
+# Twins of the reference's durable structured bounded fixtures
+# (test/apps/rust_runner/src/bounded.rs and bounded_loop.rs) under the same
 # factory ids, tasklet names, channel names and output bytes.
 #
 # Entry payloads and plugin frames are UTF-8 text on the wire, as in the
@@ -15,7 +15,7 @@ require "flezha"
 module Fixtures
   # -- the release gate -----------------------------------------------------
 
-  RELEASE_ENV = "FLEZHA_WORKFLOW_E2E_RELEASE"
+  RELEASE_ENV = "FLEZHA_BOUNDED_E2E_RELEASE"
 
   # Nothing ever pushes to this queue: it is the park itself, not a handoff.
   RELEASE_GATE = Thread::Queue.new
@@ -37,13 +37,13 @@ module Fixtures
 
   # Park at `point` when this runner was booted to hold there, until the release.
   def self.hold_at(point)
-    block_until_released if ENV["FLEZHA_WORKFLOW_E2E_HOLD"] == point
+    block_until_released if ENV["FLEZHA_BOUNDED_E2E_HOLD"] == point
   end
 
   # Insert into a sorted, de-duplicated array.
   #
   # The reference's `SeenState` is a `BTreeSet<String>`, chosen because a set
-  # keeps snapshot bytes deterministic (workflow.rs:50). A Set has no durable
+  # keeps snapshot bytes deterministic (bounded.rs:50). A Set has no durable
   # form here — the codec refuses one where the state is declared — so the twin
   # is the array it would decode to, kept sorted for the same determinism and
   # idempotent on insert for the same re-run after a resume.
@@ -57,7 +57,7 @@ module Fixtures
 
   # -- the two shared tasklet shapes --------------------------------------
 
-  # The reference's `durable_step!` macro (workflow.rs:66): a String -> String
+  # The reference's `durable_step!` macro (bounded.rs:66): a String -> String
   # step committing one idempotent Change keyed by its own name, so a re-run
   # after a resume folds to the state it already had.
   #
@@ -94,9 +94,9 @@ module Fixtures
     def compensate(_outputs, ctx) = ctx.emit(undo_record)
   end
 
-  # -- echo_workflow --------------------------------------------------------
+  # -- echo_bounded --------------------------------------------------------
   #
-  # One tasklet, run once (workflow.rs): its single pass runs on the first
+  # One tasklet, run once (bounded.rs): its single pass runs on the first
   # message and emits it back, so the pass ends and the controller
   # deregisters the instance.
 
@@ -105,14 +105,14 @@ module Fixtures
     def run(input, _ctx) = "echo:#{input}"
   end
 
-  class EchoWorkflow < Flezha::WorkflowOperative
-    factory_id "echo_workflow"
+  class EchoBounded < Flezha::BoundedOperator
+    factory_id "echo_bounded"
     channels { |c| c.input("in", codec: :text).into(Echo).sink("out") }
   end
 
-  # -- typed_once_workflow --------------------------------------------------
+  # -- typed_once_bounded --------------------------------------------------
   #
-  # A `once` workflow whose entry decodes JSON: its one pass runs over the
+  # A `once` bounded operator whose entry decodes JSON: its one pass runs over the
   # message it was spawned or sent with, prints what it read, emits it to the
   # `placed` sink and completes with it.
 
@@ -128,16 +128,16 @@ module Fixtures
     end
   end
 
-  class TypedOnceWorkflow < Flezha::WorkflowOperative
-    factory_id "typed_once_workflow"
+  class TypedOnceBounded < Flezha::BoundedOperator
+    factory_id "typed_once_bounded"
     channels { |c| c.input("order", codec: :json).into(OncePlaced).sink("placed") }
   end
 
-  # -- commit_block_workflow / sync_durable_workflow ------------------------
+  # -- commit_block_bounded / sync_durable_bounded ------------------------
   #
   # Task A commits durable state, task B blocks until the resumed runner sets
   # the release variable — so a SIGKILL lands with A's state already on the WAL
-  # and B never finished. `sync_durable_workflow` is the same chain declaring
+  # and B never finished. `sync_durable_bounded` is the same chain declaring
   # SYNCHRONOUS remote durability, which is what lets the kill-the-disk drill
   # destroy the state directory and still resume with A committed.
 
@@ -154,13 +154,13 @@ module Fixtures
     c.input("in", codec: :text).into(CommitA).named("mid").into(BlockB)
   end
 
-  class CommitBlockWorkflow < Flezha::WorkflowOperative
-    factory_id "commit_block_workflow"
+  class CommitBlockBounded < Flezha::BoundedOperator
+    factory_id "commit_block_bounded"
     channels(&COMMIT_BLOCK_CHAIN)
   end
 
-  class SyncDurableWorkflow < Flezha::WorkflowOperative
-    factory_id "sync_durable_workflow"
+  class SyncDurableBounded < Flezha::BoundedOperator
+    factory_id "sync_durable_bounded"
     sync_durability
     channels(&COMMIT_BLOCK_CHAIN)
   end
@@ -172,7 +172,7 @@ module Fixtures
   # without durable state. A crash re-runs the chain from the top, so the sink
   # sees A's marker once per run and no journal file exists.
 
-  class OptoutCommitBlock < Flezha::WorkflowOperative
+  class OptoutCommitBlock < Flezha::BoundedOperator
     factory_id "optout_commit_block"
     persistent false
     channels do |c|
@@ -182,7 +182,7 @@ module Fixtures
     end
   end
 
-  # -- tier_commit_block_workflow -------------------------------------------
+  # -- tier_commit_block_bounded -------------------------------------------
   #
   # The keyed hybrid twin. Task A commits durable state AND emits
   # `committed:<input>` under a stable key on a keyed hybrid channel; task B
@@ -194,8 +194,8 @@ module Fixtures
     def released(input, ctx) = ctx.emit("committed:#{input}", key: "job")
   end
 
-  class TierCommitBlockWorkflow < Flezha::WorkflowOperative
-    factory_id "tier_commit_block_workflow"
+  class TierCommitBlockBounded < Flezha::BoundedOperator
+    factory_id "tier_commit_block_bounded"
     channels do |c|
       c.input("in", codec: :text).into(TierCommitA).keyed
        .sink("mid")
@@ -203,7 +203,7 @@ module Fixtures
     end
   end
 
-  # -- saga_block_workflow --------------------------------------------------
+  # -- saga_block_bounded --------------------------------------------------
   #
   # SA and SB commit durable state and compensate; SC fails, triggering
   # reverse-order rollback (SB then SA). SA's compensation BLOCKS, so a SIGKILL
@@ -225,8 +225,8 @@ module Fixtures
     def run(_input, _ctx) = raise("saga_c always fails")
   end
 
-  class SagaBlockWorkflow < Flezha::WorkflowOperative
-    factory_id "saga_block_workflow"
+  class SagaBlockBounded < Flezha::BoundedOperator
+    factory_id "saga_block_bounded"
     channels do |c|
       c.input("in", codec: :text).into(SagaA).named("s1")
        .into(SagaB).named("s2")
@@ -234,7 +234,7 @@ module Fixtures
     end
   end
 
-  # -- keyed_block_workflow / keyed_saga_workflow ---------------------------
+  # -- keyed_block_bounded / keyed_saga_bounded ---------------------------
   #
   # The entry's comma-separated key list is split into one value per key, and
   # a `key_by` on that value mints one Cell per key of a durable compensable
@@ -268,19 +268,19 @@ module Fixtures
      .into(KeyedCommit).named("committed")
   end
 
-  class KeyedBlockWorkflow < Flezha::WorkflowOperative
-    factory_id "keyed_block_workflow"
+  class KeyedBlockBounded < Flezha::BoundedOperator
+    factory_id "keyed_block_bounded"
     channels { |c| KEYED_COMMITS.call(c).into(BlockB) }
   end
 
-  class KeyedSagaWorkflow < Flezha::WorkflowOperative
-    factory_id "keyed_saga_workflow"
+  class KeyedSagaBounded < Flezha::BoundedOperator
+    factory_id "keyed_saga_bounded"
     channels { |c| KEYED_COMMITS.call(c).into(KeyedFail) }
   end
 
-  # -- outbox_block_workflow ------------------------------------------------
+  # -- outbox_block_bounded ------------------------------------------------
   #
-  # A workflow output's identity. Task A commits durable state AND emits once,
+  # A bounded output's identity. Task A commits durable state AND emits once,
   # keyed `k` with one metadata pair, on a keyed hybrid channel; the output
   # rides A's Cell record and reaches the sink once A's stage commits. Task B
   # blocks, so a SIGKILL lands with A committed and B unfinished.
@@ -290,8 +290,8 @@ module Fixtures
     def released(input, ctx) = ctx.emit(input, key: "k", metadata: {"trace" => "t1"})
   end
 
-  class OutboxBlockWorkflow < Flezha::WorkflowOperative
-    factory_id "outbox_block_workflow"
+  class OutboxBlockBounded < Flezha::BoundedOperator
+    factory_id "outbox_block_bounded"
     channels do |c|
       c.input("in", codec: :text).into(OutboxA).keyed
        .sink("mid", encode: ->(value) { "a-out:#{value}" })
@@ -299,7 +299,7 @@ module Fixtures
     end
   end
 
-  # -- undo_outbox_workflow -------------------------------------------------
+  # -- undo_outbox_bounded -------------------------------------------------
   #
   # A compensation's undo output. Task UA commits, emits its forward output on
   # a hybrid plugin channel, and compensates by EMITTING an undo record, which
@@ -323,8 +323,8 @@ module Fixtures
     def run(_input, _ctx) = raise("undo_outbox_c always fails")
   end
 
-  class UndoOutboxWorkflow < Flezha::WorkflowOperative
-    factory_id "undo_outbox_workflow"
+  class UndoOutboxBounded < Flezha::BoundedOperator
+    factory_id "undo_outbox_bounded"
     channels do |c|
       c.input("in", codec: :text).into(UndoOutboxA)
        .sink("mid", encode: ->(value) { "out:#{value}" })
@@ -332,7 +332,7 @@ module Fixtures
     end
   end
 
-  # -- failed_stage_workflow ------------------------------------------------
+  # -- failed_stage_bounded ------------------------------------------------
   #
   # A failed stage delivers nothing. The entry's two values reach one
   # `failed_stage` Cell in order: the first emits on a plugin channel, so the
@@ -349,20 +349,20 @@ module Fixtures
     end
   end
 
-  class FailedStageWorkflow < Flezha::WorkflowOperative
-    factory_id "failed_stage_workflow"
+  class FailedStageBounded < Flezha::BoundedOperator
+    factory_id "failed_stage_bounded"
     channels do |c|
       c.input("in", codec: :text).into(KeySplit).into(FailedStage)
        .sink("mid", encode: ->(value) { "lost:#{value}" })
     end
   end
 
-  # -- branch_workflow ------------------------------------------------------
+  # -- branch_bounded ------------------------------------------------------
   #
   #     BranchA ─┬─▶ BranchB ─▶ BranchD
   #              └─▶ BranchC
   #
-  # The tasklet TREE (workflow.rs:352). Every tasklet commits durable state
+  # The tasklet TREE (bounded.rs:352). Every tasklet commits durable state
   # and compensates by emitting an undo record, so both tree behaviours are
   # observable at one sink:
   #
@@ -408,8 +408,8 @@ module Fixtures
     end
   end
 
-  class BranchWorkflow < Flezha::WorkflowOperative
-    factory_id "branch_workflow"
+  class BranchBounded < Flezha::BoundedOperator
+    factory_id "branch_bounded"
     channels do |c|
       # One channel, two consumers: THE fan-out. Both branches read exactly
       # what BranchA released on it (held handle, wired twice).
@@ -425,12 +425,12 @@ module Fixtures
     end
   end
 
-  # -- diamond_workflow -----------------------------------------------------
+  # -- diamond_bounded -----------------------------------------------------
   #
   #     DiamA ─┬─▶ DiamB1 ─▶ DiamB2(blocks) ─┬─▶ DiamJoin
   #            └─▶ DiamC ────────────────────┘
   #
-  # The fan-in DAG (workflow.rs:475). The join accumulates BOTH arms' outputs
+  # The fan-in DAG (bounded.rs:475). The join accumulates BOTH arms' outputs
   # and is dispatched exactly once, after both commit. DiamB2 blocks one level
   # BELOW its sibling arm — siblings commit at one level barrier — so a SIGKILL
   # lands with A, B1 and C committed and B2 mid-run: the respawn re-runs B2
@@ -465,8 +465,8 @@ module Fixtures
     def run(input, _ctx) = "j:#{input}"
   end
 
-  class DiamondWorkflow < Flezha::WorkflowOperative
-    factory_id "diamond_workflow"
+  class DiamondBounded < Flezha::BoundedOperator
+    factory_id "diamond_bounded"
     channels do |c|
       # Held handle wired twice = the fan-out; two arms naming DiamJoin with no
       # node name = the fan-in, since two unnamed mentions are one node.
@@ -480,17 +480,17 @@ module Fixtures
     end
   end
 
-  # -- retry_workflow -------------------------------------------------------
+  # -- retry_bounded -------------------------------------------------------
   #
-  # The per-cell retry ladder (workflow.rs:607). Task RA commits durable
+  # The per-cell retry ladder (bounded.rs:607). Task RA commits durable
   # state, forwards on a hybrid channel, and compensates by emitting an undo
-  # record; `retry_flaky` fails its first FLEZHA_WORKFLOW_RETRY_FAILS attempts
+  # record; `retry_flaky` fails its first FLEZHA_BOUNDED_RETRY_FAILS attempts
   # (none by default — each scenario arms it) and then emits
   # `attempt:<n>:<input>`. One armed failure is absorbed by the ladder, so the
   # run completes and the sink sees attempt 2; arming more failures than the
   # ladder has attempts exhausts it, RA rolls back and the run reports an error.
 
-  RETRY_FAILS_ENV = "FLEZHA_WORKFLOW_RETRY_FAILS"
+  RETRY_FAILS_ENV = "FLEZHA_BOUNDED_RETRY_FAILS"
 
   class RetryA < UndoingStep
     tasklet_name "retry_a"
@@ -512,8 +512,8 @@ module Fixtures
     end
   end
 
-  class RetryWorkflow < Flezha::WorkflowOperative
-    factory_id "retry_workflow"
+  class RetryBounded < Flezha::BoundedOperator
+    factory_id "retry_bounded"
     channels do |c|
       c.input("in", codec: :text).into(RetryA)
        .sink("mid", encode: ->(value) { "res:#{value}" })
@@ -523,8 +523,8 @@ module Fixtures
 
   # -- the durable loop family ----------------------------------------------
   #
-  # chat_loop_workflow is the durable-loop + suspension shape
-  # (workflow_loop.rs:8). One iteration per inbox item: TURN commits the turn
+  # chat_loop_bounded is the durable-loop + suspension shape
+  # (bounded_loop.rs:8). One iteration per inbox item: TURN commits the turn
   # to Cell state, so a resumed iteration is visible in the WAL, and REPLY
   # emits the answer to the sink. Between turns the loop finds an empty inbox
   # at a committed boundary and PARKS — the instance is evicted and rehydrated
@@ -537,12 +537,12 @@ module Fixtures
   # the number of turns TURN holds, so the session ends once that iteration
   # commits.
   #
-  # stateless_loop_workflow is the same loop MINUS its stateful first
+  # stateless_loop_bounded is the same loop MINUS its stateful first
   # tasklet: ChatReply alone holds no per-Cell state, so nothing writes an
   # Cell WAL and the instance's task-journal reaches the driver only if it
   # rides the bind itself.
   #
-  # chat_rewind_workflow is the loop whose replying tasklet can be undone.
+  # chat_rewind_bounded is the loop whose replying tasklet can be undone.
   # The undo handle lives in Cell state, because a rewind's compensation is
   # rebuilt from the journal and is handed NO retained outputs, so the hook
   # reads the last thing it said, retracts it and pops it.
@@ -593,30 +593,30 @@ module Fixtures
   # A loop here ends on an external stop, or on `bye` where ChatTurn runs; the
   # duration backstop keeps a stray instance from outliving the test run. The
   # knobs are declared once and inherited; `factory_id` deliberately is not.
-  class LoopWorkflow < Flezha::WorkflowOperative
+  class LoopBounded < Flezha::BoundedOperator
     loop_mode :per_input
     max_duration_ms 600_000
   end
 
-  class ChatLoopWorkflow < LoopWorkflow
-    factory_id "chat_loop_workflow"
+  class ChatLoopBounded < LoopBounded
+    factory_id "chat_loop_bounded"
     channels do |c|
       c.input("in", codec: :text).into(ChatTurn).named("mid")
        .into(ChatReply).sink("out")
     end
   end
 
-  class StatelessLoopWorkflow < LoopWorkflow
-    factory_id "stateless_loop_workflow"
+  class StatelessLoopBounded < LoopBounded
+    factory_id "stateless_loop_bounded"
     channels do |c|
       c.input("in", codec: :text).into(ChatReply)
        .sink("out")
     end
   end
 
-  # keyed_loop_workflow is a durable per-input loop keyed on its entry edge
+  # keyed_loop_bounded is a durable per-input loop keyed on its entry edge
   # by the text before the first `:`, so one Cell counts one symbol's messages
-  # and emits `<symbol>:<count>`: the shape a partition group of workflow
+  # and emits `<symbol>:<count>`: the shape a partition group of bounded operator
   # members takes.
   class KeyedLoopCount < Flezha::Tasklet
     tasklet_name "keyed_loop_count"
@@ -632,17 +632,17 @@ module Fixtures
     end
   end
 
-  class KeyedLoopWorkflow < LoopWorkflow
-    factory_id "keyed_loop_workflow"
+  class KeyedLoopBounded < LoopBounded
+    factory_id "keyed_loop_bounded"
     channels do |c|
       c.input("trades", codec: :text).key_by { |value| PREFIX.call(value) }
        .into(KeyedLoopCount)
-       .sink("keyed_loop_workflow_out")
+       .sink("keyed_loop_bounded_out")
     end
   end
 
-  class ChatRewindWorkflow < LoopWorkflow
-    factory_id "chat_rewind_workflow"
+  class ChatRewindBounded < LoopBounded
+    factory_id "chat_rewind_bounded"
     channels do |c|
       c.input("in", codec: :text).into(ChatTurn).named("mid")
        .into(ChatReplyUndoable).sink("out")
@@ -664,8 +664,8 @@ module Fixtures
 
   # The chat loop with the block moved AFTER the root's commit, so a SIGKILL
   # lands between a root's `task_committed` and the pass's `iter_committed`.
-  class ReplyBlockLoopWorkflow < LoopWorkflow
-    factory_id "reply_block_loop_workflow"
+  class ReplyBlockLoopBounded < LoopBounded
+    factory_id "reply_block_loop_bounded"
     channels do |c|
       c.input("in", codec: :text).into(ChatTurn).named("mid")
        .into(BlockingReply).sink("out")
@@ -674,7 +674,7 @@ module Fixtures
 
   # -- the bench chains -----------------------------------------------------
   #
-  # What `mix bench.workflow --scenario chain` drives (workflow_loop.rs:232): K
+  # What `mix bench.bounded --scenario chain` drives (bounded_loop.rs:232): K
   # durable pass-through steps in a line, the payload unchanged, so the sink
   # receives the seed input and the bench reads its own seq and send timestamp
   # back. Each chain position needs its own tasklet, so the sixteen are
@@ -686,7 +686,7 @@ module Fixtures
   end.freeze
 
   def self.bench_chain(id, steps, persist)
-    Class.new(Flezha::WorkflowOperative) do
+    Class.new(Flezha::BoundedOperator) do
       factory_id id
       persistent persist
       channels do |c|
@@ -704,9 +704,9 @@ module Fixtures
     bench_chain("bench_chain_optout_4", 4, false)
   ].freeze
 
-  # -- bench_loop_workflow --------------------------------------------------
+  # -- bench_loop_bounded --------------------------------------------------
   #
-  # The long-lived loop the `turns` scenario drives (workflow_loop.rs:359): the
+  # The long-lived loop the `turns` scenario drives (bounded_loop.rs:359): the
   # chat loop's shape with a BOUNDED per-turn state, so a million-turn soak
   # snapshots the same few bytes at every iteration. With
   # `FLEZHA_BENCH_WAKE_AFTER_MS` set each turn arms a timer that far out, whose
@@ -733,8 +733,8 @@ module Fixtures
     def on_timer(firing, ctx) = ctx.emit("wake:#{firing[:scheduled_at]}")
   end
 
-  class BenchLoopWorkflow < LoopWorkflow
-    factory_id "bench_loop_workflow"
+  class BenchLoopBounded < LoopBounded
+    factory_id "bench_loop_bounded"
     # A day, not the chat loop's ten minutes: a soak outlives 600 s.
     max_duration_ms 24 * 3_600_000
     channels do |c|
@@ -743,13 +743,13 @@ module Fixtures
     end
   end
 
-  # -- timer_loop_workflow --------------------------------------------------
+  # -- timer_loop_bounded --------------------------------------------------
   #
   # `in -> tick -> relay -> out`, a per-input loop whose `tick` arms a
   # processing-time timer of the delay `after:<ms>` names and emits
   # `armed:<at>`; its firing emits `fired:<at>` and opens a pass of its own.
-  # `slow:<ms>` holds `tick` that long, for a firing due mid-pass (workflow.rs).
-  # On a runner booted with `FLEZHA_WORKFLOW_E2E_HOLD` the firing parks at the
+  # `slow:<ms>` holds `tick` that long, for a firing due mid-pass (bounded.rs).
+  # On a runner booted with `FLEZHA_BOUNDED_E2E_HOLD` the firing parks at the
   # gate: `timer` inside `on_timer`, before `tick` commits; `relay` in `relay`, after.
 
   class TimerTick < Flezha::Tasklet
@@ -786,18 +786,18 @@ module Fixtures
     end
   end
 
-  class TimerLoopWorkflow < LoopWorkflow
-    factory_id "timer_loop_workflow"
+  class TimerLoopBounded < LoopBounded
+    factory_id "timer_loop_bounded"
     channels do |c|
       c.input("in", codec: :text).into(TimerTick).named("ticked").into(TimerRelay).sink("out")
     end
   end
 
-  # -- event_timer_workflow -------------------------------------------------
+  # -- event_timer_bounded -------------------------------------------------
   #
   # An entry-fed tasklet whose clock is the message's leading event time; each
   # message arms an event-time timer 100 later and emits `seen:<t>`, and the
-  # firing emits `fired:<at>` (workflow.rs).
+  # firing emits `fired:<at>` (bounded.rs).
 
   class EventTick < Flezha::Tasklet
     tasklet_name "event_tick"
@@ -815,16 +815,16 @@ module Fixtures
     def on_timer(firing, ctx) = ctx.emit("fired:#{firing[:scheduled_at]}")
   end
 
-  class EventTimerWorkflow < LoopWorkflow
-    factory_id "event_timer_workflow"
+  class EventTimerBounded < LoopBounded
+    factory_id "event_timer_bounded"
     channels { |c| c.input("in", codec: :text).into(EventTick).sink("out") }
   end
 
-  # -- static_cell_workflow -------------------------------------------------
+  # -- static_cell_bounded -------------------------------------------------
   #
   # A per-input loop whose one tasklet declares three static cells and routes
   # every message to two of them; each cell that runs emits `<cell key>:<message>`,
-  # so one message yields exactly two outputs (workflow.rs).
+  # so one message yields exactly two outputs (bounded.rs).
 
   class StaticCellStep < Flezha::Tasklet
     tasklet_name "static_cell_step"
@@ -838,20 +838,20 @@ module Fixtures
     end
   end
 
-  class StaticCellWorkflow < LoopWorkflow
-    factory_id "static_cell_workflow"
+  class StaticCellBounded < LoopBounded
+    factory_id "static_cell_bounded"
     channels { |c| c.input("in", codec: :text).into(StaticCellStep).sink("out") }
   end
 
-  # Every workflow operative this app registers, in the reference's order.
-  WORKFLOWS = [
-    EchoWorkflow, TypedOnceWorkflow, CommitBlockWorkflow, SyncDurableWorkflow, OptoutCommitBlock,
-    TierCommitBlockWorkflow, SagaBlockWorkflow, KeyedBlockWorkflow, KeyedSagaWorkflow,
-    OutboxBlockWorkflow, UndoOutboxWorkflow, FailedStageWorkflow,
-    ChatLoopWorkflow, StatelessLoopWorkflow, KeyedLoopWorkflow, ChatRewindWorkflow,
-    ReplyBlockLoopWorkflow,
-    RetryWorkflow,
-    BranchWorkflow, DiamondWorkflow, *BENCH_CHAINS, BenchLoopWorkflow,
-    StaticCellWorkflow, TimerLoopWorkflow, EventTimerWorkflow
+  # Every bounded operator this app registers, in the reference's order.
+  BOUNDED = [
+    EchoBounded, TypedOnceBounded, CommitBlockBounded, SyncDurableBounded, OptoutCommitBlock,
+    TierCommitBlockBounded, SagaBlockBounded, KeyedBlockBounded, KeyedSagaBounded,
+    OutboxBlockBounded, UndoOutboxBounded, FailedStageBounded,
+    ChatLoopBounded, StatelessLoopBounded, KeyedLoopBounded, ChatRewindBounded,
+    ReplyBlockLoopBounded,
+    RetryBounded,
+    BranchBounded, DiamondBounded, *BENCH_CHAINS, BenchLoopBounded,
+    StaticCellBounded, TimerLoopBounded, EventTimerBounded
   ].freeze
 end

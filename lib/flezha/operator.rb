@@ -6,11 +6,11 @@ require_relative "errors"
 require_relative "tasklet"
 
 module Flezha
-  # The base an authored operative subclasses. Its class body declares the
+  # The base an authored operator subclasses. Its class body declares the
   # factory id and one body: a `channels` graph, or, for the single-tasklet
   # short form, that tasklet's `run` instance method. `spec` resolves the
   # declaration once.
-  class Operative
+  class Operator
     extend Declarative
     # A short form's tasklet settings, handed to the tasklet it generates.
     extend TaskletSettings
@@ -27,13 +27,13 @@ module Flezha
     SHORT_FORM_SETTINGS = %i[loop_mode].freeze
     declares :persistent
     # Whether an idle instance is written out and dropped from memory until
-    # its next input. Unwritten, a workflow sleeps when it persists and a
+    # its next input. Unwritten, a bounded operator sleeps when it persists and a
     # stream never does.
     flag :sleep_when_idle
-    # A workflow's setting. A stream carries it too, so that the core refuses
+    # A bounded operator's setting. An unbounded operator carries it too, so that the core refuses
     # it there by name rather than this SDK dropping it.
     flag :sync_durability
-    # `factory_id` is deliberately NOT inherited: two operatives cannot share
+    # `factory_id` is deliberately NOT inherited: two operators cannot share
     # one, and a subclass silently taking its parent's would be refused by the
     # core at declare time rather than here.
 
@@ -64,9 +64,9 @@ module Flezha
 
         check_declaration!
         @tasklet ||= Class.new(Tasklet).tap do |generated|
-          operative = self
+          operator = self
           generated.tasklet_name(@factory_id)
-          generated.define_singleton_method(:body) { operative }
+          generated.define_singleton_method(:body) { operator }
           hand_down(generated, TaskletSettings::NAMES)
         end
       end
@@ -76,7 +76,7 @@ module Flezha
       # the spec is built.
       def check_declaration!
         unless @factory_id
-          raise DeclarationError.new(to_s, nil, "declares no `factory_id`; an operative's " \
+          raise DeclarationError.new(to_s, nil, "declares no `factory_id`; an operator's " \
                                                 "factory id is written, never derived")
         end
 
@@ -135,13 +135,13 @@ module Flezha
 
       # Every flag the builder recorded, for either kind: the core judges which
       # a kind may carry and refuses the rest by name.
-      def class_spec(kind, workflow)
+      def class_spec(kind, bounded)
         # Sealed before the channels are read: filing every declared sequence
         # on its channel is what can still create one.
         builder = build_builder.seal
         ClassSpec.new(
           factory_id: @factory_id, kind: kind, persistent: persistent,
-          sleep_when_idle: @sleep_when_idle.nil? ? kind == :workflow && persistent : @sleep_when_idle,
+          sleep_when_idle: @sleep_when_idle.nil? ? kind == :bounded && persistent : @sleep_when_idle,
           effectively_once: builder.effectively_once_flag,
           checkpoint_ack: builder.checkpoint_ack_flag,
           checkpoint_every: builder.checkpoint_every_value,
@@ -151,24 +151,24 @@ module Flezha
           beyond_window_policy: builder.beyond_window_policy_value,
           compact_after_bytes: builder.compact_after_bytes_value,
           sync_durability: @sync_durability || false,
-          tasklets: builder.tasklets, channels: builder.channels, workflow: workflow
+          tasklets: builder.tasklets, channels: builder.channels, bounded: bounded
         )
       end
     end
   end
 
-  # A stream operative: fed by the controller through its entry channels.
-  class StreamOperative < Operative
+  # An unbounded operator: fed by the controller through its entry channels.
+  class UnboundedOperator < Operator
     class << self
       private
 
-      def build_spec = class_spec(:stream, nil)
+      def build_spec = class_spec(:unbounded, nil)
     end
   end
 
-  # A workflow operative: a chain of tasklets over a channels graph, run
-  # once or looping. Retry is the edges', as on a stream.
-  class WorkflowOperative < Operative
+  # A bounded operator: a chain of tasklets over a channels graph, run
+  # once or looping. Retry is the edges', as on an unbounded operator.
+  class BoundedOperator < Operator
     setting :loop_mode, one_of: %i[once per_input chained]
     setting :rollback_mode, one_of: %i[all_or_nothing keep_progress]
     setting :max_duration_ms
@@ -182,7 +182,7 @@ module Flezha
           rollback_mode: (rollback_mode || :all_or_nothing).to_sym,
           max_duration_ms: max_duration_ms
         }
-        class_spec(:workflow, facts)
+        class_spec(:bounded, facts)
       end
     end
   end

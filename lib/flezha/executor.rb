@@ -64,7 +64,7 @@ module Flezha
       :stopped
     end
 
-    # The base pool size: the machine's processor count unless the operator
+    # The base pool size: the machine's processor count unless the user
     # says otherwise. The same knob the Rust host reads, deliberately — this
     # host is the Rust host's model, and a second vocabulary for the same
     # decision is what makes a fleet hard to reason about.
@@ -94,7 +94,7 @@ module Flezha
       )
     end
 
-    # The ceiling: ten times the base unless the operator says otherwise, and
+    # The ceiling: ten times the base unless the user says otherwise, and
     # never below the base — a ceiling under the floor would retire the pool
     # the runner was told to keep.
     def ceiling_size(base)
@@ -172,7 +172,7 @@ module Flezha
     private
 
     # One worker. `above_base` workers retire after an idle streak; base
-    # workers never do, so the pool the operator asked for stays up.
+    # workers never do, so the pool the user asked for stays up.
     def spawn_worker(above_base:)
       worker = Thread.new { run_worker(above_base) }
       worker.name = "flezha-worker-#{@workers.size}"

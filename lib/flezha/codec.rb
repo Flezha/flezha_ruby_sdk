@@ -83,7 +83,7 @@ module Flezha
     end
 
     # A String as its bytes and anything else as JSON: what a sink naming no
-    # codec sends, and what a workflow completion carries. `owner` is what a
+    # codec sends, and what a bounded completion carries. `owner` is what a
     # refusal names.
     def plain_payload(value, owner)
       value.is_a?(String) ? value : json_payload(owner, value)

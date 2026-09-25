@@ -7,7 +7,7 @@ require_relative "executor"
 require_relative "graph"
 require_relative "logger"
 require_relative "native"
-require_relative "operative"
+require_relative "operator"
 
 module Flezha
   # The runner: what an author starts, and everything it owns while running.
@@ -18,7 +18,7 @@ module Flezha
   #
   # ## Startup order
   #
-  #   declare classes -> warm up -> (fork, if the operator forks) -> start
+  #   declare classes -> warm up -> (fork, if the user forks) -> start
   #
   # `Process.warmup` compacts the heap and promotes the declared object graph
   # to the old generation, which is what makes a subsequent fork
@@ -46,12 +46,12 @@ module Flezha
       @teardown = []
     end
 
-    # Register an operative class of either kind, short form or full. The kind
+    # Register an operator class of either kind, short form or full. The kind
     # is read from the class, never named by the call.
     def register_factory(klass)
-      unless klass.is_a?(Class) && (klass < StreamOperative || klass < WorkflowOperative)
-        raise Error, "UnknownOperativeKind: `#{klass}` is neither a Flezha::StreamOperative nor " \
-                     "a Flezha::WorkflowOperative; a tasklet is registered by the operative " \
+      unless klass.is_a?(Class) && (klass < UnboundedOperator || klass < BoundedOperator)
+        raise Error, "UnknownOperatorKind: `#{klass}` is neither a Flezha::UnboundedOperator nor " \
+                     "a Flezha::BoundedOperator; a tasklet is registered by the operator " \
                      "that wires it"
       end
 
@@ -92,10 +92,10 @@ module Flezha
     end
 
     # Administer this namespace from ordinary application code: start, stop and
-    # feed operatives, enable and disable plugins, read what is running.
+    # feed operators, enable and disable plugins, read what is running.
     #
     # The controller judges every call as the identity this connection proved,
-    # so no credential is held here and nothing expires. An operator grants a
+    # so no credential is held here and nothing expires. A user grants a
     # namespace's applications the authority once, with
     # `flz role bind runner@<namespace> app <namespace>`; until then every call
     # is refused.
@@ -198,7 +198,7 @@ module Flezha
       # this SDK renders it, so an author meets a declaration refusal rather
       # than a native failure at the first connection.
       @classes.each { |klass| Graph.declare(klass.spec, @core, @registry) }
-      raise Error, "a runner declares at least one operative class" if @registry.empty?
+      raise Error, "a runner declares at least one operator class" if @registry.empty?
     end
 
     def build_executor
@@ -211,7 +211,7 @@ module Flezha
       end
     end
 
-    # Shutdown is observed three ways, because the harness, an operator and the
+    # Shutdown is observed three ways, because the harness, a user and the
     # controller each have their own: end of file on standard input, a signal,
     # and the core's own stop — which every worker sees as `:shutting_down`
     # from its next poll.
@@ -227,7 +227,7 @@ module Flezha
 
     # YJIT is on by default because handler bodies are the one thing the GVL
     # bounds, so the JIT's gain lands exactly where the ceiling is. The
-    # operator's decision wins, and the resulting state is reported in the
+    # user's decision wins, and the resulting state is reported in the
     # startup line so a measurement can never be ambiguous about it.
     def resolve_yjit
       return "disabled (runner override)" if @yjit == false
@@ -241,6 +241,6 @@ module Flezha
     end
   end
 
-  # Start here: `Flezha.create_runner("default").register_factory(MyOperative).run`.
+  # Start here: `Flezha.create_runner("default").register_factory(MyOperator).run`.
   def self.create_runner(namespace) = Runner.new(namespace)
 end

@@ -31,7 +31,7 @@ module Flezha
       tasklet = tasklet_name.to_s.b
       key = cell_key.to_s.b
       if instance.bytesize > 255 || tasklet.bytesize > 255
-        raise Error, "operative class / tasklet id must be at most 255 bytes"
+        raise Error, "operator class / tasklet id must be at most 255 bytes"
       end
       raise Error, "cell key must be at most 65535 bytes" if key.bytesize > 0xffff
 

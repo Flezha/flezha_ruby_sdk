@@ -146,14 +146,14 @@ class NativeTest < Minitest::Test
       tasklet_name "#{factory_id}_tasklet"
       def run(input, _ctx) = input
     end
-    operative = Class.new(Flezha::StreamOperative)
-    operative.factory_id factory_id
-    operative.channels do |c|
+    operator = Class.new(Flezha::UnboundedOperator)
+    operator.factory_id factory_id
+    operator.channels do |c|
       c.effectively_once
       yield c
       c.input("input").into(tasklet).keyed.sink("sink")
     end
-    Flezha::Graph.to_host_class_decl(operative.spec)
+    Flezha::Graph.to_host_class_decl(operator.spec)
   end
 
   def test_holding_outputs_at_the_checkpoint_acknowledges_at_the_checkpoint
@@ -194,11 +194,11 @@ class NativeTest < Minitest::Test
       dynamic_cells
       def run(input, _ctx) = input
     end
-    operative = Class.new(Flezha::StreamOperative)
-    operative.factory_id "check_dup_key"
-    operative.channels { |c| c.input("input").key_by { "a" }.key_by { "b" }.into(keyed) }
+    operator = Class.new(Flezha::UnboundedOperator)
+    operator.factory_id "check_dup_key"
+    operator.channels { |c| c.input("input").key_by { "a" }.key_by { "b" }.into(keyed) }
 
-    json = JSON.generate(Flezha::Graph.to_host_class_decl(operative.spec))
+    json = JSON.generate(Flezha::Graph.to_host_class_decl(operator.spec))
     error = assert_raises(Flezha::Native::Error) { Flezha::Native.check_class(json) }
 
     assert_includes error.message, "topology rejected [DuplicateKeyBy]"
@@ -218,11 +218,11 @@ class NativeTest < Minitest::Test
       tasklet_name "native_echo"
       def run(input, _ctx) = input
     end
-    operative = Class.new(Flezha::StreamOperative)
-    operative.factory_id "native_echo_op"
-    operative.channels { |c| c.input("input").into(echo).sink("out") }
+    operator = Class.new(Flezha::UnboundedOperator)
+    operator.factory_id "native_echo_op"
+    operator.channels { |c| c.input("input").into(echo).sink("out") }
 
-    decl = Flezha::Graph.to_host_class_decl(operative.spec)
+    decl = Flezha::Graph.to_host_class_decl(operator.spec)
     assert_equal 5, decl["sdk_lang"]
     assert_equal 5, decl["change_format_id"], "MessagePack, shared with every MessagePack SDK"
 

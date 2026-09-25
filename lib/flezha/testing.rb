@@ -38,10 +38,10 @@ module Flezha
     class Harness
       attr_reader :log
 
-      def initialize(tasklet_class, cell_key: nil, operative: "harness")
+      def initialize(tasklet_class, cell_key: nil, operator: "harness")
         @definition = tasklet_class.definition
         @cell_key = cell_key
-        @operative = operative
+        @operator = operator
         # The real channel builder, not a hand-written spec: one entry channel
         # into the tasklet, and one plugin sink so `ctx.emit` has somewhere
         # to go. A tasklet under test emits to be observed, not to be routed,
@@ -51,7 +51,7 @@ module Flezha
         builder.input("in").into(tasklet_class).sink("out", codec: :msgpack)
         @node = builder.tasklets.first
         @spec = ClassSpec.new(
-          factory_id: "<harness>", kind: :stream, persistent: true, effectively_once: false,
+          factory_id: "<harness>", kind: :unbounded, persistent: true, effectively_once: false,
           checkpoint_ack: false, checkpoint_outputs: :as_produced,
           beyond_window_policy: :process_as_arrival, sync_durability: false,
           tasklets: builder.tasklets, channels: builder.channels
@@ -133,7 +133,7 @@ module Flezha
       private
 
       def run(now, replay)
-        activation = { operative: @operative, cell_key: @cell_key, change_seq: @change_seq }
+        activation = { operator: @operator, cell_key: @cell_key, change_seq: @change_seq }
         ctx, returned = begin
           Dispatch.invoke(activation, @registered, @node, @deps, now, replay) { |c| yield(c) }
         ensure

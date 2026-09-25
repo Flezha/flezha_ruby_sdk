@@ -14,7 +14,7 @@ $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 require "flezha"
 require_relative "conformance"
 require_relative "fixtures"
-require_relative "fixtures_workflow"
+require_relative "fixtures_bounded"
 
 # The conformance run answers a file and exits: no namespace, no controller.
 if (report = ENV["FLEZHA_CONFORMANCE_REPORT"])
@@ -31,9 +31,9 @@ if (topology = ENV["FLEZHA_REFUSAL_FIXTURE"])
   # topology dies at declaration, before the core is started.
   Conformance.register_only(runner, topology)
 else
-  Fixtures::ALL.each { |operative| runner.register_factory(operative) }
+  Fixtures::ALL.each { |operator| runner.register_factory(operator) }
   Fixtures::SHORTHAND.each { |short_form| runner.register_factory(short_form) }
-  Fixtures::WORKFLOWS.each { |operative| runner.register_factory(operative) }
+  Fixtures::BOUNDED.each { |operator| runner.register_factory(operator) }
 end
 
 # The harness stops a runner by closing its pipes. A write that lands after

@@ -3,7 +3,7 @@
 require "flezha"
 require_relative "echo_tasklet"
 
-# The deployable unit. An operative declares the graph a message travels: the
+# The deployable unit. An operator declares the graph a message travels: the
 # entry channel it arrives on, the steps it passes through, and the channel its
 # result leaves on.
 #
@@ -11,8 +11,8 @@ require_relative "echo_tasklet"
 # cannot work is refused at startup. The entry names the text codec, so the
 # tasklet is handed a String, and the sink names none, so a String result
 # leaves as its own bytes.
-class EchoOperative < Flezha::StreamOperative
-  # The operative's stable identity, and the name `flz operative start` takes.
+class EchoOperator < Flezha::UnboundedOperator
+  # The operator's stable identity, and the name `flz operator start` takes.
   factory_id "echo"
 
   channels do |c|

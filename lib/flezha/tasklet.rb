@@ -97,7 +97,7 @@ module Flezha
   end
 
   # A tasklet's class-level declarations. A tasklet class carries them,
-  # and so does a short-form operative class, which hands them to the
+  # and so does a short-form operator class, which hands them to the
   # tasklet it generates.
   module TaskletSettings
     # The scalar declarations. Each is read by its bare name and written by
@@ -170,7 +170,7 @@ module Flezha
     # the declaration rather than here.
 
     class << self
-      # The node identity within its operative. Defaults to the class name in
+      # The node identity within its operator. Defaults to the class name in
       # snake_case, which is what an author would have typed anyway.
       def tasklet_name(name = nil)
         return @tasklet_name || default_name if name.nil?
@@ -179,17 +179,17 @@ module Flezha
       end
 
       # The class whose instance methods run for this tasklet: the tasklet
-      # itself, or the short-form operative whose `run` body it was generated
+      # itself, or the short-form operator whose `run` body it was generated
       # from.
       def body = self
 
-      # A tasklet has no sink: the one-tasklet short form is an operative,
+      # A tasklet has no sink: the one-tasklet short form is an operator,
       # and its sink is written there.
       def sink(*, **)
         raise DeclarationError.new(
           "<tasklet>", to_s,
-          "declares a `sink`, and a tasklet has none; a one-tasklet operative is a " \
-          "Flezha::StreamOperative or Flezha::WorkflowOperative subclass with a `run` body, " \
+          "declares a `sink`, and a tasklet has none; a one-tasklet operator is a " \
+          "Flezha::UnboundedOperator or Flezha::BoundedOperator subclass with a `run` body, " \
           "and its `sink` is written there"
         )
       end

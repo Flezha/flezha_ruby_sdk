@@ -24,7 +24,7 @@ module Fixtures
     def run(input, _ctx) = input
   end
 
-  class DoNothingOperative < Flezha::StreamOperative
+  class DoNothingOperator < Flezha::UnboundedOperator
     factory_id "do_nothing"
     channels do |c|
       c.input("input", codec: :text).into(DoNothing)
@@ -35,7 +35,7 @@ module Fixtures
   # Echo with a declared DropNothing on its entry mailbox. `do_nothing` is the
   # merge-blocking bench factory and must not change; this keeps the round-trip
   # bench's back-pressure posture independent of it.
-  class BenchEchoOperative < Flezha::StreamOperative
+  class BenchEchoOperator < Flezha::UnboundedOperator
     factory_id "bench_echo"
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
@@ -54,7 +54,7 @@ module Fixtures
     def run(input, ctx) = ctx.state[:comparable] == input ? input : nil
   end
 
-  class CompareFilterOperative < Flezha::StreamOperative
+  class CompareFilterOperator < Flezha::UnboundedOperator
     factory_id "compare_filter"
     channels do |c|
       c.input("input", codec: :text).into(CompareFilter)
@@ -62,7 +62,7 @@ module Fixtures
     end
   end
 
-  # -- static_cell / sugar_static_cell / mixed_operative ---------------
+  # -- static_cell / sugar_static_cell / mixed_operator ---------------
 
   STATIC_KEYS = %w[a b c d].freeze
 
@@ -103,7 +103,7 @@ module Fixtures
     tasklet_name "macro_static_downstream_tasklet"
   end
 
-  class StaticCellOperative < Flezha::StreamOperative
+  class StaticCellOperator < Flezha::UnboundedOperator
     factory_id "static_cell"
     channels do |c|
       c.input("input", codec: :text).into(StaticEntry).named("hop")
@@ -114,7 +114,7 @@ module Fixtures
 
   # The reference pipeline sugar leaves the hop unnamed and lets the sink name
   # the producing channel.
-  class SugarStaticCellOperative < Flezha::StreamOperative
+  class SugarStaticCellOperator < Flezha::UnboundedOperator
     factory_id "sugar_static_cell"
     channels do |c|
       c.input("input", codec: :text).into(MacroStaticEntry)
@@ -131,8 +131,8 @@ module Fixtures
     tasklet_name "mixed_hand_downstream"
   end
 
-  class MixedOperative < Flezha::StreamOperative
-    factory_id "mixed_operative"
+  class MixedOperator < Flezha::UnboundedOperator
+    factory_id "mixed_operator"
     channels do |c|
       c.input("input", codec: :text).into(MixedMacroEntry).named("hop")
        .into(MixedHandDownstream)
@@ -142,18 +142,18 @@ module Fixtures
 
   # -- the §5 short forms --------------------------------------------------
   #
-  # One operative class each, carrying its one tasklet's `run` body instead
+  # One operator class each, carrying its one tasklet's `run` body instead
   # of `channels`; `runner.rb` registers the class itself. No tasklet stands
   # beside them.
 
-  class SugarDoNothing < Flezha::StreamOperative
+  class SugarDoNothing < Flezha::UnboundedOperator
     factory_id "sugar_do_nothing"
     sink "sugar_do_nothing_echo"
     codec :text
     def run(input, _ctx) = input
   end
 
-  class SugarStoreInput < Flezha::StreamOperative
+  class SugarStoreInput < Flezha::UnboundedOperator
     factory_id "sugar_store_input"
     sink "sugar_store_sink"
     codec :text
@@ -166,7 +166,7 @@ module Fixtures
     end
   end
 
-  class SugarNamedInput < Flezha::StreamOperative
+  class SugarNamedInput < Flezha::UnboundedOperator
     factory_id "sugar_named_input"
     sink "sugar_named_input_sink"
     input "prices"
@@ -174,24 +174,24 @@ module Fixtures
     def run(input, _ctx) = input
   end
 
-  class SugarWorkflow < Flezha::WorkflowOperative
-    factory_id "sugar_workflow"
-    sink "sugar_workflow_placed"
+  class SugarBounded < Flezha::BoundedOperator
+    factory_id "sugar_bounded"
+    sink "sugar_bounded_placed"
     input "order"
     codec :text
     def run(input, _ctx) = input
   end
 
-  class SugarWorkflowPerInput < Flezha::WorkflowOperative
-    factory_id "sugar_workflow_per_input"
-    sink "sugar_workflow_per_input_out"
+  class SugarBoundedPerInput < Flezha::BoundedOperator
+    factory_id "sugar_bounded_per_input"
+    sink "sugar_bounded_per_input_out"
     codec :text
     loop_mode :per_input
     def run(input, _ctx) = input
   end
 
   # No sink: what it was sent is proven by its state.
-  class SugarStateOnly < Flezha::StreamOperative
+  class SugarStateOnly < Flezha::UnboundedOperator
     factory_id "sugar_state_only"
     input "ticks"
     codec :text
@@ -208,7 +208,7 @@ module Fixtures
   #
   # One emit reaching two destinations: an inter-tasklet consumer and a
   # plugin wire with its own serializer. The serializer refuses a sentinel
-  # value, so an operator can observe end to end that a refusal is isolated to
+  # value, so a user can observe end to end that a refusal is isolated to
   # the emit rather than failing the item.
 
   HYBRID_SENTINEL = 0xdeadbeef
@@ -243,7 +243,7 @@ module Fixtures
     [value].pack("N")
   end
 
-  class HybridChannelOperative < Flezha::StreamOperative
+  class HybridChannelOperator < Flezha::UnboundedOperator
     factory_id "hybrid_channel"
     channels do |c|
       c.input("input", codec: :text).into(HybridProducer).branch(
@@ -271,7 +271,7 @@ module Fixtures
     def run(input, _ctx) = "#{input[:source]}:#{input[:payload]}"
   end
 
-  class MergedInputOperative < Flezha::StreamOperative
+  class MergedInputOperator < Flezha::UnboundedOperator
     factory_id "merged_input"
     channels do |c|
       c.merge
@@ -294,7 +294,7 @@ module Fixtures
     dynamic_cells
   end
 
-  class TransformChainOperative < Flezha::StreamOperative
+  class TransformChainOperator < Flezha::UnboundedOperator
     factory_id "transform_chain"
     channels do |c|
       c.input("trades", codec: :text)
@@ -336,7 +336,7 @@ module Fixtures
     tasklet_name "stress_d"
   end
 
-  class CellStressOperative < Flezha::StreamOperative
+  class CellStressOperator < Flezha::UnboundedOperator
     factory_id "cell_stress"
     channels do |c|
       c.input("input", codec: :text).into(StressA).named("a_to_b")
@@ -361,7 +361,7 @@ module Fixtures
     end
   end
 
-  class PoisonProbeOperative < Flezha::StreamOperative
+  class PoisonProbeOperator < Flezha::UnboundedOperator
     factory_id "poison_probe"
     channels do |c|
       c.input("input", codec: :text).retry_backoff_ms(25)
@@ -371,7 +371,7 @@ module Fixtures
   end
 
   # The `pool_wedge` fixture: the two ways a runner stops doing work, on one
-  # operative.
+  # operator.
   #
   #   "wedge" — blocks the dispatch inside user code forever, so the SDK's
   #     dispatch counter stops advancing while the heartbeat keeps reporting
@@ -397,7 +397,7 @@ module Fixtures
     end
   end
 
-  class WedgeProbeOperative < Flezha::StreamOperative
+  class WedgeProbeOperator < Flezha::UnboundedOperator
     factory_id "wedge_probe"
     channels do |c|
       c.input("input", codec: :text).into(WedgeProbe)
@@ -433,7 +433,7 @@ module Fixtures
     end
   end
 
-  class CandleOperative < Flezha::StreamOperative
+  class CandleOperator < Flezha::UnboundedOperator
     factory_id "candle"
     channels do |c|
       c.effectively_once
@@ -478,7 +478,7 @@ module Fixtures
     end
   end
 
-  class SessionTimeoutOperative < Flezha::StreamOperative
+  class SessionTimeoutOperator < Flezha::UnboundedOperator
     factory_id "session_timeout"
     channels do |c|
       c.input("input", codec: :text).into(SessionTimeout)
@@ -499,13 +499,13 @@ module Fixtures
     end
   end
 
-  # One operative per overflow policy, over the same bounded tasklet. The
+  # One operator per overflow policy, over the same bounded tasklet. The
   # capacity and the fold come from the base class: a subclass inherits every
   # declaration its parent made.
   BOUNDED_MAILBOX = %w[drop_nothing drop_newest drop_oldest].map do |policy|
     tasklet = Class.new(BoundedMailbox) { tasklet_name "#{policy}_test_tasklet" }
 
-    Class.new(Flezha::StreamOperative) do
+    Class.new(Flezha::UnboundedOperator) do
       factory_id "bounded_mailbox_#{policy}"
       channels do |c|
         c.input("#{policy}_input", codec: :text).on_full(policy.to_sym)
@@ -517,11 +517,11 @@ module Fixtures
 
   # -- partition_relay -----------------------------------------------------
   #
-  # The partitioned-operatives upstream: keyed on the wiring so it can be
+  # The partitioned-operators upstream: keyed on the wiring so it can be
   # partitioned at all, and emitting keyed so a partitioned forward target can
   # resolve the owning member. The plugin channel is named `input` because a
   # forwarded frame keeps its producing channel's name, and that is what
-  # selects the receiving operative's entry channel — so the entry here is `in`.
+  # selects the receiving operator's entry channel — so the entry here is `in`.
 
   class PartitionRelay < Flezha::Tasklet
     tasklet_name "partition_relay_tasklet"
@@ -536,7 +536,7 @@ module Fixtures
     end
   end
 
-  class PartitionRelayOperative < Flezha::StreamOperative
+  class PartitionRelayOperator < Flezha::UnboundedOperator
     factory_id "partition_relay"
     channels do |c|
       c.input("in", codec: :text).key_by { |value| PREFIX.call(value) }
@@ -559,7 +559,7 @@ module Fixtures
     end
   end
 
-  class DynamicCellOperative < Flezha::StreamOperative
+  class DynamicCellOperator < Flezha::UnboundedOperator
     factory_id "dynamic_cell"
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
@@ -574,7 +574,7 @@ module Fixtures
 
   # -- spawn_requester -----------------------------------------------------
 
-  # On each input, spawns `stateless_loop_workflow` once under a generated id
+  # On each input, spawns `stateless_loop_bounded` once under a generated id
   # and once under the input, and prints both results: a handle's answer is
   # observable nowhere but in the tasklet that read it.
   class SpawnRequester < Flezha::Tasklet
@@ -582,8 +582,8 @@ module Fixtures
 
     def run(input, ctx)
       handles = {
-        "unnamed" => ctx.spawn_workflow("stateless_loop_workflow", input),
-        "named" => ctx.spawn_workflow("stateless_loop_workflow", input, id: input)
+        "unnamed" => ctx.spawn_bounded("stateless_loop_bounded", input),
+        "named" => ctx.spawn_bounded("stateless_loop_bounded", input, id: input)
       }
       handles.each { |label, handle| SpawnRequester.report(label, handle) }
       nil
@@ -600,7 +600,7 @@ module Fixtures
     end
   end
 
-  class SpawnRequesterOperative < Flezha::StreamOperative
+  class SpawnRequesterOperator < Flezha::UnboundedOperator
     factory_id "spawn_requester"
     channels do |c|
       c.input("in", codec: :text).into(SpawnRequester)
@@ -610,7 +610,7 @@ module Fixtures
 
   # -- spawn_once_requester ------------------------------------------------
 
-  # On each input, spawns `typed_once_workflow` once with no id, carrying the
+  # On each input, spawns `typed_once_bounded` once with no id, carrying the
   # input inside a JSON object its `order` entry decodes, and prints the
   # result as `spawn_result once <id> <outcome>`: a spawn's payload is the
   # spawned instance's first message, encoded by the no-codec sink rule.
@@ -618,12 +618,12 @@ module Fixtures
     tasklet_name "spawn_once_requester"
 
     def run(input, ctx)
-      SpawnRequester.report("once", ctx.spawn_workflow("typed_once_workflow", { "text" => input }))
+      SpawnRequester.report("once", ctx.spawn_bounded("typed_once_bounded", { "text" => input }))
       nil
     end
   end
 
-  class SpawnOnceRequesterOperative < Flezha::StreamOperative
+  class SpawnOnceRequesterOperator < Flezha::UnboundedOperator
     factory_id "spawn_once_requester"
     channels do |c|
       c.input("in", codec: :text).into(SpawnOnceRequester)
@@ -631,20 +631,20 @@ module Fixtures
     end
   end
 
-  # Every operative this app registers, in declaration order.
+  # Every operator this app registers, in declaration order.
   ALL = [
-    DoNothingOperative, BenchEchoOperative, CompareFilterOperative,
-    StaticCellOperative, SugarStaticCellOperative, MixedOperative,
-    HybridChannelOperative,
-    MergedInputOperative, TransformChainOperative, CellStressOperative, *STATE,
-    CandleOperative, PoisonProbeOperative, WedgeProbeOperative, SessionTimeoutOperative, *BOUNDED_MAILBOX,
-    PartitionRelayOperative, DynamicCellOperative, SpawnRequesterOperative,
-    SpawnOnceRequesterOperative
+    DoNothingOperator, BenchEchoOperator, CompareFilterOperator,
+    StaticCellOperator, SugarStaticCellOperator, MixedOperator,
+    HybridChannelOperator,
+    MergedInputOperator, TransformChainOperator, CellStressOperator, *STATE,
+    CandleOperator, PoisonProbeOperator, WedgeProbeOperator, SessionTimeoutOperator, *BOUNDED_MAILBOX,
+    PartitionRelayOperator, DynamicCellOperator, SpawnRequesterOperator,
+    SpawnOnceRequesterOperator
   ].freeze
 
   # The §5 short forms this app registers.
   SHORTHAND = [
-    SugarDoNothing, SugarStoreInput, SugarNamedInput, SugarWorkflow, SugarWorkflowPerInput,
+    SugarDoNothing, SugarStoreInput, SugarNamedInput, SugarBounded, SugarBoundedPerInput,
     SugarStateOnly
   ].freeze
 end

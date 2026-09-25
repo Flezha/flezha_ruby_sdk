@@ -130,16 +130,16 @@ module Flezha
     # The dispatch dependencies over one declared class and one peer. Every
     # suite that drives the dispatcher needs exactly this, so it is built here
     # rather than once per fixture.
-    def self.deps(operative_class, core)
+    def self.deps(operator_class, core)
       registry = Flezha::Registry.new
-      registry.add(operative_class.spec)
+      registry.add(operator_class.spec)
       Flezha::DispatchDeps.new(registry: registry, bridge: core)
     end
 
     # One activation, with the fields every kind carries; a caller merges what
     # its own kind adds.
     def self.activation(factory:, **extra)
-      { token: 1, operative: "op-1", tasklet: 0, cell_key: nil, change_seq: 0,
+      { token: 1, operator: "op-1", tasklet: 0, cell_key: nil, change_seq: 0,
         factory: factory, kind: :work }.merge(extra)
     end
 

@@ -62,7 +62,7 @@ module Fixtures
 
   # The same keyed upsert under both durability postures, so the round-trip
   # bench can isolate the cost of per-Cell persistence.
-  class KeyedUpsertOperative < Flezha::StreamOperative
+  class KeyedUpsertOperator < Flezha::UnboundedOperator
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
        .into(TierStore).keyed
@@ -72,21 +72,21 @@ module Fixtures
 
   # Per-cell persistence off: this is the heap-only posture the bench
   # isolates against the durable one.
-  class BenchKeyedNoPersistOperative < KeyedUpsertOperative
+  class BenchKeyedNoPersistOperator < KeyedUpsertOperator
     factory_id "bench_keyed_nopersist"
     persistent false
   end
 
-  class BenchKeyedOperative < KeyedUpsertOperative
+  class BenchKeyedOperator < KeyedUpsertOperator
     factory_id "bench_keyed"
   end
 
   # The effectively-once reference: a keyed upsert under the tier. A 300 ms
   # backoff base keeps the min-watermark freeze observable in the DLQ e2e.
-  # Declared DropNothing: a durable-input-log operative that shed at its
+  # Declared DropNothing: a durable-input-log operator that shed at its
   # mailbox would hold the min-watermark on the shed offset forever while the
   # log behind it kept growing.
-  class TierStoreOperative < Flezha::StreamOperative
+  class TierStoreOperator < Flezha::UnboundedOperator
     factory_id "tier_store"
     channels do |c|
       c.effectively_once
@@ -96,7 +96,7 @@ module Fixtures
     end
   end
 
-  class CheckpointStoreOperative < Flezha::StreamOperative
+  class CheckpointStoreOperator < Flezha::UnboundedOperator
     factory_id "checkpoint_store"
     channels do |c|
       c.effectively_once
@@ -111,7 +111,7 @@ module Fixtures
   # `checkpoint_every` is deliberately absent so the test drives the close
   # itself — with `commit:` for the batch case, and with the delay alone for
   # the quiet-Cell case.
-  class CheckpointBatchedOperative < Flezha::StreamOperative
+  class CheckpointBatchedOperator < Flezha::UnboundedOperator
     factory_id "checkpoint_batched_store"
     channels do |c|
       c.effectively_once
@@ -130,7 +130,7 @@ module Fixtures
   # 500) per Cell. `FLEZHA_BENCH_CHECKPOINT_OUTPUTS=at_checkpoint` (with
   # `FLEZHA_BENCH_CHECKPOINT_DELAY_MS`) additionally holds the interval's
   # outputs until it closes.
-  class BenchCheckpointOperative < Flezha::StreamOperative
+  class BenchCheckpointOperator < Flezha::UnboundedOperator
     factory_id "bench_checkpoint"
     channels do |c|
       c.effectively_once
@@ -158,7 +158,7 @@ module Fixtures
     end
   end
 
-  class StoreInputOperative < Flezha::StreamOperative
+  class StoreInputOperator < Flezha::UnboundedOperator
     factory_id "store_input"
     channels do |c|
       c.input("input", codec: :text).into(StoreInput)
@@ -184,7 +184,7 @@ module Fixtures
     end
   end
 
-  class StatefulCounterOperative < Flezha::StreamOperative
+  class StatefulCounterOperator < Flezha::UnboundedOperator
     factory_id "stateful_counter"
     channels do |c|
       c.input("input", codec: :text).into(CounterEntry).named("ticks").into(Counter)
@@ -193,7 +193,7 @@ module Fixtures
 
   # The same topology with per-Cell persistence off, under the reference's
   # node names: the toggle is a class property, not a different computation.
-  class PersistenceOffCounterOperative < Flezha::StreamOperative
+  class PersistenceOffCounterOperator < Flezha::UnboundedOperator
     factory_id "persistence_off_counter"
     persistent false
     channels do |c|
@@ -205,7 +205,7 @@ module Fixtures
 
   # -- sleeping_counter ------------------------------------------------------
   #
-  # A stream that sleeps when idle: `key:delta` inputs fold into one running
+  # An unbounded operator that sleeps when idle: `key:delta` inputs fold into one running
   # total per key, and every input emits `key=total` on the `totals` sink. The
   # sleep e2e reads the total after a wake to prove the Cell came back with the
   # state it slept with.
@@ -222,7 +222,7 @@ module Fixtures
     end
   end
 
-  class SleepingCounterOperative < Flezha::StreamOperative
+  class SleepingCounterOperator < Flezha::UnboundedOperator
     factory_id "sleeping_counter"
     sleep_when_idle
     channels do |c|
@@ -259,7 +259,7 @@ module Fixtures
     end
   end
 
-  class CoalescingCounterOperative < Flezha::StreamOperative
+  class CoalescingCounterOperator < Flezha::UnboundedOperator
     factory_id "coalescing_counter"
     channels do |c|
       c.input("input", codec: :text).into(TickEntry).named("ticks").into(Tick)
@@ -283,7 +283,7 @@ module Fixtures
     end
   end
 
-  class ResumeProbeOperative < Flezha::StreamOperative
+  class ResumeProbeOperator < Flezha::UnboundedOperator
     factory_id "resume_probe"
     channels do |c|
       c.input("input", codec: :text).into(ResumeProbe)
@@ -294,7 +294,7 @@ module Fixtures
   # -- schema_evolution_v1 / schema_evolution_v2 -----------------------------
   #
   # The same class either side of a deploy that edits its own state type. Both
-  # halves declare the SAME tasklet name, so an operative started under v1
+  # halves declare the SAME tasklet name, so an operator started under v1
   # and restarted under v2 restores from the very WAL v1 wrote — which is what
   # a deploy does, with the two binaries collapsed into one fixture file.
   #
@@ -344,7 +344,7 @@ module Fixtures
     end
   end
 
-  class SchemaEvolutionV1Operative < Flezha::StreamOperative
+  class SchemaEvolutionV1Operator < Flezha::UnboundedOperator
     factory_id "schema_evolution_v1"
     channels do |c|
       c.input("input", codec: :text).into(EvolvingCartV1)
@@ -352,7 +352,7 @@ module Fixtures
     end
   end
 
-  class SchemaEvolutionV2Operative < Flezha::StreamOperative
+  class SchemaEvolutionV2Operator < Flezha::UnboundedOperator
     factory_id "schema_evolution_v2"
     channels do |c|
       c.input("input", codec: :text).into(EvolvingCartV2)
@@ -362,10 +362,10 @@ module Fixtures
 
   # The persisted-state family, in declaration order.
   STATE = [
-    BenchKeyedNoPersistOperative, StoreInputOperative, StatefulCounterOperative,
-    PersistenceOffCounterOperative, SleepingCounterOperative, CoalescingCounterOperative,
-    ResumeProbeOperative, BenchKeyedOperative, SchemaEvolutionV1Operative,
-    SchemaEvolutionV2Operative, TierStoreOperative, CheckpointStoreOperative,
-    CheckpointBatchedOperative, BenchCheckpointOperative
+    BenchKeyedNoPersistOperator, StoreInputOperator, StatefulCounterOperator,
+    PersistenceOffCounterOperator, SleepingCounterOperator, CoalescingCounterOperator,
+    ResumeProbeOperator, BenchKeyedOperator, SchemaEvolutionV1Operator,
+    SchemaEvolutionV2Operator, TierStoreOperator, CheckpointStoreOperator,
+    CheckpointBatchedOperator, BenchCheckpointOperator
   ].freeze
 end

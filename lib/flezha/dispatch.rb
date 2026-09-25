@@ -74,7 +74,7 @@ module Flezha
 
     # What a failure says on the wire. `class: message`, in family with what
     # the other SDKs send — this string is stored in a dead-letter entry and
-    # read by an operator, and a multi-line backtrace there is noise the retry
+    # read by a user, and a multi-line backtrace there is noise the retry
     # ladder multiplies. The backtrace is logged host-side instead, where it is
     # a diagnostic rather than a record.
     def error_message(error) = "#{error.class}: #{error.message}"
@@ -87,7 +87,7 @@ module Flezha
     # An entry channel's decoder, or the entry edge's transforms over what it
     # decoded, rejected a message. Only the entrance raises this: the verdict
     # it becomes tells the core the message is unreadable rather than that the
-    # handler failed, so a workflow parks it and keeps waiting instead of
+    # handler failed, so a bounded operator parks it and keeps waiting instead of
     # ending.
     class UnreadableMessage < StandardError
       def initialize(cause)
@@ -173,7 +173,7 @@ module Flezha
     def invoke(activation, registered, node, deps, now, replay)
       ctx = Ctx.new(
         spec: registered.spec, node: node, outgoing: registered.outgoing[node.index],
-        operative: activation[:operative], cell_key: activation[:cell_key],
+        operator: activation[:operator], cell_key: activation[:cell_key],
         change_seq: activation[:change_seq], now: now, replay: replay,
         state: registered.state_of(node, activation[:cell_key]), bridge: deps.bridge,
         token: activation[:token], compensating: activation[:kind] == :compensate_run
@@ -236,14 +236,14 @@ module Flezha
       # This node's own edge off the channel: a transform chain declared before
       # one `into` belongs to that consumer and to no other. It is evaluated
       # here only for a payload that reached us untransformed — an entry
-      # payload, whose producer is the wire, or a workflow stage's released
-      # value. A stream producer evaluated it as its activation completed, and
+      # payload, whose producer is the wire, or a bounded stage's released
+      # value. An unbounded producer evaluated it as its activation completed, and
       # evaluating it again would compose the chain with itself.
       untransformed =
-        channel.nil? || channel.kind == :entry || registered.spec.structured_workflow?
+        channel.nil? || channel.kind == :entry || registered.spec.structured_bounded?
       edge = untransformed ? edge_into(channel, node.index) : nil
       # The entrance (the entry channel's decoder and the entry edge's
-      # transforms) is where a message the operative cannot read is told
+      # transforms) is where a message the operator cannot read is told
       # apart from a handler that fails on one it can.
       values =
         begin

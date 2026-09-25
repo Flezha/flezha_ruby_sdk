@@ -37,7 +37,7 @@ class Tally < Flezha::Tasklet
   end
 end
 
-class WordCount < Flezha::StreamOperative
+class WordCount < Flezha::UnboundedOperator
   factory_id "local_word_count_example"
   channels do |c|
     c.input("lines", codec: :text)
@@ -50,7 +50,7 @@ class WordCount < Flezha::StreamOperative
   end
 end
 
-run = Flezha::LocalOperative.start(WordCount)
+run = Flezha::LocalOperator.start(WordCount)
 begin
   run.on_sink("totals") { |output| puts output.payload }
   run.feed("lines", "the quick brown fox")

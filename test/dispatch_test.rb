@@ -6,7 +6,7 @@ require_relative "test_helper"
 #
 # A kind that fell through to the unknown-kind refusal would retire the cell
 # it addressed for the life of the process, and the first sign of it would be a
-# stalled operative — so the sweep is over the whole vocabulary rather than the
+# stalled operator — so the sweep is over the whole vocabulary rather than the
 # kinds one fixture happens to exercise.
 class DispatchTest < Minitest::Test
   class Counter < Flezha::Tasklet
@@ -23,7 +23,7 @@ class DispatchTest < Minitest::Test
     def compensate(outputs, ctx) = ctx.change({ by: -outputs.size })
   end
 
-  class CounterOperative < Flezha::StreamOperative
+  class CounterOperator < Flezha::UnboundedOperator
     factory_id "counter_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
@@ -33,7 +33,7 @@ class DispatchTest < Minitest::Test
 
   def setup
     @core = Flezha::TestSupport::FakeCore.new
-    @deps = wired_deps(CounterOperative)
+    @deps = wired_deps(CounterOperator)
     @registry = @deps.registry
   end
 
@@ -42,11 +42,11 @@ class DispatchTest < Minitest::Test
   # A channel's consumers are the CORE's answer: the builder records the chains
   # an author declared and the core says which of them became edges, so a
   # dispatch over a graph needs a real context to have judged the record first.
-  def wired_deps(operative)
+  def wired_deps(operator)
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
-    Flezha::TestSupport.validate(operative.spec)
-    Flezha::TestSupport.deps(operative, @core)
+    Flezha::TestSupport.validate(operator.spec)
+    Flezha::TestSupport.deps(operator, @core)
   end
 
   def activation(kind, **extra)
@@ -57,9 +57,9 @@ class DispatchTest < Minitest::Test
   def input_item(payload, **extra) = Flezha::TestSupport.input_item(payload, **extra)
 
   # One activation answered over a declared class of its own, with fresh state.
-  def answer_on(operative, **extra)
-    deps = wired_deps(operative)
-    Flezha::Dispatch.answer(Flezha::TestSupport.activation(factory: operative.factory_id, **extra), deps)
+  def answer_on(operator, **extra)
+    deps = wired_deps(operator)
+    Flezha::Dispatch.answer(Flezha::TestSupport.activation(factory: operator.factory_id, **extra), deps)
   end
 
   def test_a_work_batch_answers_one_effect_per_item
@@ -170,10 +170,10 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  # -- a tasklet ending its workflow ----------------------------------------
+  # -- a tasklet ending its bounded operator ----------------------------------------
   #
   # The host only carries the request in the item's effect. Ending the instance
-  # once the iteration commits, and failing a stream's item, are the core's.
+  # once the iteration commits, and failing an unbounded operator's item, are the core's.
 
   COMPLETIONS = {
     "text" => ["drei ü", "drei \xC3\xBC".b],
@@ -193,25 +193,25 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  class FinishingWorkflow < Flezha::WorkflowOperative
-    factory_id "finishing_workflow"
+  class FinishingBounded < Flezha::BoundedOperator
+    factory_id "finishing_bounded"
     channels { |c| c.input("in", codec: :text).into(Finisher).sink }
   end
 
-  class FinishingStream < Flezha::StreamOperative
-    factory_id "finishing_stream"
+  class FinishingUnbounded < Flezha::UnboundedOperator
+    factory_id "finishing_unbounded"
     channels { |c| c.input("in", codec: :text).into(Finisher).sink }
   end
 
-  def completion_of(operative, input)
-    effect, = answer_on(operative, items: [input_item(input)])[:effects]
+  def completion_of(operator, input)
+    effect, = answer_on(operator, items: [input_item(input)])[:effects]
     assert_equal "ok", effect[:verdict]
     effect[:complete]
   end
 
   def test_complete_carries_the_latest_result_in_the_effect
     COMPLETIONS.each do |input, (_, carried)|
-      completion = completion_of(FinishingWorkflow, input)
+      completion = completion_of(FinishingBounded, input)
 
       assert_equal carried, completion, "#{input} rides as #{carried.inspect}"
       assert_equal Encoding::BINARY, completion.encoding
@@ -222,8 +222,8 @@ class DispatchTest < Minitest::Test
     assert_nil answer(:work, items: [input_item("2")])[:effects][0][:complete]
   end
 
-  def test_a_stream_tasklet_completing_is_carried_the_same_way
-    assert_equal "drei \xC3\xBC".b, completion_of(FinishingStream, "text")
+  def test_an_unbounded_tasklet_completing_is_carried_the_same_way
+    assert_equal "drei \xC3\xBC".b, completion_of(FinishingUnbounded, "text")
   end
 
   class FailsAfterCompleting < Flezha::Tasklet
@@ -235,21 +235,21 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  class FailingWorkflow < Flezha::WorkflowOperative
-    factory_id "failing_workflow"
+  class FailingBounded < Flezha::BoundedOperator
+    factory_id "failing_bounded"
     channels { |c| c.input("in", codec: :text).into(FailsAfterCompleting).sink }
   end
 
   def test_a_failed_item_carries_no_completion
-    effect, = answer_on(FailingWorkflow, items: [input_item("x")])[:effects]
+    effect, = answer_on(FailingBounded, items: [input_item("x")])[:effects]
 
     assert_equal "retryable", effect[:verdict]
     refute effect.key?(:complete), "a failed item's effect carries no completion"
   end
 
-  # -- timers inside a workflow ----------------------------------------------
+  # -- timers inside a bounded operator ----------------------------------------------
   #
-  # A workflow tasklet arms and cancels timers exactly as a stream one does;
+  # A bounded tasklet arms and cancels timers exactly as an unbounded operator one does;
   # only a compensate hook refuses them.
 
   class TimerSetter < Flezha::Tasklet
@@ -265,23 +265,23 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  class TimerWorkflow < Flezha::WorkflowOperative
-    factory_id "timer_workflow"
+  class TimerBounded < Flezha::BoundedOperator
+    factory_id "timer_bounded"
     channels { |c| c.input("in", codec: :text).into(TimerSetter) }
   end
 
-  class TimerStream < Flezha::StreamOperative
-    factory_id "timer_stream"
+  class TimerUnbounded < Flezha::UnboundedOperator
+    factory_id "timer_unbounded"
     channels { |c| c.input("in", codec: :text).into(TimerSetter) }
   end
 
-  def test_a_timer_call_inside_a_workflow_reaches_the_item_effect
+  def test_a_timer_call_inside_a_bounded_reaches_the_item_effect
     {
       "after" => { kind: "processing_time", scheduled_at: 60_100, register: true },
       "event_time" => { kind: "event_time", scheduled_at: 60_000, register: true },
       "cancel" => { kind: "processing_time", scheduled_at: 60_000, register: false }
     }.each do |call, operation|
-      effect, = answer_on(TimerWorkflow, items: [input_item(call)])[:effects]
+      effect, = answer_on(TimerBounded, items: [input_item(call)])[:effects]
 
       assert_equal "ok", effect[:verdict], call
       assert_equal [operation], effect[:timers], call
@@ -294,20 +294,20 @@ class DispatchTest < Minitest::Test
     def compensate(_outputs, ctx) = ctx.timer_after(1_000)
   end
 
-  class ArmsOnUndoWorkflow < Flezha::WorkflowOperative
-    factory_id "arms_on_undo_workflow"
+  class ArmsOnUndoBounded < Flezha::BoundedOperator
+    factory_id "arms_on_undo_bounded"
     channels { |c| c.input("in", codec: :text).into(ArmsOnUndo) }
   end
 
   def test_a_timer_call_inside_a_compensate_hook_is_refused
-    result = answer_on(ArmsOnUndoWorkflow, kind: :compensate_run, outputs: [])
+    result = answer_on(ArmsOnUndoBounded, kind: :compensate_run, outputs: [])
 
     assert_equal "failed", result[:outcome]
     assert_includes result[:error], "TimersUnavailable: arms_on_undo"
   end
 
-  def test_a_stream_tasklet_still_registers_its_timer
-    effect, = answer_on(TimerStream, items: [input_item("after")])[:effects]
+  def test_an_unbounded_tasklet_still_registers_its_timer
+    effect, = answer_on(TimerUnbounded, items: [input_item("after")])[:effects]
 
     assert_equal "ok", effect[:verdict]
     assert_equal [true], effect[:timers].map { |timer| timer[:register] }
@@ -397,7 +397,7 @@ class DispatchTest < Minitest::Test
 
   # One keyed plugin channel: the topology every SDK can express, and where the
   # per-emit ordinal has to be right.
-  class StampOperative < Flezha::StreamOperative
+  class StampOperator < Flezha::UnboundedOperator
     factory_id "stamp_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
@@ -419,7 +419,7 @@ class DispatchTest < Minitest::Test
 
   # A tasklet owns ONE output channel, so a keyed and a non-keyed plugin
   # channel are two tasklets. The unkeyed one carries no stamps at all.
-  class MixedStampOperative < Flezha::StreamOperative
+  class MixedStampOperator < Flezha::UnboundedOperator
     factory_id "mixed_stamp_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
@@ -434,8 +434,8 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  def stamp_answer(payload, operative: StampOperative, items: nil)
-    answer_on(operative, cell_key: "ek", change_seq: 5, items: items || [input_item(payload)])
+  def stamp_answer(payload, operator: StampOperator, items: nil)
+    answer_on(operator, cell_key: "ek", change_seq: 5, items: items || [input_item(payload)])
   end
 
   def meta_of(output) = output[:metadata].to_h
@@ -451,7 +451,7 @@ class DispatchTest < Minitest::Test
   end
 
   def test_a_non_keyed_plugin_emit_carries_no_stamps
-    plain, = stamp_answer("mixed", operative: MixedStampOperative)[:effects][0][:outputs]
+    plain, = stamp_answer("mixed", operator: MixedStampOperator)[:effects][0][:outputs]
 
     assert_equal "plain_out", plain[:plugin_channel]
     assert_empty plain[:metadata]
@@ -478,24 +478,24 @@ class DispatchTest < Minitest::Test
     assert_equal "retryable", result[:effects][0][:verdict]
     refute result[:effects][0].key?(:outputs), "a refused emit must leave no outputs behind"
   end
-  # -- the structured-workflow emit arm ---------------------------------------
+  # -- the structured-bounded emit arm ---------------------------------------
   #
-  # One released value is ONE edge output on a workflow class, untransformed and
+  # One released value is ONE edge output on a bounded class, untransformed and
   # unkeyed, naming the producing channel and its first consumer: the driver
-  # fans it out from the journaled handoff. On a stream class the same topology
+  # fans it out from the journaled handoff. On an unbounded class the same topology
   # releases one output per consumer, transformed and keyed. The plugin output
   # rides alongside either way.
 
-  class WfProducer < Flezha::Tasklet
-    tasklet_name "wf_producer"
+  class BoundedProducer < Flezha::Tasklet
+    tasklet_name "bounded_producer"
     def run(input, ctx) = ctx.emit(input)
   end
 
   # What a consumer of the `handoff` channel was handed, in delivery order.
   DELIVERED = []
 
-  class WfB < Flezha::Tasklet
-    tasklet_name "wf_b"
+  class BoundedB < Flezha::Tasklet
+    tasklet_name "bounded_b"
 
     def run(input, _ctx)
       DELIVERED << input
@@ -503,8 +503,8 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  class WfC < Flezha::Tasklet
-    tasklet_name "wf_c"
+  class BoundedC < Flezha::Tasklet
+    tasklet_name "bounded_c"
 
     def run(input, _ctx)
       DELIVERED << input
@@ -512,21 +512,21 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  WORKFLOW_GRAPH = lambda do |c|
-    edge = c.input("in").into(WfProducer).named("handoff")
-    edge.map { |value| value + 1 }.into(WfB)
-    edge.into(WfC)
+  BOUNDED_GRAPH = lambda do |c|
+    edge = c.input("in").into(BoundedProducer).named("handoff")
+    edge.map { |value| value + 1 }.into(BoundedB)
+    edge.into(BoundedC)
     edge.sink
   end
 
-  class WfEmitOperative < Flezha::WorkflowOperative
-    factory_id "wf_emit"
-    channels(&WORKFLOW_GRAPH)
+  class BoundedEmitOperator < Flezha::BoundedOperator
+    factory_id "bounded_emit"
+    channels(&BOUNDED_GRAPH)
   end
 
-  class WfEmitStreamOperative < Flezha::StreamOperative
-    factory_id "wf_emit_stream"
-    channels(&WORKFLOW_GRAPH)
+  class BoundedEmitUnboundedOperator < Flezha::UnboundedOperator
+    factory_id "bounded_emit_stream"
+    channels(&BOUNDED_GRAPH)
   end
 
   # An edge payload is the class codec's MessagePack; the `handoff` sink names
@@ -535,12 +535,12 @@ class DispatchTest < Minitest::Test
     output[:target] == "plugin" ? JSON.parse(output[:payload]) : Flezha::Codec.decode(output[:payload])
   end
 
-  def emit_arm_outputs(operative)
-    answer_on(operative, cell_key: "ek", items: [input_item("10")])[:effects][0][:outputs]
+  def emit_arm_outputs(operator)
+    answer_on(operator, cell_key: "ek", items: [input_item("10")])[:effects][0][:outputs]
   end
 
-  def test_a_structured_workflow_releases_one_untransformed_edge_output
-    outputs = emit_arm_outputs(WfEmitOperative)
+  def test_a_structured_bounded_releases_one_untransformed_edge_output
+    outputs = emit_arm_outputs(BoundedEmitOperator)
 
     assert_equal [["edge", 1, nil, 10], ["plugin", nil, "handoff", 10]],
                  outputs.map { |o|
@@ -554,7 +554,7 @@ class DispatchTest < Minitest::Test
     produced = []
     encode = Flezha::Codec.method(:encode)
     outputs = Flezha::Codec.stub(:encode, ->(value) { encode.call(value).tap { produced << _1 } }) do
-      emit_arm_outputs(WfEmitStreamOperative)
+      emit_arm_outputs(BoundedEmitUnboundedOperator)
     end
 
     outputs.select { |output| output[:target] == "edge" }.each do |output|
@@ -564,50 +564,50 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  def test_the_same_graph_on_a_stream_class_releases_one_output_per_consumer
-    outputs = emit_arm_outputs(WfEmitStreamOperative)
+  def test_the_same_graph_on_an_unbounded_class_releases_one_output_per_consumer
+    outputs = emit_arm_outputs(BoundedEmitUnboundedOperator)
 
     assert_equal [["edge", 1, 11], ["edge", 2, 10], ["plugin", nil, 10]],
                  outputs.map { |o| [o[:target], o[:consumer], payload_of(o)] }
   end
 
   # The other end of the same two arms: what the CONSUMER is handed. A stream
-  # producer already applied the edge, so delivery applies nothing; a workflow
+  # producer already applied the edge, so delivery applies nothing; a bounded operator
   # stage released the value raw, so delivery is the one application.
 
-  def delivered(operative, tasklet, payload)
+  def delivered(operator, tasklet, payload)
     DELIVERED.clear
-    result = answer_on(operative, tasklet: tasklet, cell_key: "ek", items: [input_item(payload, channel: 1)])
+    result = answer_on(operator, tasklet: tasklet, cell_key: "ek", items: [input_item(payload, channel: 1)])
     assert_equal "ok", result[:effects][0][:verdict]
     DELIVERED.dup
   end
 
-  def test_a_stream_inter_task_edge_applies_its_map_exactly_once
-    mapped = emit_arm_outputs(WfEmitStreamOperative)[0][:payload]
+  def test_an_unbounded_inter_task_edge_applies_its_map_exactly_once
+    mapped = emit_arm_outputs(BoundedEmitUnboundedOperator)[0][:payload]
 
-    assert_equal [11], delivered(WfEmitStreamOperative, 1, mapped)
+    assert_equal [11], delivered(BoundedEmitUnboundedOperator, 1, mapped)
   end
 
-  def test_a_workflow_consumer_applies_its_own_edge_exactly_once_at_delivery
-    released = emit_arm_outputs(WfEmitOperative)[0][:payload]
+  def test_a_bounded_consumer_applies_its_own_edge_exactly_once_at_delivery
+    released = emit_arm_outputs(BoundedEmitOperator)[0][:payload]
 
     # One released value reaches BOTH children — the driver's fan-out — and
     # each evaluates its own edge here.
-    assert_equal [11], delivered(WfEmitOperative, 1, released)
-    assert_equal [10], delivered(WfEmitOperative, 2, released)
+    assert_equal [11], delivered(BoundedEmitOperator, 1, released)
+    assert_equal [10], delivered(BoundedEmitOperator, 2, released)
   end
 
   # An entry naming no codec reads JSON, so plain text fails its decode: the
   # verdict says the message is unreadable (the core parks it under the entry
-  # channel, and a workflow keeps waiting), and the handler is never handed it.
-  class JsonEntryOperative < Flezha::StreamOperative
+  # channel, and a bounded operator keeps waiting), and the handler is never handed it.
+  class JsonEntryOperator < Flezha::UnboundedOperator
     factory_id "json_entry_op"
-    channels { |c| c.input("in").into(WfB) }
+    channels { |c| c.input("in").into(BoundedB) }
   end
 
   def test_plain_text_into_an_entry_naming_no_codec_never_reaches_the_handler
     DELIVERED.clear
-    effects = answer_on(JsonEntryOperative, items: [input_item('{"a":1}'), input_item("hello")])[:effects]
+    effects = answer_on(JsonEntryOperator, items: [input_item('{"a":1}'), input_item("hello")])[:effects]
 
     assert_equal %w[ok unreadable], effects.map { |e| e[:verdict] }
     assert_includes effects[1][:message], "JSON::ParserError"
@@ -621,14 +621,14 @@ class DispatchTest < Minitest::Test
     def run(_input, _ctx) = raise(ArgumentError, "cannot place this")
   end
 
-  class RefusingEntryOperative < Flezha::StreamOperative
+  class RefusingEntryOperator < Flezha::UnboundedOperator
     factory_id "refusing_entry_op"
     channels { |c| c.input("in").into(Refusing) }
   end
 
   def test_an_unreadable_message_is_told_apart_from_a_handler_failure
-    unreadable = answer_on(RefusingEntryOperative, items: [input_item("not json")])[:effects][0]
-    failed = answer_on(RefusingEntryOperative, items: [input_item('{"a":1}')])[:effects][0]
+    unreadable = answer_on(RefusingEntryOperator, items: [input_item("not json")])[:effects][0]
+    failed = answer_on(RefusingEntryOperator, items: [input_item('{"a":1}')])[:effects][0]
 
     assert_equal "unreadable", unreadable[:verdict]
     assert_equal "retryable", failed[:verdict]
@@ -638,14 +638,14 @@ class DispatchTest < Minitest::Test
   # The entry edge's transforms run at the entrance too, so a mapping that
   # rejects a message parks it as an unreadable one rather than failing the
   # handler that never saw it.
-  class StrictEntryOperative < Flezha::StreamOperative
+  class StrictEntryOperator < Flezha::UnboundedOperator
     factory_id "strict_entry_op"
-    channels { |c| c.input("in").map { |value| value.fetch(:k) }.into(WfB) }
+    channels { |c| c.input("in").map { |value| value.fetch(:k) }.into(BoundedB) }
   end
 
   def test_an_entry_edge_transform_that_raises_makes_the_message_unreadable
     DELIVERED.clear
-    effects = answer_on(StrictEntryOperative, items: [input_item('{"k":"fine"}'), input_item('{"other":1}')])[:effects]
+    effects = answer_on(StrictEntryOperator, items: [input_item('{"k":"fine"}'), input_item('{"other":1}')])[:effects]
 
     assert_equal %w[ok unreadable], effects.map { |e| e[:verdict] }
     assert_includes effects[1][:message], "KeyError"
@@ -672,7 +672,7 @@ class DispatchTest < Minitest::Test
     ->(payload) { { source: source, symbol: payload.split(":").first, payload: payload } }
   end
 
-  class MergeOperative < Flezha::StreamOperative
+  class MergeOperator < Flezha::UnboundedOperator
     factory_id "merge_op"
     channels do |c|
       ticks = c.input("ticks", codec: :text)
@@ -683,7 +683,7 @@ class DispatchTest < Minitest::Test
   end
 
   def test_two_merge_sources_reach_one_tasklet_each_under_its_own_mapping_in_order
-    upstream = answer_on(MergeOperative, tasklet: 0, cell_key: "AAPL", items: [input_item("AAPL:3", channel: 1)])
+    upstream = answer_on(MergeOperator, tasklet: 0, cell_key: "AAPL", items: [input_item("AAPL:3", channel: 1)])
     released = upstream[:effects][0][:outputs]
     assert_equal [[1, "AAPL", { source: "quotes", symbol: "AAPL", payload: "AAPL:3" }]],
                  released.map { |o| [o[:consumer], o[:key], Flezha::Codec.decode(o[:payload])] }
@@ -693,7 +693,7 @@ class DispatchTest < Minitest::Test
       input_item("AAPL:2", channel: 0, consumed_offset: 2),
       input_item(released.first[:payload], channel: 2, consumed_offset: 1)
     ]
-    effects = answer_on(MergeOperative, tasklet: 1, cell_key: "AAPL", items: items)[:effects]
+    effects = answer_on(MergeOperator, tasklet: 1, cell_key: "AAPL", items: items)[:effects]
 
     assert_equal [["ticks:AAPL:1"], ["ticks:AAPL:2"], ["quotes:AAPL:3"]],
                  effects.map { |effect| effect[:outputs].map { |output| output[:payload] } }
@@ -701,7 +701,7 @@ class DispatchTest < Minitest::Test
 
   def test_a_merge_key_is_read_off_the_mapped_value_at_the_crossing
     request = { channel: 0, payloads: ["MSFT:1".b], want_keys: true, want_event_time: false }
-    result = answer_on(MergeOperative, kind: :key_request, tasklet: 1, cell_key: "AAPL", key_request: request)
+    result = answer_on(MergeOperator, kind: :key_request, tasklet: 1, cell_key: "AAPL", key_request: request)
 
     assert_equal [["MSFT"]], result[:prepared].map { |answer| answer[:keys] }
   end
@@ -711,14 +711,14 @@ class DispatchTest < Minitest::Test
   # A fan is the list shape of the one transform fold, so it reaches the three
   # places a chain runs: the handler, the key crossing and the emit.
 
-  class FanOperative < Flezha::StreamOperative
+  class FanOperator < Flezha::UnboundedOperator
     factory_id "fan_op"
     channels do |c|
       c.input("lines", codec: :text).flat_map { |line| line.split(",") }.into(PassThrough).sink("fanned")
     end
   end
 
-  class KeyedFanOperative < Flezha::StreamOperative
+  class KeyedFanOperator < Flezha::UnboundedOperator
     factory_id "keyed_fan_op"
     channels do |c|
       c.input("lines", codec: :text).flat_map { |line| line.split(",") }
@@ -726,7 +726,7 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  class EmitFanOperative < Flezha::StreamOperative
+  class EmitFanOperator < Flezha::UnboundedOperator
     factory_id "emit_fan_op"
     channels do |c|
       c.input("lines", codec: :text).into(PassThrough, "fan_source")
@@ -735,7 +735,7 @@ class DispatchTest < Minitest::Test
   end
 
   def test_a_fan_of_three_runs_the_handler_three_times_under_one_effect
-    effects = answer_on(FanOperative, items: [input_item("a,b,c", consumed_offset: 7)])[:effects]
+    effects = answer_on(FanOperator, items: [input_item("a,b,c", consumed_offset: 7)])[:effects]
 
     assert_equal 1, effects.size
     assert_equal ["ok", 7, %w[a b c]],
@@ -743,14 +743,14 @@ class DispatchTest < Minitest::Test
   end
 
   def test_a_fan_of_none_is_a_drop_that_still_consumes_its_offset
-    effects = answer_on(FanOperative, items: [input_item("", consumed_offset: 3)])[:effects]
+    effects = answer_on(FanOperator, items: [input_item("", consumed_offset: 3)])[:effects]
 
     assert_equal [["ok", 3, []]], effects.map { |e| [e[:verdict], e[:consumed_offset], e[:outputs]] }
   end
 
   def test_a_fan_followed_by_key_by_answers_every_key_at_the_crossing
     request = { channel: 0, payloads: ["a:1,b:2,c:3".b, "".b], want_keys: true, want_event_time: false }
-    prepared = answer_on(KeyedFanOperative, kind: :key_request, key_request: request)[:prepared]
+    prepared = answer_on(KeyedFanOperator, kind: :key_request, key_request: request)[:prepared]
 
     assert_equal [%w[a b c], []], prepared.map { |answer| answer[:keys] }
   end
@@ -759,7 +759,7 @@ class DispatchTest < Minitest::Test
   # each keeps only the values keyed to it.
   def test_each_cell_a_fanned_payload_reaches_runs_only_its_own_values
     outputs = %w[a b].map do |key|
-      answer_on(KeyedFanOperative, cell_key: key, items: [input_item("a:1,b:2,a:3")])[:effects][0][:outputs]
+      answer_on(KeyedFanOperator, cell_key: key, items: [input_item("a:1,b:2,a:3")])[:effects][0][:outputs]
     end
 
     assert_equal [%w[a:1 a:3], %w[b:2]], outputs.map { |frames| frames.map { |o| o[:payload] } }
@@ -772,7 +772,7 @@ class DispatchTest < Minitest::Test
     def cells_for(value) = ROUTES.fetch(value.split(":").first) { [value.split(":").first] }
   end
 
-  class StaticFanOperative < Flezha::StreamOperative
+  class StaticFanOperator < Flezha::UnboundedOperator
     factory_id "static_fan_op"
     channels do |c|
       c.input("lines", codec: :text).flat_map { |line| line.split(",") }.into(StaticFanLabel).sink("fanned")
@@ -783,7 +783,7 @@ class DispatchTest < Minitest::Test
   # value naming both reaches both, and one naming none reaches neither.
   def test_each_static_cell_a_fanned_payload_reaches_runs_only_its_own_values
     outputs = %w[a b].map do |key|
-      answer_on(StaticFanOperative, cell_key: key,
+      answer_on(StaticFanOperator, cell_key: key,
                                     items: [input_item("a:1,b:2,both:9,none:0,a:3")])[:effects][0][:outputs]
     end
 
@@ -791,14 +791,14 @@ class DispatchTest < Minitest::Test
   end
 
   def test_an_emit_through_a_fan_releases_one_keyed_frame_per_value
-    outputs = answer_on(EmitFanOperative, items: [input_item("a:1,b:2")])[:effects][0][:outputs]
+    outputs = answer_on(EmitFanOperator, items: [input_item("a:1,b:2")])[:effects][0][:outputs]
 
     assert_equal [%w[a a:1], %w[b b:2]], outputs.map { |o| [o[:key], Flezha::Codec.decode(o[:payload])] }
   end
 
   # -- the latest-document router, through the dispatcher ---------------------
 
-  class RouterOperative < Flezha::StreamOperative
+  class RouterOperator < Flezha::UnboundedOperator
     factory_id "router_op"
     channels do |c|
       c.route_latest(c.input("config"), c.input("trades")) { |trade| trade[:symbol] }
@@ -810,7 +810,7 @@ class DispatchTest < Minitest::Test
     document = '{"limit":5}'
     items = [[0, document], [1, '{"symbol":"A"}'], [1, '{"symbol":"B"}'], [0, document],
              [1, '{"symbol":"A"}']].map { |channel, payload| input_item(payload, channel: channel) }
-    effects = answer_on(RouterOperative, items: items)[:effects]
+    effects = answer_on(RouterOperator, items: items)[:effects]
 
     assert_equal [[], [["A", { limit: 5 }]], [["B", { limit: 5 }]], [], []],
                  effects.map { |e| e[:outputs].map { |o| Flezha::Codec.decode(o[:payload]) } }

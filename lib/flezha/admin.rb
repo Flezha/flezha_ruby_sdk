@@ -3,7 +3,7 @@
 require "json"
 
 module Flezha
-  # What a start answered: the id the operative runs under, the generated one
+  # What a start answered: the id the operator runs under, the generated one
   # when the start named none, and `:started` or `:already_running`.
   StartResult = Struct.new(:id, :outcome, keyword_init: true)
 
@@ -13,7 +13,7 @@ module Flezha
   # No tasklet has to be running and the application holds no credential of
   # its own: the controller judges every call as the identity the connection
   # already established, so nothing an unattended process holds expires. An
-  # operator grants a namespace's applications the authority once and revokes
+  # user grants a namespace's applications the authority once and revokes
   # it the same way, and a revocation takes effect on the next call:
   #
   #     flz role bind runner@team-orders app team-orders
@@ -25,28 +25,28 @@ module Flezha
       @core = core
     end
 
-    # Start an operative of `factory_id`, on the specification
-    # `flz operative start` takes, answering a `StartResult`.
+    # Start an operator of `factory_id`, on the specification
+    # `flz operator start` takes, answering a `StartResult`.
     #
     # Without an `id` the controller generates one, so a start retried after a
-    # lost answer starts a second operative, and a second stream runs until it
+    # lost answer starts a second operator, and a second stream runs until it
     # is stopped. With an `id`, a start of a running one leaves it untouched
     # and answers `:already_running`.
-    def start_operative(factory_id, id: nil, init_values: nil, opts: nil)
+    def start_operator(factory_id, id: nil, init_values: nil, opts: nil)
       fields = { "factory_id" => factory_id }
       fields["id"] = id if id
       fields["init_values"] = init_values if init_values
       fields["opts"] = opts if opts
-      answer = call("Operative.start", fields)
+      answer = call("Operator.start", fields)
       StartResult.new(id: answer.fetch("id"), outcome: answer.fetch("outcome").to_sym)
     end
 
-    # Stop an operative, or the whole partition group it names.
-    def stop_operative(operative_id) = call("Operative.stop", operative_id)
+    # Stop an operator, or the whole partition group it names.
+    def stop_operator(operator_id) = call("Operator.stop", operator_id)
 
-    # Inject a message into an operative's input stream, blocking for the verdict.
-    def send_to(operative_id, message, channel: "")
-      call("Operative.send", operative_id, message, channel)
+    # Inject a message into an operator's input stream, blocking for the verdict.
+    def send_to(operator_id, message, channel: "")
+      call("Operator.send", operator_id, message, channel)
     end
 
     # Enable a plugin, built from the fields `flz plugin enable` takes.
@@ -55,15 +55,15 @@ module Flezha
     # Disable a plugin, or every partitioned instance of it.
     def disable_plugin(plugin_id) = call("PluginManager.disable", plugin_id)
 
-    # The operative ids running in this namespace.
-    def list_operatives = call("Operative.list_operatives")
+    # The operator ids running in this namespace.
+    def list_operators = call("Operator.list_operators")
 
     # The plugins enabled on the controller node answering this call.
     def list_plugins = call("PluginManager.list")
 
     # One cell's live state, and the change sequence it was read at.
-    def cell_state(operative_id, cell_key)
-      call("Operative.cell_state", operative_id, cell_key)
+    def cell_state(operator_id, cell_key)
+      call("Operator.cell_state", operator_id, cell_key)
     end
 
     # Any published function, by name. What succeeds follows from the role the

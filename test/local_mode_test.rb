@@ -2,7 +2,7 @@
 
 require_relative "test_helper"
 
-# The Ruby SDK's local mode: a user's own operative class, its declared
+# The Ruby SDK's local mode: a user's own operator class, its declared
 # two-tasklet graph, and no controller anywhere.
 #
 # The graph and its expected sink output are read from
@@ -33,7 +33,7 @@ class LocalModeTest < Minitest::Test
     end
   end
 
-  class WordCount < Flezha::StreamOperative
+  class WordCount < Flezha::UnboundedOperator
     factory_id "local_word_count_ruby"
     channels do |c|
       c.input("lines", codec: :text)
@@ -63,7 +63,7 @@ class LocalModeTest < Minitest::Test
   def test_a_declared_graph_runs_locally_and_releases_the_recorded_output
     lines, expected = scenario
     released = []
-    run = Flezha::LocalOperative.start(WordCount)
+    run = Flezha::LocalOperator.start(WordCount)
     begin
       run.on_sink("totals") { |output| released << output }
       lines.each { |line| run.feed("lines", line) }
@@ -84,7 +84,7 @@ class LocalModeTest < Minitest::Test
   end
 
   def test_a_channel_the_class_does_not_declare_is_refused_by_name
-    run = Flezha::LocalOperative.start(WordCount)
+    run = Flezha::LocalOperator.start(WordCount)
     begin
       message = assert_raises(Flezha::Native::Error) { run.feed("nope", "1") }.message
 
@@ -105,14 +105,14 @@ class LocalModeTest < Minitest::Test
     end
   end
 
-  class DefaultCodecs < Flezha::StreamOperative
+  class DefaultCodecs < Flezha::UnboundedOperator
     factory_id "local_default_codecs_ruby"
     channels { |c| c.input("in").into(Defaults).sink("out") }
   end
 
   def test_an_undeclared_entry_reads_json_and_an_undeclared_sink_follows_the_value
     released = []
-    run = Flezha::LocalOperative.start(DefaultCodecs)
+    run = Flezha::LocalOperator.start(DefaultCodecs)
     begin
       run.on_sink("out") { |output| released << output.payload }
       run.feed("in", '{"a":1}')

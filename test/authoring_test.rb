@@ -23,7 +23,7 @@ class AuthoringTest < Minitest::Test
     end
   end
 
-  def operative(factory, base: Flezha::StreamOperative, &channels)
+  def operator(factory, base: Flezha::UnboundedOperator, &channels)
     klass = Class.new(base)
     klass.factory_id factory
     klass.channels(&channels)
@@ -106,7 +106,7 @@ class AuthoringTest < Minitest::Test
       clock :event_time
       def run(input, _ctx) = input
     end
-    graph = operative("no_extractor_op") { |c| c.input("in").into(klass).sink }
+    graph = operator("no_extractor_op") { |c| c.input("in").into(klass).sink }
 
     # No core at all, which is the proof it was refused before the record
     # could reach one.
@@ -118,7 +118,7 @@ class AuthoringTest < Minitest::Test
   # value to serialize, and the core reads a sink as the terminal of the
   # channel it sits on — it cannot see that this one is fed by the controller.
   def test_a_plugin_sink_on_an_entry_channel_is_refused_here
-    klass = operative("entry_sink") { |c| c.input("in").sink }
+    klass = operator("entry_sink") { |c| c.input("in").sink }
 
     assert_includes refusal { klass.spec }.message, "a plugin sink is fed by a tasklet"
   end
@@ -131,7 +131,7 @@ class AuthoringTest < Minitest::Test
       dynamic_cells
       def run(input, _ctx) = input
     end
-    klass = operative("dup_key_by") do |c|
+    klass = operator("dup_key_by") do |c|
       c.input("in").key_by { "a" }.key_by { "b" }.into(target)
     end
 
@@ -147,7 +147,7 @@ class AuthoringTest < Minitest::Test
   # The three checkpoint options each write their own raw flag now — the
   # granularity is the core's to imply — so none of them may clear another.
   def test_the_checkpoint_options_compose_in_any_order_and_none_clears_another
-    klass = operative("compose") do |c|
+    klass = operator("compose") do |c|
       c.effectively_once
       c.outputs_at_checkpoint(250)
       c.checkpoint_ack
@@ -163,8 +163,8 @@ class AuthoringTest < Minitest::Test
     refute_includes decl.keys, "ack_granularity", "the granularity is derived, never declared"
   end
 
-  def test_a_workflow_declaring_no_channels_is_refused_naming_them
-    klass = Class.new(Flezha::WorkflowOperative)
+  def test_a_bounded_declaring_no_channels_is_refused_naming_them
+    klass = Class.new(Flezha::BoundedOperator)
     klass.factory_id "bodiless"
 
     error = refusal { klass.spec }
@@ -174,8 +174,8 @@ class AuthoringTest < Minitest::Test
   end
 
   # The core's own check, reached through the one submission path.
-  def test_a_workflow_declaring_no_tasklet_is_refused
-    klass = Class.new(Flezha::WorkflowOperative)
+  def test_a_bounded_declaring_no_tasklet_is_refused
+    klass = Class.new(Flezha::BoundedOperator)
     klass.factory_id "empty"
     klass.channels { |_c| nil }
 
@@ -185,7 +185,7 @@ class AuthoringTest < Minitest::Test
   def test_two_unnamed_mentions_of_one_tasklet_are_one_node
     shared = pass_through("shared")
     upstream = pass_through("upstream")
-    klass = operative("diamond") do |c|
+    klass = operator("diamond") do |c|
       edge = c.input("input").into(upstream)
       edge.named("left").into(shared)
       edge.named("right").into(shared)
@@ -202,7 +202,7 @@ class AuthoringTest < Minitest::Test
   def test_a_second_tasklet_claiming_one_node_identity_is_refused
     first = pass_through("same_name")
     second = pass_through("same_name")
-    klass = operative("collide") do |c|
+    klass = operator("collide") do |c|
       edge = c.input("input").into(first)
       edge.named("hop").into(second)
     end
@@ -228,9 +228,9 @@ class AuthoringTest < Minitest::Test
   # `named` is honoured on the inter-task path and was dropped on the plugin
   # path, so `named("input").sink("relay_out")` produced a channel called
   # `relay_out` — and the channel name is what a forwarded frame carries and
-  # what selects the receiving operative's entry channel.
+  # what selects the receiving operator's entry channel.
   def test_a_named_edge_terminating_on_a_sink_names_the_channel_too
-    klass = operative("named_sink") do |c|
+    klass = operator("named_sink") do |c|
       c.input("input").into(pass_through("relay")).sink("in")
     end
 
@@ -241,7 +241,7 @@ class AuthoringTest < Minitest::Test
   # keeps the PRODUCER NODE's name — the derivation a channel with no sink at
   # all would take.
   def test_an_unnamed_edge_terminating_on_a_sink_takes_the_producing_nodes_name
-    klass = operative("unnamed_sink") do |c|
+    klass = operator("unnamed_sink") do |c|
       c.input("input").into(pass_through("plain")).sink
     end
 
@@ -268,7 +268,7 @@ class AuthoringTest < Minitest::Test
   def test_a_held_edge_wired_twice_is_one_channel_with_two_consumers
     b = pass_through("b")
     c_task = pass_through("c")
-    klass = operative("fan_out") do |c|
+    klass = operator("fan_out") do |c|
       edge = c.input("in").into(pass_through("producer"))
       edge.into(b)
       edge.into(c_task)
@@ -282,12 +282,12 @@ class AuthoringTest < Minitest::Test
     producer = pass_through("producer")
     b = pass_through("b")
     c_task = pass_through("c")
-    separate = operative("separate") do |c|
+    separate = operator("separate") do |c|
       edge = c.input("in").into(producer)
       edge.into(b)
       edge.into(c_task)
     end
-    branched = operative("branched") do |c|
+    branched = operator("branched") do |c|
       c.input("in").into(producer).branch(->(arm) { arm.into(b) }, ->(arm) { arm.into(c_task) })
     end
 
@@ -295,7 +295,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_sink_returns_the_edge_so_a_consumer_wires_behind_it
-    klass = operative("hybrid") do |c|
+    klass = operator("hybrid") do |c|
       c.input("in").into(pass_through("producer"))
        .sink("hybrid_indicator").into(pass_through("consumer"))
     end
@@ -306,10 +306,10 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_the_sink_names_the_channel_and_the_no_argument_form_does_not
-    named = operative("sink_named") do |c|
+    named = operator("sink_named") do |c|
       c.input("in").into(pass_through("producer")).sink("items_output")
     end
-    derived = operative("sink_derived") do |c|
+    derived = operator("sink_derived") do |c|
       c.input("in").into(pass_through("producer")).sink
     end
 
@@ -318,7 +318,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_channel_named_twice_is_refused_naming_both
-    klass = operative("named_twice") do |c|
+    klass = operator("named_twice") do |c|
       c.input("in").into(pass_through("producer")).named("a").sink("b")
     end
 
@@ -328,8 +328,8 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_channel_option_with_nothing_wired_after_it_still_reaches_the_channel
-    renamed = operative("trailing_named") { |c| c.input("in").into(pass_through("producer")).named("renamed") }
-    keyed = operative("trailing_keyed") { |c| c.input("in").into(pass_through("producer")).keyed }
+    renamed = operator("trailing_named") { |c| c.input("in").into(pass_through("producer")).named("renamed") }
+    keyed = operator("trailing_keyed") { |c| c.input("in").into(pass_through("producer")).keyed }
 
     assert_equal %w[in renamed], channels_of(renamed).map(&:first)
     error = assert_raises(Flezha::DeclarationError) { validate(keyed.spec) }
@@ -337,7 +337,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_two_channels_naming_one_sink_is_refused
-    klass = operative("one_sink_two_channels") do |c|
+    klass = operator("one_sink_two_channels") do |c|
       c.input("in").into(pass_through("a")).sink("shared")
        .into(pass_through("b")).sink("shared")
     end
@@ -349,7 +349,7 @@ class AuthoringTest < Minitest::Test
   def test_a_transform_before_one_into_reaches_that_consumer_only
     b = pass_through("b")
     c_task = pass_through("c")
-    klass = operative("per_edge_transform") do |c|
+    klass = operator("per_edge_transform") do |c|
       edge = c.input("in").into(pass_through("producer"))
       edge.map { |value| "#{value}!" }.into(b)
       edge.into(c_task)
@@ -365,7 +365,7 @@ class AuthoringTest < Minitest::Test
   # not two, and not a refusal.
   def test_a_bare_re_declared_edge_is_a_no_op_not_a_second_edge
     target = pass_through("target")
-    klass = operative("edge_redeclared_bare") do |c|
+    klass = operator("edge_redeclared_bare") do |c|
       edge = c.input("in")
       edge.into(target)
       edge.into(target)
@@ -379,16 +379,16 @@ class AuthoringTest < Minitest::Test
 
   # What an author writes reaches the core whatever the kind, and a setting of
   # the other kind is refused there by its own name rather than dropped here.
-  STREAM_SETTINGS_ON_A_WORKFLOW = {
-    "EffectivelyOnceOnWorkflow" => ->(c) { c.effectively_once },
-    "CheckpointOnWorkflow" => ->(c) { c.checkpoint_every(500) },
-    "CorrectionWindowOnWorkflow" => ->(c) { c.correction_window(60_000) }
+  UNBOUNDED_SETTINGS_ON_A_BOUNDED = {
+    "EffectivelyOnceOnBounded" => ->(c) { c.effectively_once },
+    "CheckpointOnBounded" => ->(c) { c.checkpoint_every(500) },
+    "CorrectionWindowOnBounded" => ->(c) { c.correction_window(60_000) }
   }.freeze
 
-  def test_a_stream_setting_on_a_workflow_is_refused_by_name
-    STREAM_SETTINGS_ON_A_WORKFLOW.each do |name, write|
+  def test_a_stream_setting_on_a_bounded_is_refused_by_name
+    UNBOUNDED_SETTINGS_ON_A_BOUNDED.each do |name, write|
       step = pass_through("producer")
-      klass = operative("stream_setting_workflow", base: Flezha::WorkflowOperative) do |c|
+      klass = operator("unbounded_setting_bounded", base: Flezha::BoundedOperator) do |c|
         write.call(c)
         c.input("in").into(step)
       end
@@ -399,30 +399,30 @@ class AuthoringTest < Minitest::Test
 
   def test_sync_durability_on_a_stream_is_refused_by_name
     step = pass_through("producer")
-    klass = operative("sync_stream") { |c| c.input("in").into(step) }
+    klass = operator("sync_unbounded") { |c| c.input("in").into(step) }
     klass.sync_durability
 
-    assert_equal ["SyncDurabilityOnStream"], refusal { validate(klass.spec) }.refusals
+    assert_equal ["SyncDurabilityOnUnbounded"], refusal { validate(klass.spec) }.refusals
   end
 
-  def test_sleeping_defaults_to_persistence_on_a_workflow_only
+  def test_sleeping_defaults_to_persistence_on_a_bounded_only
     step = pass_through("step")
     sleeps = lambda do |base, persistent|
-      klass = operative("sleep_default", base: base) { |c| c.input("in").into(step) }
+      klass = operator("sleep_default", base: base) { |c| c.input("in").into(step) }
       klass.persistent(persistent)
       Flezha::Graph.to_host_class_decl(klass.spec)["sleep_when_idle"]
     end
 
     assert_equal [true, false, false],
-                 [sleeps.call(Flezha::WorkflowOperative, true),
-                  sleeps.call(Flezha::WorkflowOperative, false),
-                  sleeps.call(Flezha::StreamOperative, true)]
+                 [sleeps.call(Flezha::BoundedOperator, true),
+                  sleeps.call(Flezha::BoundedOperator, false),
+                  sleeps.call(Flezha::UnboundedOperator, true)]
   end
 
   def test_sleeping_without_persistence_is_refused_by_name
     step = pass_through("step")
-    [Flezha::StreamOperative, Flezha::WorkflowOperative].each do |base|
-      klass = operative("sleep_no_persist", base: base) { |c| c.input("in").into(step) }
+    [Flezha::UnboundedOperator, Flezha::BoundedOperator].each do |base|
+      klass = operator("sleep_no_persist", base: base) { |c| c.input("in").into(step) }
       klass.persistent(false)
       klass.sleep_when_idle
 
@@ -436,7 +436,7 @@ class AuthoringTest < Minitest::Test
     [->(c) { c.channels { |b| b.input("in") } }, ->(c) { c.define_method(:run) { |i, _| i } }]
       .map do |body|
         refusal do
-          Class.new(Flezha::WorkflowOperative) do
+          Class.new(Flezha::BoundedOperator) do
             factory_id "mode"
             body.call(self)
             public_send(setting, value)
@@ -461,7 +461,7 @@ class AuthoringTest < Minitest::Test
 
   def test_the_retired_class_retry_and_wake_settings_are_not_declared
     %i[retry_attempts retry_backoff_ms barrier_retry_attempts wake_after_ms].each do |retired|
-      assert_raises(NoMethodError) { Class.new(Flezha::WorkflowOperative).public_send(retired, 5) }
+      assert_raises(NoMethodError) { Class.new(Flezha::BoundedOperator).public_send(retired, 5) }
     end
   end
 
@@ -475,7 +475,7 @@ class AuthoringTest < Minitest::Test
 
   def test_a_merge_wires_one_node_with_one_edge_per_source_each_under_its_own_mapping
     target = pass_through("label")
-    klass = operative("merged") do |c|
+    klass = operator("merged") do |c|
       c.merge.from(c.input("ticks"), &tagged("ticks")).from(c.input("quotes"), &tagged("quotes"))
        .key_by { |value| value[:value] }.into(target)
     end
@@ -490,7 +490,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_merge_of_one_source_is_refused_as_too_few_sources
-    klass = operative("merge_one") do |c|
+    klass = operator("merge_one") do |c|
       c.merge.from(c.input("in")) { |value| value }.into(pass_through("plain"))
     end
 
@@ -498,7 +498,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_merge_naming_one_source_twice_is_refused_as_a_duplicate_source
-    klass = operative("merge_twice") do |c|
+    klass = operator("merge_twice") do |c|
       source = c.input("in")
       c.input("other")
       c.merge.from(source) { |value| value }.from(source) { |value| value }.into(pass_through("plain"))
@@ -509,7 +509,7 @@ class AuthoringTest < Minitest::Test
 
   def test_a_merge_source_already_wired_into_the_node_with_a_transform_is_refused
     target = pass_through("plain")
-    klass = operative("merge_rewired") do |c|
+    klass = operator("merge_rewired") do |c|
       ticks = c.input("ticks")
       ticks.map { |value| value }.into(target)
       c.merge.from(ticks) { |value| value }.from(c.input("quotes")) { |value| value }.into(target)
@@ -519,7 +519,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_the_latest_document_router_is_a_route_latest_node_and_the_named_form_names_it
-    klass = operative("routers") do |c|
+    klass = operator("routers") do |c|
       trades = c.input("trades")
       c.route_latest(c.input("config"), trades) { |trade| trade[:symbol] }.sink("routed")
       c.route_latest_named(c.input("limits"), trades, "limits_router") { |trade| trade[:symbol] }
@@ -544,7 +544,7 @@ class AuthoringTest < Minitest::Test
   CODEC_CASES = Flezha::TestSupport.contract_file("test/fixtures/channel_codecs.txt")
 
   def codec_slots(input = {}, sink = {})
-    klass = operative("codecs") { |c| c.input("in", **input).into(pass_through("echo")).sink("out", **sink) }
+    klass = operator("codecs") { |c| c.input("in", **input).into(pass_through("echo")).sink("out", **sink) }
     entry, out = klass.spec.channels
     [entry.decode, out.sink_encode]
   end
@@ -605,7 +605,7 @@ class AuthoringTest < Minitest::Test
     assert_equal "hello", bytes.call("hello")
   end
 
-  def test_an_unknown_codec_name_is_refused_naming_the_operative_the_channel_and_the_names
+  def test_an_unknown_codec_name_is_refused_naming_the_operator_the_channel_and_the_names
     [[{ codec: :yaml }, {}, "in"], [{}, { codec: "yaml" }, "out"]].each do |input, sink, channel|
       message = refusal { codec_slots(input, sink) }.message
 

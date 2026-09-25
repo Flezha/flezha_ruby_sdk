@@ -12,7 +12,7 @@ class ConcurrencyTest < Minitest::Test
     def run(input, _ctx) = input
   end
 
-  class EchoOperative < Flezha::StreamOperative
+  class EchoOperator < Flezha::UnboundedOperator
     factory_id "echo_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
@@ -20,11 +20,11 @@ class ConcurrencyTest < Minitest::Test
     end
   end
 
-  def deps(core) = Flezha::TestSupport.deps(EchoOperative, core)
+  def deps(core) = Flezha::TestSupport.deps(EchoOperator, core)
 
   def activation(token, payload)
     Flezha::TestSupport.activation(
-      factory: "echo_op", token: token, operative: "op",
+      factory: "echo_op", token: token, operator: "op",
       items: [Flezha::TestSupport.input_item(payload, now: 0)]
     )
   end
@@ -51,7 +51,7 @@ class ConcurrencyTest < Minitest::Test
     end
   end
 
-  def test_the_operator_sets_the_base_and_the_ceiling
+  def test_the_user_sets_the_base_and_the_ceiling
     with_env("FLEZHA_WORKER_POOL_SIZE" => "3", "FLEZHA_WORKER_POOL_MAX" => "7") do
       assert_equal 3, Flezha::Executor.base_size
       assert_equal 7, Flezha::Executor.ceiling_size(3)
@@ -64,7 +64,7 @@ class ConcurrencyTest < Minitest::Test
     end
     with_env("FLEZHA_WORKER_POOL_MAX" => "2") do
       assert_equal 5, Flezha::Executor.ceiling_size(5), "a ceiling under the floor would " \
-                                                        "retire the pool the operator asked for"
+                                                        "retire the pool the user asked for"
     end
   end
 
@@ -157,7 +157,7 @@ class ConcurrencyTest < Minitest::Test
     end
   end
 
-  class RecorderOperative < Flezha::StreamOperative
+  class RecorderOperator < Flezha::UnboundedOperator
     factory_id "recorder_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
@@ -172,7 +172,7 @@ class ConcurrencyTest < Minitest::Test
       hold: -> { ORDER_LOCK.synchronize { ORDER << :completed } }
     )
     executor = Flezha::ThreadExecutor.new(
-      core, Flezha::TestSupport.deps(RecorderOperative, core), base: 1, ceiling: 1
+      core, Flezha::TestSupport.deps(RecorderOperator, core), base: 1, ceiling: 1
     ).start
     begin
       assert wait_until { ORDER.size == 2 }
@@ -190,7 +190,7 @@ class ConcurrencyTest < Minitest::Test
     def run(_input, _ctx) = sleep
   end
 
-  class NeverReturnsOperative < Flezha::StreamOperative
+  class NeverReturnsOperator < Flezha::UnboundedOperator
     factory_id "never_returns_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
@@ -198,7 +198,7 @@ class ConcurrencyTest < Minitest::Test
     end
   end
 
-  def never_returns_deps(core) = Flezha::TestSupport.deps(NeverReturnsOperative, core)
+  def never_returns_deps(core) = Flezha::TestSupport.deps(NeverReturnsOperator, core)
 
   # A handler that never returns must not keep the runner alive forever. The
   # harness stops runners by closing their pipes, so an unbounded drain leaks a

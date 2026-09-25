@@ -5,21 +5,21 @@ require_relative "test_helper"
 Flezha::TestSupport.require_test_app("fixtures")
 
 # The entry point's contract: declare, warm up, then serve — and the JIT
-# decision the operator can always take back.
+# decision the user can always take back.
 class RunnerTest < Minitest::Test
   class Echo < Flezha::Tasklet
     tasklet_name "runner_echo"
     def run(input, _ctx) = input
   end
 
-  class EchoOperative < Flezha::StreamOperative
+  class EchoOperator < Flezha::UnboundedOperator
     factory_id "runner_echo_op"
     channels { |c| c.input("input").into(Echo).sink("out") }
   end
 
   def boot_recording
     core = Flezha::TestSupport::FakeCore.new
-    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperative)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperator)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> { core.events << :warmup }) do
         runner.boot(core: core)
@@ -47,11 +47,11 @@ class RunnerTest < Minitest::Test
   def test_declaration_precedes_serving_for_every_declared_class
     core = Flezha::TestSupport::FakeCore.new
     events = core.events
-    second = Class.new(Flezha::StreamOperative)
+    second = Class.new(Flezha::UnboundedOperator)
     second.factory_id "runner_second_op"
     second.channels { |c| c.input("in").into(Echo, "second_node").sink("o") }
 
-    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperative).register_factory(second)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperator).register_factory(second)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> { core.events << :warmup }) do
         runner.boot(core: core)
@@ -73,7 +73,7 @@ class RunnerTest < Minitest::Test
 
   def test_await_termination_waits_for_a_stop_then_drains
     core = Flezha::TestSupport::FakeCore.new
-    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperative)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperator)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> { core.events << :warmup }) do
         runner.boot(core: core)
@@ -97,7 +97,7 @@ class RunnerTest < Minitest::Test
   end
 
   def test_an_unknown_executor_is_refused_by_name
-    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperative).executor(:ractors)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperator).executor(:ractors)
 
     Flezha::TestSupport.without_a_terminal do
       assert_includes(
@@ -130,7 +130,7 @@ class RunnerTest < Minitest::Test
     end
   end
 
-  def test_the_operators_environment_decision_wins_over_the_default
+  def test_the_users_environment_decision_wins_over_the_default
     previous = ENV["FLEZHA_YJIT"]
     ENV["FLEZHA_YJIT"] = "0"
     # Only observable on a Ruby where YJIT is not already on; where it is, the
@@ -182,10 +182,10 @@ class RunnerTest < Minitest::Test
   # list: the Ruby runner exposes no accessor for it.
   def declared(runner) = runner.instance_variable_get(:@classes).map(&:factory_id)
 
-  def decl(operative) = Flezha::Graph.to_host_class_decl(operative.spec)
+  def decl(operator) = Flezha::Graph.to_host_class_decl(operator.spec)
 
-  def refused(operative)
-    assert_raises(Flezha::DeclarationError) { Flezha::Runner.new("test-ns").register_factory(operative) }
+  def refused(operator)
+    assert_raises(Flezha::DeclarationError) { Flezha::Runner.new("test-ns").register_factory(operator) }
   end
 
   # The short forms under test are the test app's own, the classes the
@@ -195,28 +195,28 @@ class RunnerTest < Minitest::Test
     tasklet_name "sugar_do_nothing"
   end
 
-  class DoNothingTwin < Flezha::StreamOperative
+  class DoNothingTwin < Flezha::UnboundedOperator
     factory_id "sugar_do_nothing"
     channels { |c| c.input("input", codec: :text).into(DoNothingTasklet).sink("sugar_do_nothing_echo") }
   end
 
-  class WorkflowTasklet < Fixtures::PassThrough
-    tasklet_name "sugar_workflow"
+  class BoundedTasklet < Fixtures::PassThrough
+    tasklet_name "sugar_bounded"
   end
 
-  class WorkflowTwin < Flezha::WorkflowOperative
-    factory_id "sugar_workflow"
-    channels { |c| c.input("order", codec: :text).into(WorkflowTasklet).sink("sugar_workflow_placed") }
+  class BoundedTwin < Flezha::BoundedOperator
+    factory_id "sugar_bounded"
+    channels { |c| c.input("order", codec: :text).into(BoundedTasklet).sink("sugar_bounded_placed") }
   end
 
   class PerInputTasklet < Fixtures::PassThrough
-    tasklet_name "sugar_workflow_per_input"
+    tasklet_name "sugar_bounded_per_input"
   end
 
-  class PerInputTwin < Flezha::WorkflowOperative
-    factory_id "sugar_workflow_per_input"
+  class PerInputTwin < Flezha::BoundedOperator
+    factory_id "sugar_bounded_per_input"
     loop_mode :per_input
-    channels { |c| c.input("input", codec: :text).into(PerInputTasklet).sink("sugar_workflow_per_input_out") }
+    channels { |c| c.input("input", codec: :text).into(PerInputTasklet).sink("sugar_bounded_per_input_out") }
   end
 
   class StateOnlyTasklet < Flezha::Tasklet
@@ -226,38 +226,38 @@ class RunnerTest < Minitest::Test
     def run(_input, _ctx) = nil
   end
 
-  class StateOnlyTwin < Flezha::StreamOperative
+  class StateOnlyTwin < Flezha::UnboundedOperator
     factory_id "sugar_state_only"
     channels { |c| c.input("ticks", codec: :text).into(StateOnlyTasklet) }
   end
 
-  def test_a_stream_short_form_is_its_hand_written_twin
+  def test_an_unbounded_short_form_is_its_hand_written_twin
     short = Fixtures::SugarDoNothing
 
     assert_equal decl(DoNothingTwin), decl(short)
-    assert_equal :stream, short.spec.kind
+    assert_equal :unbounded, short.spec.kind
     assert_equal "sugar_do_nothing", short.tasklet.tasklet_name,
                  "the generated tasklet is named after the factory id, verbatim"
     assert_equal "héllo", short.spec.channels.first.decode.call("héllo".b),
                  "the entry decodes text"
-    refute_operator short, :<, Flezha::Tasklet, "a short form is an operative, not a tasklet"
+    refute_operator short, :<, Flezha::Tasklet, "a short form is an operator, not a tasklet"
   end
 
-  def test_a_workflow_short_form_is_a_once_workflow_equal_to_its_twin
-    short = Fixtures::SugarWorkflow
+  def test_a_bounded_short_form_is_a_once_bounded_equal_to_its_twin
+    short = Fixtures::SugarBounded
 
-    assert_equal decl(WorkflowTwin), decl(short)
-    assert_equal :workflow, short.spec.kind
-    assert_equal :once, short.spec.workflow[:loop_mode]
-    assert_equal %w[order sugar_workflow_placed], short.spec.channels.map(&:name)
+    assert_equal decl(BoundedTwin), decl(short)
+    assert_equal :bounded, short.spec.kind
+    assert_equal :once, short.spec.bounded[:loop_mode]
+    assert_equal %w[order sugar_bounded_placed], short.spec.channels.map(&:name)
   end
 
-  def test_a_workflow_short_form_keeps_its_loop_mode
-    short = Fixtures::SugarWorkflowPerInput
+  def test_a_bounded_short_form_keeps_its_loop_mode
+    short = Fixtures::SugarBoundedPerInput
 
     assert_equal decl(PerInputTwin), decl(short)
-    assert_equal "per_input", decl(short)["workflow"]["loop_mode"]
-    assert_equal %w[sugar_workflow_per_input],
+    assert_equal "per_input", decl(short)["bounded"]["loop_mode"]
+    assert_equal %w[sugar_bounded_per_input],
                  declared(Flezha::Runner.new("test-ns").register_factory(short))
   end
 
@@ -297,23 +297,23 @@ class RunnerTest < Minitest::Test
   def test_register_factory_takes_a_short_form_of_either_kind
     runner = Flezha::Runner.new("test-ns")
                            .register_factory(Fixtures::SugarDoNothing)
-                           .register_factory(Fixtures::SugarWorkflow)
+                           .register_factory(Fixtures::SugarBounded)
 
-    assert_equal %w[sugar_do_nothing sugar_workflow], declared(runner)
+    assert_equal %w[sugar_do_nothing sugar_bounded], declared(runner)
 
-    runner.unregister_factory(Fixtures::SugarWorkflow)
+    runner.unregister_factory(Fixtures::SugarBounded)
     assert_equal %w[sugar_do_nothing], declared(runner)
   end
 
   def test_unregistering_something_never_registered_is_refused
     runner = Flezha::Runner.new("test-ns").register_factory(Fixtures::SugarDoNothing)
 
-    error = assert_raises(Flezha::Error) { runner.unregister_factory(Fixtures::SugarWorkflow) }
+    error = assert_raises(Flezha::Error) { runner.unregister_factory(Fixtures::SugarBounded) }
     assert_match(/not registered/, error.message)
   end
 
   def test_a_run_body_beside_a_channels_body_is_refused
-    both = Class.new(Flezha::StreamOperative) do
+    both = Class.new(Flezha::UnboundedOperator) do
       factory_id "both"
       channels { |c| c.input("input").into(DoNothingTasklet) }
       def run(input, _ctx) = input
@@ -325,7 +325,7 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_short_form_with_no_factory_id_is_refused_rather_than_derived
-    derived = Class.new(Flezha::StreamOperative) do
+    derived = Class.new(Flezha::UnboundedOperator) do
       sink "out"
       def run(input, _ctx) = input
     end
@@ -334,11 +334,11 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_malformed_short_form_is_refused_before_its_tasklet_is_generated
-    derived = Class.new(Flezha::StreamOperative) do
+    derived = Class.new(Flezha::UnboundedOperator) do
       sink "out"
       def run(input, _ctx) = input
     end
-    time_limited = Class.new(Flezha::WorkflowOperative) do
+    time_limited = Class.new(Flezha::BoundedOperator) do
       factory_id "time_limited"
       max_duration_ms 60_000
       def run(input, _ctx) = input
@@ -350,8 +350,8 @@ class RunnerTest < Minitest::Test
                     "max_duration_ms"
   end
 
-  def test_an_operative_with_neither_body_is_refused_naming_both
-    [Flezha::StreamOperative, Flezha::WorkflowOperative].each do |base|
+  def test_an_operator_with_neither_body_is_refused_naming_both
+    [Flezha::UnboundedOperator, Flezha::BoundedOperator].each do |base|
       bodiless = Class.new(base) { factory_id "bodiless" }
 
       message = refused(bodiless).message
@@ -361,12 +361,12 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_class_level_setting_on_a_short_form_is_refused
-    rollback = Class.new(Flezha::WorkflowOperative) do
+    rollback = Class.new(Flezha::BoundedOperator) do
       factory_id "rollback"
       rollback_mode :keep_progress
       def run(input, _ctx) = input
     end
-    synced = Class.new(Flezha::StreamOperative) do
+    synced = Class.new(Flezha::UnboundedOperator) do
       factory_id "synced"
       sync_durability
       def run(input, _ctx) = input
@@ -378,7 +378,7 @@ class RunnerTest < Minitest::Test
 
   def test_a_short_form_key_or_a_tasklet_setting_on_a_full_form_is_refused_naming_it
     { sink: "out", input: "ticks", codec: :text, clock: :logical }.each do |key, value|
-      full = Class.new(Flezha::StreamOperative) do
+      full = Class.new(Flezha::UnboundedOperator) do
         factory_id "full"
         channels { |c| c.input("input").into(DoNothingTasklet) }
         public_send(key, value)
@@ -391,7 +391,7 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_short_form_hands_its_tasklet_settings_to_the_generated_tasklet
-    keyed = Class.new(Flezha::StreamOperative) do
+    keyed = Class.new(Flezha::UnboundedOperator) do
       factory_id "keyed_short"
       cell_keys "a", "b"
       mailbox_capacity 8
@@ -409,7 +409,7 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_duplicate_factory_id_across_kinds_is_refused_by_name
-    twin = Class.new(Flezha::WorkflowOperative) do
+    twin = Class.new(Flezha::BoundedOperator) do
       factory_id "sugar_do_nothing"
       sink "twin_sink"
       def run(input, _ctx) = input
@@ -422,19 +422,19 @@ class RunnerTest < Minitest::Test
     assert_includes error.message, "sugar_do_nothing"
   end
 
-  def test_a_sink_on_a_tasklet_is_refused_naming_the_operative_bases
+  def test_a_sink_on_a_tasklet_is_refused_naming_the_operator_bases
     error = assert_raises(Flezha::DeclarationError) do
       Class.new(Flezha::Tasklet) { sink "out" }
     end
 
-    assert_includes error.message, "Flezha::StreamOperative"
-    assert_includes error.message, "Flezha::WorkflowOperative"
+    assert_includes error.message, "Flezha::UnboundedOperator"
+    assert_includes error.message, "Flezha::BoundedOperator"
   end
 
   def test_registering_a_tasklet_is_refused
     error = assert_raises(Flezha::Error) do
       Flezha::Runner.new("test-ns").register_factory(DoNothingTasklet)
     end
-    assert error.message.start_with?("UnknownOperativeKind"), error.message
+    assert error.message.start_with?("UnknownOperatorKind"), error.message
   end
 end

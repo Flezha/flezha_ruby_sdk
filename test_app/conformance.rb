@@ -6,7 +6,7 @@
 # `flz_core/src/host/check_tests.rs` is the same table driven against the
 # record directly, because the core has no builder. This one maps the same step
 # vocabulary onto the Ruby graph builder, so what is measured here is what an
-# author of a Ruby operative actually writes.
+# author of a Ruby operator actually writes.
 #
 # Two entry points, both off `runner.rb`:
 #
@@ -24,7 +24,7 @@ require "json"
 
 require "flezha"
 require_relative "fixtures"
-require_relative "fixtures_workflow"
+require_relative "fixtures_bounded"
 
 module Conformance
   # The fixture, relative to the repository root the app is launched from.
@@ -40,8 +40,8 @@ module Conformance
   # The two topologies the fixture cites rather than re-spells: this app's own
   # fixtures, the twins of its seven-column table.
   CITED = {
-    "hybrid_channel" => Fixtures::HybridChannelOperative,
-    "commit_block_chain" => Fixtures::TierCommitBlockWorkflow
+    "hybrid_channel" => Fixtures::HybridChannelOperator,
+    "commit_block_chain" => Fixtures::TierCommitBlockBounded
   }.freeze
 
   # The palette. One fixture tasklet per role the fixture header names; the
@@ -175,12 +175,12 @@ module Conformance
     end
 
     # `class.<flag>[(<value>)]` — the facts the class declares on the builder.
-    # `persistent`, `sync_durability`, `sleep_when_idle` and `workflow` are
+    # `persistent`, `sync_durability`, `sleep_when_idle` and `bounded` are
     # class-body declarations, read as the row's class was minted.
     def class_flag(builder, rest)
       flag, value = Conformance.split_call(rest)
       case flag
-      when "persistent", "sync_durability", "sleep_when_idle", "workflow" then nil
+      when "persistent", "sync_durability", "sleep_when_idle", "bounded" then nil
       when "effectively_once" then builder.effectively_once
       when "checkpoint_ack" then builder.checkpoint_ack
       when "checkpoint_every" then builder.checkpoint_every(Integer(value))
@@ -252,15 +252,15 @@ module Conformance
     raise "#{FIXTURE} is not under any parent of the working directory"
   end
 
-  # A row's operative class. Fresh per row: an operative memoises its own spec,
+  # A row's operator class. Fresh per row: an operator memoises its own spec,
   # and `persistent`, `sync_durability`, `sleep_when_idle` and the class kind
-  # are class declarations rather than builder calls. A `class.workflow` row is a real
-  # workflow class carrying the row's builder flags, so the core judges what
+  # are class declarations rather than builder calls. A `class.bounded` row is a real
+  # bounded class carrying the row's builder flags, so the core judges what
   # that kind may carry.
-  def self.operative_for(row)
+  def self.operator_for(row)
     interpreter = Interpreter.new(row[:steps])
-    workflow = row[:steps].include?("class.workflow")
-    klass = Class.new(workflow ? Flezha::WorkflowOperative : Flezha::StreamOperative)
+    bounded = row[:steps].include?("class.bounded")
+    klass = Class.new(bounded ? Flezha::BoundedOperator : Flezha::UnboundedOperator)
     klass.factory_id(row[:topology])
     klass.persistent(row[:steps].include?("class.persistent"))
     klass.sync_durability if row[:steps].include?("class.sync_durability")
@@ -270,7 +270,7 @@ module Conformance
   end
 
   def self.class_for(row)
-    CITED[row[:topology]] || operative_for(row)
+    CITED[row[:topology]] || operator_for(row)
   end
 
   # The §5 short form. Ruby refuses a malformed declaration where the author
@@ -296,10 +296,10 @@ module Conformance
   end
 
   # Declare a row's short forms exactly as an author writes them. The second
-  # is a workflow, so a collision crosses kinds.
+  # is a bounded operator, so a collision crosses kinds.
   def self.declare_shorthands(declarations)
     declarations.each_with_index.map do |declaration, position|
-      Class.new(position.zero? ? Flezha::StreamOperative : Flezha::WorkflowOperative) do
+      Class.new(position.zero? ? Flezha::UnboundedOperator : Flezha::BoundedOperator) do
         factory_id(declaration[:id]) if declaration[:id]
         sink(declaration[:sink]) if declaration[:sink]
         input(declaration[:input]) if declaration[:input]
@@ -316,7 +316,7 @@ module Conformance
   # what keeps the name the author reads and the name reported the same one.
   def self.judge_shorthand(row, declarations)
     registry = Flezha::Registry.new
-    declare_shorthands(declarations).each { |operative| registry.add(operative.spec) }
+    declare_shorthands(declarations).each { |operator| registry.add(operator.spec) }
     { "topology" => row[:topology], "outcome" => "accepted" }
   rescue Flezha::DeclarationError => e
     { "topology" => row[:topology], "outcome" => "refused",
@@ -388,7 +388,7 @@ module Conformance
     end
 
     declarations = shorthand_steps(row)
-    operatives = declarations.empty? ? [class_for(row)] : declare_shorthands(declarations)
-    operatives.each { |operative| runner.register_factory(operative) }
+    operators = declarations.empty? ? [class_for(row)] : declare_shorthands(declarations)
+    operators.each { |operator| runner.register_factory(operator) }
   end
 end
