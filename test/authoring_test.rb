@@ -46,6 +46,12 @@ class AuthoringTest < Minitest::Test
     assert_includes message, "`run`"
   end
 
+  def test_an_anonymous_tasklet_with_no_name_is_refused
+    klass = Class.new(Flezha::Tasklet) { def run(input, _ctx) = input }
+
+    assert_includes refusal { klass.tasklet_name }.message, "tasklet_name"
+  end
+
   class StillProcess < Flezha::Tasklet
     def process(input, _ctx) = input
   end

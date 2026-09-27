@@ -240,7 +240,12 @@ module Flezha
       end
 
       def default_name
-        name.to_s.split("::").last
+        if name.nil?
+          raise DeclarationError.new("<tasklet>", nil,
+                                     "an anonymous tasklet class needs a tasklet_name")
+        end
+
+        name.split("::").last
             .gsub(/([A-Z]+)([A-Z][a-z])/, '\1_\2')
             .gsub(/([a-z\d])([A-Z])/, '\1_\2')
             .downcase
