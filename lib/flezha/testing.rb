@@ -141,9 +141,8 @@ module Flezha
         ensure
           @spawns.clear
         end
-        # A returned value is emitted, as `Dispatch.run_item` does per value;
-        # a compensate hook's never is.
-        ctx.emit(returned) if emit_returned && !returned.nil?
+        # A compensate hook's returned value is never emitted.
+        ctx.emit_returned(returned) if emit_returned
         @log.concat(ctx.changes)
         @change_seq += ctx.changes.size
         Outcome.new(

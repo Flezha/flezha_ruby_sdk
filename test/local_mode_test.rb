@@ -110,6 +110,31 @@ class LocalModeTest < Minitest::Test
     channels { |c| c.input("in").into(Defaults).sink("out") }
   end
 
+  ECHOLESS_CALLS = Queue.new
+
+  class Echoless < Flezha::UnboundedOperator
+    factory_id "local_echoless_ruby"
+    input "ticks"
+    codec :text
+
+    def run(tick, _ctx)
+      ECHOLESS_CALLS << tick
+      "got #{tick}"
+    end
+  end
+
+  def test_a_sinkless_short_form_whose_run_returns_a_value_runs_it_once
+    run = Flezha::LocalOperator.start(Echoless)
+    begin
+      run.feed("ticks", "a")
+      run.run_until_idle(5_000)
+    ensure
+      run.close
+    end
+
+    assert_equal 1, ECHOLESS_CALLS.size, "a value with nowhere to go is left alone, never retried"
+  end
+
   def test_an_undeclared_entry_reads_json_and_an_undeclared_sink_follows_the_value
     released = []
     run = Flezha::LocalOperator.start(DefaultCodecs)

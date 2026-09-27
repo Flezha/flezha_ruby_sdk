@@ -258,11 +258,7 @@ module Flezha
       # per value. Either way the item is one effect, so its offset advances
       # once and nothing is retried.
       values.each do |input|
-        returned = definition.instance.run(input, ctx)
-        # A returned value is emitted; `nil` emits nothing, which is the
-        # warmup gate. A handler that emits through the context returns
-        # nothing, so the two spellings compose rather than conflict.
-        ctx.emit(returned) unless returned.nil?
+        ctx.emit_returned(definition.instance.run(input, ctx))
       end
       nil
     end
