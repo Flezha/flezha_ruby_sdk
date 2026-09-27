@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "rake/testtask"
-require "rake/extensiontask"
 require "rubygems/package_task"
 
 SPEC = Gem::Specification.load("flezha.gemspec")
@@ -26,14 +25,23 @@ CROSS_PLATFORMS = %w[x86_64-linux aarch64-linux x86_64-darwin arm64-darwin x64-m
 # `rake gem` is the source gem; the native tasks hang their platform gems off it.
 Gem::PackageTask.new(SPEC).define
 
-Rake::ExtensionTask.new("flz_core_ffi", SPEC) do |ext|
-  ext.lib_dir = "lib/flezha"
-  ext.cross_compile = true
-  ext.cross_platform = CROSS_PLATFORMS
-  # The library is in the gem, so nothing is built at install and the gem that
-  # builds it is not needed there.
-  ext.cross_compiling do |spec|
-    spec.dependencies.reject! { |dependency| dependency.name == "rb_sys" }
+# Only the native tasks need rake-compiler; `rake test` runs without it.
+begin
+  require "rake/extensiontask"
+rescue LoadError
+  warn "rake-compiler is not installed: the compile and native tasks are not defined"
+end
+
+if defined?(Rake::ExtensionTask)
+  Rake::ExtensionTask.new("flz_core_ffi", SPEC) do |ext|
+    ext.lib_dir = "lib/flezha"
+    ext.cross_compile = true
+    ext.cross_platform = CROSS_PLATFORMS
+    # The library is in the gem, so nothing is built at install and the gem that
+    # builds it is not needed there.
+    ext.cross_compiling do |spec|
+      spec.dependencies.reject! { |dependency| dependency.name == "rb_sys" }
+    end
   end
 end
 
