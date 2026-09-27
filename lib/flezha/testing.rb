@@ -83,7 +83,9 @@ module Flezha
       end
 
       # Run the declared compensation over recorded forward outputs.
-      def compensate(outputs) = run(0, false) { |ctx| @definition.instance.compensate(outputs, ctx) }
+      def compensate(outputs)
+        run(0, false, emit_returned: false) { |ctx| @definition.instance.compensate(outputs, ctx) }
+      end
 
       # Rebuild the state the way a restore does, from a snapshot and a change
       # log — the same call the dispatcher answers `restore_fold` with.
@@ -132,15 +134,16 @@ module Flezha
 
       private
 
-      def run(now, replay)
+      def run(now, replay, emit_returned: true)
         activation = { operator: @operator, cell_key: @cell_key, change_seq: @change_seq }
         ctx, returned = begin
           Dispatch.invoke(activation, @registered, @node, @deps, now, replay) { |c| yield(c) }
         ensure
           @spawns.clear
         end
-        # A returned value is emitted, as `Dispatch.run_item` does per value.
-        ctx.emit(returned) unless returned.nil?
+        # A returned value is emitted, as `Dispatch.run_item` does per value;
+        # a compensate hook's never is.
+        ctx.emit(returned) if emit_returned && !returned.nil?
         @log.concat(ctx.changes)
         @change_seq += ctx.changes.size
         Outcome.new(

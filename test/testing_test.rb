@@ -114,6 +114,16 @@ class TestingTest < Minitest::Test
     assert_equal 0, harness.state[:total]
   end
 
+  # The runner never emits what a compensate hook returns.
+  def test_a_compensate_hook_s_return_value_is_not_emitted
+    returning = Class.new(Counter) do
+      tasklet_name "harness_compensate_returns"
+      def compensate(_outputs, _ctx) = "undo"
+    end
+
+    assert_empty Flezha::Testing::Harness.new(returning).compensate([1]).outputs
+  end
+
   # The harness restores through the same function the dispatcher answers a
   # restore fold with, so it proves what a warm restart does.
   def test_restore_rebuilds_the_state_from_a_change_log
