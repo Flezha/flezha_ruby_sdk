@@ -22,8 +22,12 @@ module Flezha
     attr_reader :changes, :outputs, :timers, :cell_key, :replay
 
     def initialize(spec:, node:, outgoing:, operator:, cell_key:, change_seq:,
-                   now:, replay:, state:, bridge:, token:, compensating: false)
+                   now:, replay:, state:, bridge:, token:, offset: nil, compensating: false)
       @token = token
+      # The input-log offset of the item this invocation runs: a spawn carries
+      # it so a crash re-run of the same input resolves to the worker the first
+      # run spawned.
+      @offset = offset
       @compensating = compensating
       @spec = spec
       @node = node
@@ -177,7 +181,7 @@ module Flezha
 
       handle = @bridge.spawn_request(@token, factory_id, id.to_s,
                                      Codec.plain_payload(payload, @node.name).b,
-                                     if_running.to_s, @replay)
+                                     if_running.to_s, @replay, @offset)
       SpawnHandle.new(@bridge, handle)
     end
 

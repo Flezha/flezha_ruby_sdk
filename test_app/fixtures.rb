@@ -608,6 +608,31 @@ module Fixtures
     end
   end
 
+  # -- spawn_hold_requester ------------------------------------------------
+
+  # An effectively-once stream whose tasklet spawns `stateless_loop_bounded`
+  # with no id, prints the answer as `spawn_result hold <id> <outcome>`, then
+  # blocks until the release env is set, so a runner killed there dies with
+  # the spawn answered and its input not durably consumed.
+  class SpawnHoldRequester < Flezha::Tasklet
+    tasklet_name "spawn_hold_requester"
+
+    def run(input, ctx)
+      SpawnRequester.report("hold", ctx.spawn_bounded("stateless_loop_bounded", input))
+      Fixtures.block_until_released
+      nil
+    end
+  end
+
+  class SpawnHoldRequesterOperator < Flezha::UnboundedOperator
+    factory_id "spawn_hold_requester"
+    channels do |c|
+      c.effectively_once
+      c.input("in", codec: :text).on_full(:drop_nothing).into(SpawnHoldRequester).keyed
+       .sink("out")
+    end
+  end
+
   # -- spawn_once_requester ------------------------------------------------
 
   # On each input, spawns `typed_once_bounded` once with no id, carrying the
@@ -639,7 +664,7 @@ module Fixtures
     MergedInputOperator, TransformChainOperator, CellStressOperator, *STATE,
     CandleOperator, PoisonProbeOperator, WedgeProbeOperator, SessionTimeoutOperator, *BOUNDED_MAILBOX,
     PartitionRelayOperator, DynamicCellOperator, SpawnRequesterOperator,
-    SpawnOnceRequesterOperator
+    SpawnHoldRequesterOperator, SpawnOnceRequesterOperator
   ].freeze
 
   # The §5 short forms this app registers.

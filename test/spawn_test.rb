@@ -9,10 +9,10 @@ require_relative "test_helper"
 class SpawnTest < Minitest::Test
   FakeCore = Flezha::TestSupport::FakeCore
 
-  def ctx(core, replay: false)
+  def ctx(core, replay: false, offset: nil)
     Flezha::Ctx.new(spec: nil, node: Flezha::TaskNode.new(0, "spawner"), outgoing: [], operator: "op",
                     cell_key: nil, change_seq: 0, now: 0, replay: replay, state: nil, bridge: core,
-                    token: 7)
+                    token: 7, offset: offset)
   end
 
   def resolved(id, outcome) = JSON.generate({ "id" => id, "outcome" => outcome })
@@ -23,10 +23,10 @@ class SpawnTest < Minitest::Test
 
   def test_a_spawn_without_an_id_asks_for_one_and_reads_the_generated_id
     core = FakeCore.new(spawns: [resolved("worker-k7m2qzxw4pd3fn2a", "spawned")])
-    handle = ctx(core).spawn_bounded("worker", "p1")
+    handle = ctx(core, offset: 11).spawn_bounded("worker", "p1")
 
-    assert_equal [[7, "worker", "", "p1".b, "", false]], core.spawn_requests,
-                 "the activation token, an empty id, the payload's own bytes and no policy"
+    assert_equal [[7, "worker", "", "p1".b, "", false, 11]], core.spawn_requests,
+                 "the activation token, an empty id, the payload's own bytes, no policy and the input offset"
     assert_equal Flezha::SpawnResult.new(id: "worker-k7m2qzxw4pd3fn2a", outcome: :spawned), handle.wait
   end
 

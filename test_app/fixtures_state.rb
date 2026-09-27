@@ -96,6 +96,53 @@ module Fixtures
     end
   end
 
+  # -- tier_chain ------------------------------------------------------------
+  #
+  # An effectively-once stream of two tasklets. `tier_relay` counts what it
+  # relays and passes each `key:value` on; `tier_tally` counts each key's
+  # inputs and emits `key=count`. Until the release env is set the tally fails
+  # the value `hold` and keeps retrying it, so a runner killed there has made
+  # the relay's record durable and not the tally's.
+  class Counting < Flezha::Tasklet
+    def initial_state(_cell_key) = { value: 0 }
+    def apply_change(state, change) = state[:value] += change[:delta]
+  end
+
+  class TierRelay < Counting
+    tasklet_name "tier_relay"
+
+    def run(input, ctx)
+      ctx.change({ delta: 1 })
+      ctx.emit(input)
+      nil
+    end
+  end
+
+  class TierTally < Counting
+    tasklet_name "tier_tally"
+
+    def run(input, ctx)
+      key, _, value = input.to_s.partition(":")
+      raise "held until released" if value == "hold" && !ENV.key?(RELEASE_ENV)
+
+      ctx.change({ delta: 1 })
+      ctx.emit("#{key}=#{ctx.state[:value]}", key: key)
+      nil
+    end
+  end
+
+  class TierChainOperator < Flezha::UnboundedOperator
+    factory_id "tier_chain"
+    channels do |c|
+      c.effectively_once
+      c.input("input", codec: :text).on_full(:drop_nothing)
+       .into(TierRelay)
+       .key_by { |value| PREFIX.call(value) }.retry_max(1_000)
+       .into(TierTally).keyed
+       .sink("sink")
+    end
+  end
+
   class CheckpointStoreOperator < Flezha::UnboundedOperator
     factory_id "checkpoint_store"
     channels do |c|
@@ -365,7 +412,7 @@ module Fixtures
     BenchKeyedNoPersistOperator, StoreInputOperator, StatefulCounterOperator,
     PersistenceOffCounterOperator, SleepingCounterOperator, CoalescingCounterOperator,
     ResumeProbeOperator, BenchKeyedOperator, SchemaEvolutionV1Operator,
-    SchemaEvolutionV2Operator, TierStoreOperator, CheckpointStoreOperator,
+    SchemaEvolutionV2Operator, TierStoreOperator, TierChainOperator, CheckpointStoreOperator,
     CheckpointBatchedOperator, BenchCheckpointOperator
   ].freeze
 end

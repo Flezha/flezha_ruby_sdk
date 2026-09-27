@@ -120,7 +120,7 @@ module Flezha
       # The spawn bridge a `Ctx` asks. A harness has no controller, so a
       # request resolves at once to what one would have answered: spawned
       # under the given id or a generated-looking one, or skipped on a replay.
-      def spawn_request(_token, factory_id, id, _payload, _if_running, replay)
+      def spawn_request(_token, factory_id, id, _payload, _if_running, replay, _offset)
         id = generated_id(factory_id) if id.empty? && !replay
         outcome = replay ? "skipped_on_replay" : "spawned"
         handle = @spawn_count += 1
