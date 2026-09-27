@@ -41,9 +41,10 @@ class LocalModeCapabilitiesTest < Minitest::Test
     released = release(declares("keyed_channels", "partition_relay"),
                        "in", "input", %w[a:1 b:1 a:2])
 
-    assert_equal %w[a:1 b:1 a:2], payloads(released)
-    assert_equal %w[a b a], released.map { |output| output.metadata["flz.key"] },
-                 "each release carries the key its own value resolved to"
+    assert_equal({ "a" => %w[a:1 a:2], "b" => %w[b:1] }, per_key(payloads(released)))
+    assert_equal(payloads(released).map { |payload| payload.split(":").first },
+                 released.map { |output| output.metadata["flz.key"] },
+                 "each release carries the key its own value resolved to")
     %w[flz.cell flz.seq].each do |stamp|
       assert_includes released.first.metadata, stamp, "a keyed sink carries #{stamp}"
     end
@@ -59,8 +60,8 @@ class LocalModeCapabilitiesTest < Minitest::Test
     released = release(declares("dynamic_cell", "dynamic_cell"),
                        "input", "kafka", %w[a:1 b:1 drop a:2])
 
-    assert_equal %w[a:1 b:1 a:2], payloads(released),
-                 "the filter dropped `drop` before it was keyed, and every other value reached its Cell"
+    assert_equal({ "a" => %w[a:1 a:2], "b" => %w[b:1] }, per_key(payloads(released)),
+                 "the filter dropped `drop` before it was keyed, and every other value reached its Cell")
     assert_equal %w[kafka kafka kafka], released.map { |output| output.metadata["channel"] },
                  "an unkeyed sink carries its channel and no identity stamps"
   end
@@ -141,4 +142,7 @@ class LocalModeCapabilitiesTest < Minitest::Test
   end
 
   def payloads(released) = released.map { |output| output.payload.dup.force_encoding("UTF-8") }
+
+  # Two Cells drain independently, so only each key's own order is promised.
+  def per_key(payloads) = payloads.group_by { |payload| payload.split(":").first }
 end
