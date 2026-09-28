@@ -22,17 +22,23 @@ module Flezha
     # not got.
     #
     # Resolved once, in the order every SDK uses: `FLEZHA_CONTRACT_DIR`, else
-    # `contract/` at the package root, else the nearest enclosing tree that
-    # carries the manifest. Nowhere is a failure naming the three, never a skip.
+    # the nearest enclosing tree that carries the manifest, else `contract/` at
+    # the package root. The enclosing tree comes first so a stale copy fetched
+    # into a package inside the core's checkout never shadows the live files.
+    # Nowhere is a failure naming the three, never a skip.
     MANIFEST = "test/fixtures/contract.txt"
 
     def self.contract_root
-      @contract_root ||= contract_candidates.compact.find { |dir|
-        File.file?(File.join(dir, MANIFEST))
-      } || raise(<<~MESSAGE)
+      @contract_root ||= locate_contract(package_root, ENV["FLEZHA_CONTRACT_DIR"])
+    end
+
+    # Where the contract set is for a package at +root+.
+    def self.locate_contract(root, configured)
+      candidates = contract_candidates(root, configured)
+      candidates.compact.find { |dir| File.file?(File.join(dir, MANIFEST)) } || raise(<<~MESSAGE)
         the contract set is nowhere this suite looked:
-          #{contract_candidates.zip(contract_unresolved).map { |dir, why| dir || why }.join("\n  ")}
-        Unpack flezha-fixtures-<version>.tar.gz at #{package_root}/contract, or set
+          #{candidates.zip(contract_unresolved(root)).map { |dir, why| dir || why }.join("\n  ")}
+        Unpack flezha-fixtures-<version>.tar.gz at #{root}/contract, or set
         FLEZHA_CONTRACT_DIR.
       MESSAGE
     end
@@ -77,18 +83,18 @@ module Flezha
 
     def self.package_root = File.expand_path("..", __dir__)
 
-    def self.contract_candidates
-      [ENV["FLEZHA_CONTRACT_DIR"], File.join(package_root, "contract"), enclosing_tree]
+    def self.contract_candidates(root, configured)
+      [configured, enclosing_tree(MANIFEST, root), File.join(root, "contract")]
     end
 
     # How a refusal names each candidate that resolved to no directory.
-    def self.contract_unresolved
-      ["$FLEZHA_CONTRACT_DIR (unset)", nil, "no directory above #{package_root} carries #{MANIFEST}"]
+    def self.contract_unresolved(root)
+      ["$FLEZHA_CONTRACT_DIR (unset)", "no directory above #{root} carries #{MANIFEST}", nil]
     end
 
-    # The nearest ancestor of the package that carries +marker+.
-    def self.enclosing_tree(marker = MANIFEST)
-      Pathname.new(package_root).ascend.find { |dir|
+    # The nearest ancestor of +from+ that carries +marker+.
+    def self.enclosing_tree(marker = MANIFEST, from = package_root)
+      Pathname.new(from).ascend.find { |dir|
         File.file?(File.join(dir, marker))
       }&.to_s
     end
