@@ -8,7 +8,7 @@ require_relative "test_helper"
 class TestingTest < Minitest::Test
   class Counter < Flezha::Tasklet
     tasklet_name "harness_counter"
-    def initial_state(_cell_key) = { total: 0, seen: [] }
+    def init_state(_cell_key) = { total: 0, seen: [] }
 
     def apply_change(state, change)
       state[:total] += change[:by]
@@ -17,7 +17,7 @@ class TestingTest < Minitest::Test
 
     def run(input, ctx)
       ctx.change({ by: Integer(input) })
-      ctx.state[:total]
+      ctx.emit(ctx.state[:total])
     end
 
     def on_timer(_firing, ctx) = ctx.change({ by: 100 })
@@ -30,7 +30,7 @@ class TestingTest < Minitest::Test
     tasklet_name "harness_unrecorded"
     def run(input, ctx)
       ctx.state[:total] += Integer(input)
-      ctx.state[:total]
+      ctx.emit(ctx.state[:total])
     end
   end
 
@@ -96,13 +96,13 @@ class TestingTest < Minitest::Test
   def test_a_registered_timer_is_anchored_on_now
     inner = Class.new(Flezha::Tasklet) do
       tasklet_name "timer_registrar"
-      def run(_input, ctx) = ctx.timer_after(50)
+      def run(_input, ctx) = ctx.emit(ctx.timer_after(50))
     end
     harness = Flezha::Testing::Harness.new(inner)
 
     outcome = harness.feed("x", now: 1_000)
 
-    assert_equal 1_050, outcome.returned, "the timer anchors on now, never an ambient read"
+    assert_equal [1_050], outcome.outputs, "the timer anchors on now, never an ambient read"
     assert_equal [{ kind: "processing_time", scheduled_at: 1_050, register: true }], outcome.timers
   end
 
@@ -142,17 +142,17 @@ class TestingTest < Minitest::Test
       define_method(:run) do |input, ctx|
         handles.replace([ctx.spawn_bounded("stateless_loop_bounded", input),
                          ctx.spawn_bounded("stateless_loop_bounded", input, id: "w1")])
-        handles.map { |handle| handle.try_result.to_h }
+        ctx.emit(handles.map { |handle| handle.try_result.to_h })
       end
     end
     harness = Flezha::Testing::Harness.new(spawner)
 
-    unnamed, named = harness.feed("x").returned
+    unnamed, named = harness.feed("x").outputs.first
     assert_match(/\Astateless_loop-[a-z2-7]{16}\z/, unnamed[:id], "the controller's generated shape")
     assert_equal :spawned, unnamed[:outcome]
     assert_equal({ id: "w1", outcome: :spawned }, named)
     assert_equal [{ id: "", outcome: :skipped_on_replay }, { id: "w1", outcome: :skipped_on_replay }],
-                 harness.feed("x", replay: true).returned,
+                 harness.feed("x", replay: true).outputs.first,
                  "a spawn is an external effect; a replay must not issue it twice"
     error = assert_raises(Flezha::Error) { handles.first.try_result }
     assert_includes error.message, "released", "as live, a handle is read inside the invocation that made it"
@@ -161,11 +161,11 @@ class TestingTest < Minitest::Test
   def test_stable_id_is_replay_stable_within_an_invocation
     identifier = Class.new(Flezha::Tasklet) do
       tasklet_name "identifier"
-      def run(_input, ctx) = [ctx.stable_id, ctx.stable_id]
+      def run(_input, ctx) = ctx.emit([ctx.stable_id, ctx.stable_id])
     end
 
-    first = Flezha::Testing::Harness.new(identifier).feed("x").returned
-    second = Flezha::Testing::Harness.new(identifier).feed("x").returned
+    first = Flezha::Testing::Harness.new(identifier).feed("x").outputs.first
+    second = Flezha::Testing::Harness.new(identifier).feed("x").outputs.first
 
     assert_equal first, second, "the n-th call of a replayed invocation equals the n-th original"
     refute_equal first[0], first[1], "repeated calls in one invocation differ"
@@ -177,7 +177,7 @@ class TestingTest < Minitest::Test
 
     def run(input, ctx)
       ctx.emit({ said: input })
-      "echo: #{input}"
+      ctx.emit("echo: #{input}")
     end
   end
 

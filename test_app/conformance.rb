@@ -49,7 +49,7 @@ module Conformance
   # subclass of each, because a Ruby tasklet's mailbox capacity is a class
   # declaration and a resolved definition is memoised per class.
   class PaletteTasklet < Flezha::Tasklet
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class Plain < PaletteTasklet; end
@@ -65,16 +65,14 @@ module Conformance
     def cells_for(_input) = ["a"]
   end
 
-  class Dynamic < PaletteTasklet
-    dynamic_cells
-  end
+  # Dynamic by its wiring: every row that names it keys the edge into it.
+  class Dynamic < PaletteTasklet; end
 
   class NoChangeLogical < PaletteTasklet
-    clock :logical
+    logical_clock
   end
 
   class EventTime < PaletteTasklet
-    clock :event_time
     def event_time(input) = input.to_s.length
   end
 
@@ -304,7 +302,7 @@ module Conformance
         sink(declaration[:sink]) if declaration[:sink]
         input(declaration[:input]) if declaration[:input]
         channels { |c| c.input("input").into(Plain) } if declaration[:topology]
-        def run(input, _ctx) = input
+        def run(input, ctx) = ctx.emit(input)
       end
     end
   end

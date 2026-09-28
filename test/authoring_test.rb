@@ -19,7 +19,7 @@ class AuthoringTest < Minitest::Test
   def pass_through(name)
     Class.new(Flezha::Tasklet) do
       tasklet_name name
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
   end
 
@@ -46,13 +46,8 @@ class AuthoringTest < Minitest::Test
     assert_includes message, "`run`"
   end
 
-  def test_an_anonymous_tasklet_with_no_name_is_refused
-    klass = Class.new(Flezha::Tasklet) { def run(input, _ctx) = input }
-
-    assert_includes refusal { klass.tasklet_name }.message, "tasklet_name"
-  end
-
   class StillProcess < Flezha::Tasklet
+    tasklet_name "still_process"
     def process(input, _ctx) = input
   end
 
@@ -66,7 +61,7 @@ class AuthoringTest < Minitest::Test
   def test_a_tasklet_s_body_is_its_run_method
     upcase = Class.new(Flezha::Tasklet) do
       tasklet_name "upcase"
-      def run(input, _ctx) = input.upcase
+      def run(input, ctx) = ctx.emit(input.upcase)
     end
 
     assert_equal ["A"], Flezha::Testing::Harness.new(upcase).feed("a").outputs
@@ -76,48 +71,21 @@ class AuthoringTest < Minitest::Test
     klass = Class.new(Flezha::Tasklet) do
       tasklet_name "fold_only"
       def apply_change(state, change) = state
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
 
-    assert_includes refusal { klass.definition }.message, "initial_state"
-  end
-
-  def test_the_two_cell_modes_are_exclusive
-    klass = Class.new(Flezha::Tasklet) do
-      tasklet_name "both_modes"
-      cell_keys "a"
-      dynamic_cells
-      def cells_for(_input) = ["a"]
-      def run(input, _ctx) = input
-    end
-
-    assert_includes refusal { klass.definition }.message, "exclusive"
+    message = refusal { klass.definition }.message
+    %w[apply_change init_state state_type].each { |word| assert_includes message, word }
   end
 
   def test_a_state_that_cannot_be_encoded_is_refused_at_registration
     klass = Class.new(Flezha::Tasklet) do
       tasklet_name "unencodable"
-      def initial_state(_key) = { handler: -> {} }
-      def run(input, _ctx) = input
+      def init_state(_key) = { handler: -> {} }
+      def run(input, ctx) = ctx.emit(input)
     end
 
     assert_raises(Flezha::UnrepresentableValueError) { klass.definition }
-  end
-
-  # A clock is a promise about a method, and a record carries the clock but not
-  # the class: only this SDK can see that the method is missing.
-  def test_an_event_time_clock_without_its_extractor_is_refused_here
-    klass = Class.new(Flezha::Tasklet) do
-      tasklet_name "no_extractor"
-      clock :event_time
-      def run(input, _ctx) = input
-    end
-    graph = operator("no_extractor_op") { |c| c.input("in").into(klass).sink }
-
-    # No core at all, which is the proof it was refused before the record
-    # could reach one.
-    assert_includes refusal { Flezha::Graph.validate(graph.spec, nil) }.message,
-                    "declares an event_time clock but no event_time method"
   end
 
   # The other refusal the builder keeps: a channel with no producer has no
@@ -134,8 +102,7 @@ class AuthoringTest < Minitest::Test
   def test_the_cores_verdict_reaches_the_author_as_a_declaration_refusal
     target = Class.new(Flezha::Tasklet) do
       tasklet_name "keyed"
-      dynamic_cells
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
     klass = operator("dup_key_by") do |c|
       c.input("in").key_by { "a" }.key_by { "b" }.into(target)

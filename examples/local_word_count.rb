@@ -25,9 +25,11 @@ end
 
 class Tally < Flezha::Tasklet
   tasklet_name "tally"
-  dynamic_cells idle_ttl_ms: 300_000
+  # One Cell per word, because the edge into it is keyed; an idle word's Cell
+  # is evicted after five minutes.
+  idle_ttl_seconds 300
 
-  def initial_state(_key) = { seen: 0 }
+  def init_state(_key) = { seen: 0 }
   def apply_change(state, change) = state[:seen] = change[:seen]
 
   def run(word, ctx)

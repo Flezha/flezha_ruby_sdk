@@ -9,7 +9,7 @@ Flezha::TestSupport.require_test_app("fixtures")
 class RunnerTest < Minitest::Test
   class Echo < Flezha::Tasklet
     tasklet_name "runner_echo"
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class EchoOperator < Flezha::UnboundedOperator
@@ -221,7 +221,7 @@ class RunnerTest < Minitest::Test
 
   class StateOnlyTasklet < Flezha::Tasklet
     tasklet_name "sugar_state_only"
-    def initial_state(_cell_key) = { seen: [] }
+    def init_state(_cell_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
     def run(_input, _ctx) = nil
   end
@@ -316,7 +316,7 @@ class RunnerTest < Minitest::Test
     both = Class.new(Flezha::UnboundedOperator) do
       factory_id "both"
       channels { |c| c.input("input").into(DoNothingTasklet) }
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
 
     error = refused(both)
@@ -327,7 +327,7 @@ class RunnerTest < Minitest::Test
   def test_a_short_form_with_no_factory_id_is_refused_rather_than_derived
     derived = Class.new(Flezha::UnboundedOperator) do
       sink "out"
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
 
     assert_includes refused(derived).message, "factory_id"
@@ -336,12 +336,12 @@ class RunnerTest < Minitest::Test
   def test_a_malformed_short_form_is_refused_before_its_tasklet_is_generated
     derived = Class.new(Flezha::UnboundedOperator) do
       sink "out"
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
     time_limited = Class.new(Flezha::BoundedOperator) do
       factory_id "time_limited"
       max_duration_ms 60_000
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
 
     assert_includes assert_raises(Flezha::DeclarationError) { derived.tasklet }.message,
@@ -364,12 +364,12 @@ class RunnerTest < Minitest::Test
     rollback = Class.new(Flezha::BoundedOperator) do
       factory_id "rollback"
       rollback_mode :keep_progress
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
     synced = Class.new(Flezha::UnboundedOperator) do
       factory_id "synced"
       sync_durability
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
 
     assert_includes refused(rollback).message, "rollback_mode"
@@ -377,7 +377,7 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_short_form_key_or_a_tasklet_setting_on_a_full_form_is_refused_naming_it
-    { sink: "out", input: "ticks", codec: :text, clock: :logical }.each do |key, value|
+    { sink: "out", input: "ticks", codec: :text, idle_ttl_seconds: 60 }.each do |key, value|
       full = Class.new(Flezha::UnboundedOperator) do
         factory_id "full"
         channels { |c| c.input("input").into(DoNothingTasklet) }
@@ -396,7 +396,7 @@ class RunnerTest < Minitest::Test
       cell_keys "a", "b"
       mailbox_capacity 8
       def cells_for(_input) = ["a"]
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
 
     Flezha::Runner.new("test-ns").register_factory(keyed)
@@ -412,7 +412,7 @@ class RunnerTest < Minitest::Test
     twin = Class.new(Flezha::BoundedOperator) do
       factory_id "sugar_do_nothing"
       sink "twin_sink"
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
     registry = Flezha::Registry.new
     registry.add(Fixtures::SugarDoNothing.spec)

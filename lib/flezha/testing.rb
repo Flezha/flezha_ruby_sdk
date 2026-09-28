@@ -31,7 +31,7 @@ module Flezha
     end
 
     # What one invocation produced.
-    Outcome = Struct.new(:outputs, :changes, :timers, :returned, keyword_init: true)
+    Outcome = Struct.new(:outputs, :changes, :timers, keyword_init: true)
 
     BASE32 = [*"a".."z", *"2".."7"].freeze
 
@@ -41,7 +41,8 @@ module Flezha
       def initialize(tasklet_class, cell_key: nil, operator: "harness")
         @definition = tasklet_class.definition
         @cell_key = cell_key
-        @operator = operator
+        # What every invocation's activation names: the cell this harness drives.
+        @target = { operator: operator, cell_key: cell_key }.freeze
         # The real channel builder, not a hand-written spec: one entry channel
         # into the tasklet, and one plugin sink so `ctx.emit` has somewhere
         # to go. A tasklet under test emits to be observed, not to be routed,
@@ -59,6 +60,7 @@ module Flezha
         # The dispatcher's own cell store, so the state this harness reports
         # is the state a runner would hold.
         @registered = RegisteredClass.new(@spec)
+        @address = RegisteredClass.address(@target, @node)
         @deps = DispatchDeps.new(registry: nil, bridge: self)
         @log = []
         @change_seq = 0
@@ -69,7 +71,7 @@ module Flezha
       end
 
       # The cell's live state, as the dispatcher left it.
-      def state = @registered.state_of(@node, @cell_key)
+      def state = @registered.state_of(@node, @address)
 
       # Run the tasklet against one input.
       def feed(input, now: 0, replay: false) = run(now, replay) { |ctx| invoke(input, ctx) }
@@ -78,20 +80,19 @@ module Flezha
       def fire_timer(kind, scheduled_at)
         run(scheduled_at, false) do |ctx|
           @definition.instance.on_timer({ kind: kind, scheduled_at: scheduled_at }, ctx)
-          nil
         end
       end
 
       # Run the declared compensation over recorded forward outputs.
       def compensate(outputs)
-        run(0, false, emit_returned: false) { |ctx| @definition.instance.compensate(outputs, ctx) }
+        run(0, false) { |ctx| @definition.instance.compensate(outputs, ctx) }
       end
 
       # Rebuild the state the way a restore does, from a snapshot and a change
       # log — the same call the dispatcher answers `restore_fold` with.
       def restore(snapshot: nil, changes: [])
         @registered.set_state(
-          @node, @cell_key,
+          @address,
           State.fold_restore(
             @definition,
             { snapshot: snapshot && { bytes: snapshot },
@@ -134,21 +135,20 @@ module Flezha
 
       private
 
-      def run(now, replay, emit_returned: true)
-        activation = { operator: @operator, cell_key: @cell_key, change_seq: @change_seq }
-        ctx, returned = begin
+      # What the body answers is dropped, as the dispatcher drops it.
+      def run(now, replay)
+        activation = @target.merge(change_seq: @change_seq)
+        ctx = begin
           Dispatch.invoke(activation, @registered, @node, @deps, now, replay) { |c| yield(c) }
         ensure
           @spawns.clear
         end
-        # A compensate hook's returned value is never emitted.
-        ctx.emit_returned(returned) if emit_returned
         @log.concat(ctx.changes)
         @change_seq += ctx.changes.size
         Outcome.new(
           outputs: ctx.outputs.map { |o| Codec.decode(o[:payload]) },
           changes: ctx.changes.map { |bytes| decode_change(bytes) },
-          timers: ctx.timers, returned: returned
+          timers: ctx.timers
         )
       end
 

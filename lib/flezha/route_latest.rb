@@ -17,7 +17,7 @@ module Flezha
 
     # Version 0 is "nothing retained", so the first document lands at 1 and
     # every key's absent entry is already behind it.
-    def initial_state(_cell_key) = { document: nil, version: 0, delivered: {} }
+    def init_state(_cell_key) = { document: nil, version: 0, delivered: {} }
 
     def apply_change(state, change)
       if change.key?(:retain)

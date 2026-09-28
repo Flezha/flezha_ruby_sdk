@@ -11,12 +11,12 @@ require_relative "test_helper"
 class DispatchTest < Minitest::Test
   class Counter < Flezha::Tasklet
     tasklet_name "counter"
-    def initial_state(_key) = { total: 0, seen: [] }
+    def init_state(_key) = { total: 0, seen: [] }
     def apply_change(state, change) = state[:total] += change[:by]
 
     def run(input, ctx)
       ctx.change({ by: Integer(input) })
-      "total=#{ctx.state[:total]}"
+      ctx.emit("total=#{ctx.state[:total]}")
     end
 
     def on_timer(firing, ctx) = ctx.change({ by: firing[:scheduled_at].zero? ? 0 : 1 })
@@ -37,16 +37,10 @@ class DispatchTest < Minitest::Test
     @registry = @deps.registry
   end
 
-  # The dependencies over a declared class whose edges are bound.
-  #
-  # A channel's consumers are the CORE's answer: the builder records the chains
-  # an author declared and the core says which of them became edges, so a
-  # dispatch over a graph needs a real context to have judged the record first.
   def wired_deps(operator)
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
-    Flezha::TestSupport.validate(operator.spec)
-    Flezha::TestSupport.deps(operator, @core)
+    Flezha::TestSupport.wired_deps(operator, @core)
   end
 
   def activation(kind, **extra)
@@ -290,7 +284,7 @@ class DispatchTest < Minitest::Test
 
   class ArmsOnUndo < Flezha::Tasklet
     tasklet_name "arms_on_undo"
-    def run(input, _ctx) = input
+    def run(_input, _ctx) = nil
     def compensate(_outputs, ctx) = ctx.timer_after(1_000)
   end
 
@@ -660,12 +654,12 @@ class DispatchTest < Minitest::Test
 
   class PassThrough < Flezha::Tasklet
     tasklet_name "pass_through"
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class MergeLabel < Flezha::Tasklet
     tasklet_name "merge_label"
-    def run(input, _ctx) = "#{input[:source]}:#{input[:payload]}"
+    def run(input, ctx) = ctx.emit("#{input[:source]}:#{input[:payload]}")
   end
 
   MERGE_TAG = lambda do |source|

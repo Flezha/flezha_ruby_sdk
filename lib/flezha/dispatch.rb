@@ -24,16 +24,20 @@ module Flezha
       @lock = Mutex.new
     end
 
+    # Where the cell an activation names keeps its state. The operator is part
+    # of it: one class serves every operator of its factory on this runner,
+    # such as each bounded instance, and each has cells of its own.
+    def self.address(activation, node) = [activation[:operator], node.index, activation[:cell_key]]
+
     # The cell's live state, created from the declaration on first touch.
-    def state_of(node, cell_key)
-      key = [node.index, cell_key]
+    def state_of(node, address)
       @lock.synchronize do
-        @cells.fetch(key) { @cells[key] = node.definition.build_initial_state(cell_key) }
+        @cells.fetch(address) { @cells[address] = node.definition.build_initial_state(address.last) }
       end
     end
 
-    def set_state(node, cell_key, state)
-      @lock.synchronize { @cells[[node.index, cell_key]] = state }
+    def set_state(address, state)
+      @lock.synchronize { @cells[address] = state }
     end
   end
 
@@ -142,14 +146,10 @@ module Flezha
       when :work then run_work(activation, registered, node, deps)
       when :restore_fold then restore_fold(activation, registered, node)
       when :snapshot_request then snapshot(activation, registered, node)
-      when :live_state_read
-        { token: activation[:token], outcome: "state_json",
-          json: Codec.to_state_json(registered.state_of(node, activation[:cell_key])).b }
-      when :migration_serialize
-        { token: activation[:token], outcome: "migration_state",
-          json: Codec.to_state_json(registered.state_of(node, activation[:cell_key])).b }
+      when :live_state_read then state_json(activation, registered, node, "state_json")
+      when :migration_serialize then state_json(activation, registered, node, "migration_state")
       when :apply_state
-        registered.set_state(node, activation[:cell_key],
+        registered.set_state(RegisteredClass.address(activation, node),
                              Codec.from_state_json(activation[:state_json]))
         { token: activation[:token], outcome: "state_applied" }
       when :key_request then prepare(activation, registered)
@@ -171,17 +171,19 @@ module Flezha
     # raise is already journaled, and dropping it here would make the live
     # cell disagree with its own log.
     def invoke(activation, registered, node, deps, now, replay, offset = nil)
+      address = RegisteredClass.address(activation, node)
       ctx = Ctx.new(
         spec: registered.spec, node: node, outgoing: registered.outgoing[node.index],
         operator: activation[:operator], cell_key: activation[:cell_key],
         change_seq: activation[:change_seq], now: now, replay: replay,
-        state: registered.state_of(node, activation[:cell_key]), bridge: deps.bridge,
+        state: registered.state_of(node, address), bridge: deps.bridge,
         token: activation[:token], offset: offset, compensating: activation[:kind] == :compensate_run
       )
       begin
-        [ctx, yield(ctx)]
+        yield(ctx)
+        ctx
       ensure
-        registered.set_state(node, activation[:cell_key], ctx.state)
+        registered.set_state(address, ctx.state)
       end
     end
 
@@ -191,8 +193,8 @@ module Flezha
       Array(activation[:items]).each do |item|
         now = item[:now] || 0
         begin
-          ctx, = invoke(activation, registered, node, deps, now, item[:replay] || false,
-                        item[:consumed_offset]) do |c|
+          ctx = invoke(activation, registered, node, deps, now, item[:replay] || false,
+                       item[:consumed_offset]) do |c|
             run_item(registered, node, item, now, c)
           end
           effects << ctx.effect(item[:consumed_offset])
@@ -257,10 +259,9 @@ module Flezha
       values = values.select { |value| routes_to?(edge, definition, value, ctx.cell_key) } if edge
       # A filtered value reaches no handler and a fanned one reaches it once
       # per value. Either way the item is one effect, so its offset advances
-      # once and nothing is retried.
-      values.each do |input|
-        ctx.emit_returned(definition.instance.run(input, ctx))
-      end
+      # once and nothing is retried. What `run` answers is not output: a value
+      # leaves through `ctx.emit`.
+      values.each { |input| definition.instance.run(input, ctx) }
       nil
     end
 
@@ -283,7 +284,7 @@ module Flezha
 
     def restore_fold(activation, registered, node)
       registered.set_state(
-        node, activation[:cell_key],
+        RegisteredClass.address(activation, node),
         State.fold_restore(
           node.definition,
           { snapshot: activation[:snapshot], changes: activation[:changes] },
@@ -293,9 +294,14 @@ module Flezha
       { token: activation[:token], outcome: "restored" }
     end
 
+    def state_json(activation, registered, node, outcome)
+      state = registered.state_of(node, RegisteredClass.address(activation, node))
+      { token: activation[:token], outcome: outcome, json: Codec.to_state_json(state).b }
+    end
+
     def snapshot(activation, registered, node)
       codec = node.definition.state_codec
-      state = registered.state_of(node, activation[:cell_key])
+      state = registered.state_of(node, RegisteredClass.address(activation, node))
       { token: activation[:token], outcome: "snapshot",
         state: (codec ? codec.encode(state).b : Codec.encode(state)) }
     end
@@ -343,7 +349,7 @@ module Flezha
       end
 
       outputs = Array(activation[:outputs]).map { |bytes| Codec.decode(bytes) }
-      ctx, = invoke(activation, registered, node, deps, 0, false) do |c|
+      ctx = invoke(activation, registered, node, deps, 0, false) do |c|
         definition.instance.compensate(outputs, c)
       end
       { token: activation[:token], outcome: "work", effects: [ctx.effect(nil)] }

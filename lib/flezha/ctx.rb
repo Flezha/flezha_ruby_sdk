@@ -100,14 +100,6 @@ module Flezha
       nil
     end
 
-    # Emit what a handler returned. `nil` emits nothing, which is the warmup
-    # gate, and a value returned by a tasklet with no outgoing channel is left
-    # alone, as the reference leaves an unconsumed output. One method, because
-    # the dispatcher and the test harness must not disagree about it.
-    def emit_returned(value)
-      emit(value) unless value.nil? || @outgoing.empty?
-    end
-
     # Emit onto a named channel — the spelling for a tasklet with several.
     def emit_to(channel, value, key: nil, metadata: nil)
       emit(value, key: key, channel: channel, metadata: metadata)

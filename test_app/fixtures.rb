@@ -21,7 +21,7 @@ module Fixtures
 
   class DoNothing < Flezha::Tasklet
     tasklet_name "do_nothing_tasklet"
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class DoNothingOperator < Flezha::UnboundedOperator
@@ -50,8 +50,11 @@ module Fixtures
   # nothing to journal, so the tasklet declares no change fold.
   class CompareFilter < Flezha::Tasklet
     tasklet_name "compare_filter_tasklet"
-    def initial_state(_cell_key) = { comparable: "default", inverted: false }
-    def run(input, ctx) = ctx.state[:comparable] == input ? input : nil
+    def init_state(_cell_key) = { comparable: "default", inverted: false }
+
+    def run(input, ctx)
+      ctx.emit(input) if ctx.state[:comparable] == input
+    end
   end
 
   class CompareFilterOperator < Flezha::UnboundedOperator
@@ -78,12 +81,12 @@ module Fixtures
     include StaticFanOut
     tasklet_name "static_entry_tasklet"
     cell_keys(*STATIC_KEYS)
-    def initial_state(_cell_key) = { seen: [] }
+    def init_state(_cell_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
 
     def run(input, ctx)
       ctx.change({ push: input })
-      input
+      ctx.emit(input)
     end
   end
 
@@ -92,7 +95,7 @@ module Fixtures
   end
 
   class PassThrough < Flezha::Tasklet
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class StaticDownstream < PassThrough
@@ -150,19 +153,19 @@ module Fixtures
     factory_id "sugar_do_nothing"
     sink "sugar_do_nothing_echo"
     codec :text
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class SugarStoreInput < Flezha::UnboundedOperator
     factory_id "sugar_store_input"
     sink "sugar_store_sink"
     codec :text
-    def initial_state(_cell_key) = { text_inputs: [] }
+    def init_state(_cell_key) = { text_inputs: [] }
     def apply_change(state, change) = state[:text_inputs] << change[:push]
 
     def run(input, ctx)
       ctx.change({ push: input })
-      input
+      ctx.emit(input)
     end
   end
 
@@ -171,7 +174,7 @@ module Fixtures
     sink "sugar_named_input_sink"
     input "prices"
     codec :text
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class SugarBounded < Flezha::BoundedOperator
@@ -179,7 +182,7 @@ module Fixtures
     sink "sugar_bounded_placed"
     input "order"
     codec :text
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class SugarBoundedPerInput < Flezha::BoundedOperator
@@ -187,7 +190,7 @@ module Fixtures
     sink "sugar_bounded_per_input_out"
     codec :text
     loop_mode :per_input
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   # No sink: what it was sent is proven by its state.
@@ -195,7 +198,7 @@ module Fixtures
     factory_id "sugar_state_only"
     input "ticks"
     codec :text
-    def initial_state(_cell_key) = { seen: [] }
+    def init_state(_cell_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
 
     def run(input, ctx)
@@ -267,8 +270,7 @@ module Fixtures
 
   class MergeLabel < Flezha::Tasklet
     tasklet_name "merge_label_tasklet"
-    dynamic_cells
-    def run(input, _ctx) = "#{input[:source]}:#{input[:payload]}"
+    def run(input, ctx) = ctx.emit("#{input[:source]}:#{input[:payload]}")
   end
 
   class MergedInputOperator < Flezha::UnboundedOperator
@@ -291,7 +293,6 @@ module Fixtures
 
   class TransformLabel < PassThrough
     tasklet_name "transform_label_tasklet"
-    dynamic_cells
   end
 
   class TransformChainOperator < Flezha::UnboundedOperator
@@ -315,13 +316,13 @@ module Fixtures
     tasklet_name "stress_a"
     cell_keys(*STRESS_KEYS)
     def cells_for(_input) = STRESS_KEYS
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class StressToP0 < Flezha::Tasklet
     cell_keys(*STRESS_KEYS)
     def cells_for(_input) = ["p0"]
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class StressB < StressToP0
@@ -353,11 +354,11 @@ module Fixtures
     tasklet_name "poison_probe_tasklet"
     ANTIDOTE = { taken: false }
 
-    def run(input, _ctx)
+    def run(input, ctx)
       ANTIDOTE[:taken] = true if input == "antidote"
       raise "poison payload" if input == "poison" && !ANTIDOTE[:taken]
 
-      "ok:#{input}"
+      ctx.emit("ok:#{input}")
     end
   end
 
@@ -385,7 +386,7 @@ module Fixtures
     tasklet_name "wedge_probe_tasklet"
     ABORTED = { done: false }
 
-    def run(input, _ctx)
+    def run(input, ctx)
       loop { sleep(3600) } if input == "wedge"
 
       if input == "abort" && !ABORTED[:done]
@@ -393,7 +394,7 @@ module Fixtures
         raise "wedge_probe: killing the worker holding this activation"
       end
 
-      "ok:#{input}"
+      ctx.emit("ok:#{input}")
     end
   end
 
@@ -415,9 +416,8 @@ module Fixtures
 
   class Candle < Flezha::Tasklet
     tasklet_name "candle_tasklet"
-    clock :event_time
     # Event times in fold order: the assertion surface.
-    def initial_state(_cell_key) = { folded: [] }
+    def init_state(_cell_key) = { folded: [] }
     def apply_change(state, change) = state[:folded] << change[:fold]
     def event_time(input) = AS_INT.call(input.to_s.split(":", 2).first)
 
@@ -452,7 +452,7 @@ module Fixtures
 
   class SessionTimeout < Flezha::Tasklet
     tasklet_name "session_timeout_tasklet"
-    def initial_state(_cell_key) = { touched: [], closed_at: [] }
+    def init_state(_cell_key) = { touched: [], closed_at: [] }
 
     def apply_change(state, change)
       if change.key?(:touched)
@@ -490,12 +490,12 @@ module Fixtures
 
   class BoundedMailbox < Flezha::Tasklet
     mailbox_capacity 4
-    def initial_state(_cell_key) = { processed: 0 }
+    def init_state(_cell_key) = { processed: 0 }
     def apply_change(state, _change) = state[:processed] += 1
 
     def run(input, ctx)
       ctx.change({ processed: true })
-      input
+      ctx.emit(input)
     end
   end
 
@@ -525,8 +525,7 @@ module Fixtures
 
   class PartitionRelay < Flezha::Tasklet
     tasklet_name "partition_relay_tasklet"
-    dynamic_cells
-    def initial_state(_cell_key) = { seen: [] }
+    def init_state(_cell_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
 
     def run(input, ctx)
@@ -549,13 +548,16 @@ module Fixtures
 
   class DynamicCell < Flezha::Tasklet
     tasklet_name "dynamic_cell_tasklet"
-    dynamic_cells idle_ttl_ms: (ENV["DYN_TEST_TTL_MS"].to_i if ENV["DYN_TEST_TTL_MS"].to_i.positive?)
-    def initial_state(_cell_key) = { seen: [] }
+    # The e2e sets the TTL in milliseconds for every SDK's runner; a Ruby
+    # tasklet declares whole seconds, so it rounds up.
+    ttl_ms = ENV["DYN_TEST_TTL_MS"].to_i
+    idle_ttl_seconds((ttl_ms + 999) / 1000) if ttl_ms.positive?
+    def init_state(_cell_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
 
     def run(input, ctx)
       ctx.change({ push: input })
-      input
+      ctx.emit(input)
     end
   end
 

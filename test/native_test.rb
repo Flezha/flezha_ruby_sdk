@@ -144,7 +144,7 @@ class NativeTest < Minitest::Test
   def checkpoint_class(factory_id)
     tasklet = Class.new(Flezha::Tasklet) do
       tasklet_name "#{factory_id}_tasklet"
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
     operator = Class.new(Flezha::UnboundedOperator)
     operator.factory_id factory_id
@@ -191,8 +191,7 @@ class NativeTest < Minitest::Test
 
     keyed = Class.new(Flezha::Tasklet) do
       tasklet_name "check_keyed"
-      dynamic_cells
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
     operator = Class.new(Flezha::UnboundedOperator)
     operator.factory_id "check_dup_key"
@@ -216,7 +215,7 @@ class NativeTest < Minitest::Test
 
     echo = Class.new(Flezha::Tasklet) do
       tasklet_name "native_echo"
-      def run(input, _ctx) = input
+      def run(input, ctx) = ctx.emit(input)
     end
     operator = Class.new(Flezha::UnboundedOperator)
     operator.factory_id "native_echo_op"

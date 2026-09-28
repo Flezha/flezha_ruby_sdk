@@ -26,15 +26,15 @@ module Flezha
       from_version = body[:from_version]
       bytes = body[:bytes] || "".b
       if from_version
-        migration = which == :state ? definition.migrate_state : definition.migrate_change
-        unless migration
+        migration = :"migrate_#{which}"
+        unless definition.declares?(migration)
           raise Error,
                 "#{tasklet} was handed a #{which} record written at schema version " \
-                "#{from_version} and declares no migrate_#{which}; declare one, or raise " \
+                "#{from_version} and defines no #{migration}; define one, or raise " \
                 "min_readable_schema_version so the record is refused rather than misread"
         end
 
-        return migration.call(from_version, bytes)
+        return definition.instance.public_send(migration, from_version, bytes)
       end
 
       codec = which == :state ? definition.state_codec : definition.change_codec

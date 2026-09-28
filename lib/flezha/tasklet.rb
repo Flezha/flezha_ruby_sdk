@@ -46,7 +46,7 @@ module Flezha
   class Definition
     attr_reader :name, :cell_keys, :idle_ttl_ms, :max_cells, :clock,
                 :mailbox_capacity, :schema_version, :min_readable_schema_version,
-                :state_codec, :change_codec, :migrate_state, :migrate_change, :instance
+                :state_type, :state_codec, :change_codec, :instance
 
     # Read straight off the class rather than through a mirrored option hash:
     # the hash was the declaration written twice, and a field added to one half
@@ -57,38 +57,39 @@ module Flezha
       @body = klass.body
       @name = klass.tasklet_name
       @cell_keys = klass.cell_keys
-      @dynamic = klass.dynamic_cells?
-      @idle_ttl_ms = klass.idle_ttl_ms
+      @idle_ttl_ms = klass.idle_ttl_seconds&.*(1000)
       @max_cells = klass.max_cells
-      @clock = (klass.clock || :wall).to_sym
       @mailbox_capacity = klass.mailbox_capacity
       @schema_version = klass.schema_version
       @min_readable_schema_version = klass.min_readable_schema_version
+      @state_type = klass.state_type
       @state_codec = klass.state_codec
       @change_codec = klass.change_codec
-      @migrate_state = klass.migrate_state
-      @migrate_change = klass.migrate_change
       @instance = @body.new
-    end
-
-    def cell_mode
-      return :static if @cell_keys
-      return :dynamic if @dynamic
-
-      :single
+      @clock = if event_time? then :event_time
+               elsif klass.logical_clock? then :logical
+               else :wall
+               end
     end
 
     def declares?(method) = @body.method_defined?(method) || @body.private_method_defined?(method)
 
-    def initial_state? = declares?(:initial_state)
+    def init_state? = declares?(:init_state)
     def apply_change? = declares?(:apply_change)
     def cells_for? = declares?(:cells_for)
     def event_time? = declares?(:event_time)
     def on_timer? = declares?(:on_timer)
     def compensate? = declares?(:compensate)
+    def migrate_state? = declares?(:migrate_state)
+    def migrate_change? = declares?(:migrate_change)
+
+    # Whether a Cell of this tasklet holds a state at all.
+    def stateful? = init_state? || !@state_type.nil?
 
     def build_initial_state(cell_key)
-      initial_state? ? @instance.initial_state(cell_key) : nil
+      if init_state? then @instance.init_state(cell_key)
+      elsif @state_type then @state_type.new
+      end
     end
 
     def fold_change(state, change) = @instance.apply_change(state, change)
@@ -101,19 +102,38 @@ module Flezha
   # tasklet it generates.
   module TaskletSettings
     # The scalar declarations. Each is read by its bare name and written by
-    # naming a value: `clock` answers, `clock :event_time` declares.
+    # naming a value: `max_cells` answers, `max_cells 100` declares.
     SCALARS = %i[mailbox_capacity schema_version min_readable_schema_version
-                 state_codec change_codec clock].freeze
-    BLOCKS = %i[migrate_state migrate_change].freeze
-    # Written by the declarations below, which take more than one value or
-    # write more than one variable; named so a subclass inherits them.
-    WRITTEN = %i[cell_keys dynamic idle_ttl_ms max_cells state_type change_type].freeze
-    NAMES = (SCALARS + BLOCKS + WRITTEN).freeze
+                 state_codec change_codec max_cells].freeze
+    # Written by the declarations below, which check their value or write
+    # more than one variable; named so a subclass inherits them.
+    WRITTEN = %i[cell_keys idle_ttl_seconds state_type change_type].freeze
+    # Declared by a bare mention in the class body.
+    FLAGS = %i[logical_clock].freeze
+    NAMES = (SCALARS + WRITTEN + FLAGS).freeze
+
+    # Class-body declarations that no longer exist, with what replaced each.
+    RETIRED = {
+      dynamic_cells: "a tasklet fed by `key_by` has one Cell per key; write `idle_ttl_seconds` " \
+                     "and `max_cells` on their own",
+      clock: "defining `event_time` makes the clock event time and `logical_clock` makes it " \
+             "logical; otherwise it is the wall clock",
+      idle_ttl_ms: "write `idle_ttl_seconds`, a whole number of seconds",
+      migrate_state: "define `migrate_state(from_version, bytes)` as an instance method",
+      migrate_change: "define `migrate_change(from_version, bytes)` as an instance method"
+    }.freeze
 
     def self.extended(base)
       base.setting(*SCALARS)
-      base.block_setting(*BLOCKS)
+      FLAGS.each { |name| base.flag(name) }
       base.declares(*WRITTEN)
+    end
+
+    RETIRED.each do |retired, instead|
+      define_method(retired) do |*, **|
+        raise NoMethodError.new("`#{retired}` is not a tasklet declaration any more: #{instead}",
+                                retired)
+      end
     end
 
     def cell_keys(*keys)
@@ -122,21 +142,28 @@ module Flezha
       @cell_keys = keys.flatten.map(&:to_s)
     end
 
-    def dynamic_cells(idle_ttl_ms: nil, max_cells: nil)
-      @dynamic = true
-      @idle_ttl_ms = idle_ttl_ms
-      @max_cells = max_cells
+    # How long a keyed Cell may sit idle before it is evicted, in whole
+    # seconds. Unset, a Cell is never evicted for being idle.
+    def idle_ttl_seconds(seconds = nil)
+      return @idle_ttl_seconds if seconds.nil?
+
+      unless seconds.is_a?(Integer) && seconds.positive?
+        raise DeclarationError.new("<tasklet>", to_s,
+                                   "declares `idle_ttl_seconds #{seconds.inspect}`; the idle " \
+                                   "TTL is a positive whole number of seconds")
+      end
+
+      @idle_ttl_seconds = seconds
     end
 
-    # Whether cells appear on first key rather than from a declared set.
-    def dynamic_cells? = @dynamic || false
-
-    attr_reader :idle_ttl_ms, :max_cells
+    # Whether the class body declared the logical clock.
+    def logical_clock? = @logical_clock || false
 
     # Declare the class a cell's State is. Its `to_h` is what is encoded
     # and its `.from_h` is what rebuilds it, so a rename of the class does
     # not break the restore of records written before it: the durable form
-    # is the Hash, not the class.
+    # is the Hash, not the class. A tasklet that defines no `init_state`
+    # starts each Cell from `type.new`.
     def state_type(type = nil)
       return @state_type if type.nil?
 
@@ -155,11 +182,12 @@ module Flezha
 
   # The base every authored tasklet subclasses.
   #
-  # The class body carries the scalar declarations; the instance methods carry
-  # the behaviour. Which optional hooks a tasklet declares is read from the
-  # methods it defines — `apply_change` present means it folds changes,
-  # `on_timer` present means it may register timers — so a declaration and its
-  # implementation cannot disagree.
+  # The class body carries the `tasklet_name` and the scalar declarations; the
+  # instance methods carry the behaviour. Which optional hooks a tasklet
+  # declares is read from the methods it defines — `apply_change` present means
+  # it folds changes, `event_time` present means its clock is event time — so a
+  # declaration and its implementation cannot disagree. A value leaves only
+  # through `ctx.emit`; what `run` answers is not output.
   class Tasklet
     extend Declarative
     extend TaskletSettings
@@ -170,10 +198,12 @@ module Flezha
     # the declaration rather than here.
 
     class << self
-      # The node identity within its operator. Defaults to the class name in
-      # snake_case, which is what an author would have typed anyway.
+      # The node identity within its operator, and the name every Cell's
+      # saved state is kept under. Written on every concrete tasklet, never
+      # derived: a derived name would move the saved state when the class is
+      # renamed. Not `name`, which is `Class#name`.
       def tasklet_name(name = nil)
-        return @tasklet_name || default_name if name.nil?
+        return @tasklet_name if name.nil?
 
         @tasklet_name = name.to_s
       end
@@ -203,53 +233,65 @@ module Flezha
       private
 
       def build_definition
+        check_name
+        definition = Definition.new(self)
+        check_hooks(definition)
+        refuse("declares an empty static key set; a static tasklet names its cells") if @cell_keys&.empty?
+        if definition.event_time? && logical_clock?
+          refuse("defines `event_time` and declares `logical_clock`; the clock is event time " \
+                 "or logical, so keep one")
+        end
+        check_state(definition)
+      end
+
+      def check_name
+        return unless @tasklet_name.to_s.empty?
+
+        raise DeclarationError.new("<tasklet>", nil,
+                                   "#{name || 'an anonymous tasklet class'} declares no " \
+                                   "`tasklet_name`; every tasklet writes `tasklet_name " \
+                                   "\"...\"`, the name its Cells' state is kept under")
+      end
+
+      def check_hooks(definition)
         unless body.method_defined?(:run)
           stale = body.method_defined?(:process) ? " (`process` is not read)" : ""
-          raise DeclarationError.new("<tasklet>", tasklet_name,
-                                     "#{body} declares no `run` method#{stale}; a tasklet's " \
-                                     "body is its `run`, what runs against an input")
+          refuse("#{body} declares no `run` method#{stale}; a tasklet's body is its `run`, " \
+                 "what runs against an input")
         end
-        if @cell_keys && @dynamic
-          raise DeclarationError.new("<tasklet>", tasklet_name,
-                                     "declares both a static key set and dynamic cells; the " \
-                                     "two modes are exclusive")
-        end
-        if @cell_keys&.empty?
-          raise DeclarationError.new("<tasklet>", tasklet_name,
-                                     "declares an empty static key set; a static tasklet " \
-                                     "names its cells")
-        end
-        # State without a fold is legitimate: a value seeded at start and read
-        # but never mutated has nothing to journal, and `ctx.change` already
-        # refuses at the point of use. A fold with no state to fold into is not.
-        if !body.method_defined?(:initial_state) && body.method_defined?(:apply_change)
-          raise DeclarationError.new("<tasklet>", tasklet_name,
-                                     "declares apply_change but no initial_state; there is " \
-                                     "nothing for a change to fold into")
-        end
+        return unless definition.declares?(:initial_state)
 
-        definition = Definition.new(self)
-        # A state that cannot be encoded cannot be restored, and the first
-        # anyone would learn of it is a restart. Walk the declared starting
-        # state now.
-        if definition.initial_state? && !state_codec
-          Codec.assert_representable("#{tasklet_name}.state",
-                                     definition.build_initial_state(nil))
+        refuse("#{body} defines `initial_state`, which is not read; a Cell's starting state " \
+               "is `init_state(cell_key)`")
+      end
+
+      # State without a fold is legitimate: a value seeded at start and read
+      # but never mutated has nothing to journal, and `ctx.change` already
+      # refuses at the point of use. A fold with no state to fold into is not.
+      def check_state(definition)
+        if definition.apply_change? && !definition.stateful?
+          refuse("declares apply_change but neither init_state nor state_type; there is " \
+                 "nothing for a change to fold into")
+        end
+        # A state that cannot be built or encoded fails at the first Cell or
+        # the first restart. Build the starting state now instead.
+        if definition.init_state? && !state_codec
+          Codec.assert_representable("#{@tasklet_name}.state", definition.build_initial_state(nil))
+        elsif !definition.init_state? && state_type
+          check_state_type
         end
         definition
       end
 
-      def default_name
-        if name.nil?
-          raise DeclarationError.new("<tasklet>", nil,
-                                     "an anonymous tasklet class needs a tasklet_name")
-        end
-
-        name.split("::").last
-            .gsub(/([A-Z]+)([A-Z][a-z])/, '\1_\2')
-            .gsub(/([a-z\d])([A-Z])/, '\1_\2')
-            .downcase
+      def check_state_type
+        state_type.new
+      rescue StandardError => e
+        refuse("declares `state_type #{state_type}` and no `init_state`, and " \
+               "`#{state_type}.new` raised #{e.class}: #{e.message}; define `init_state` or " \
+               "give the state_type a constructor that takes no argument")
       end
+
+      def refuse(defect) = raise(DeclarationError.new("<tasklet>", @tasklet_name, defect))
     end
   end
 end

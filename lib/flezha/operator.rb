@@ -8,8 +8,8 @@ require_relative "tasklet"
 module Flezha
   # The base an authored operator subclasses. Its class body declares the
   # factory id and one body: a `channels` graph, or, for the single-tasklet
-  # short form, that tasklet's `run` instance method. `spec` resolves the
-  # declaration once.
+  # short form, that tasklet's `run` instance method, which emits through its
+  # `ctx` as a tasklet's does. `spec` resolves the declaration once.
   class Operator
     extend Declarative
     # A short form's tasklet settings, handed to the tasklet it generates.

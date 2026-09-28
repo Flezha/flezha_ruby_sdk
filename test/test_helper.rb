@@ -136,6 +136,16 @@ module Flezha
       Flezha::DispatchDeps.new(registry: registry, bridge: core)
     end
 
+    # The dependencies over a declared class whose edges are bound. A
+    # channel's consumers are the CORE's answer: the builder records the chains
+    # an author declared and the core says which of them became edges, so a
+    # dispatch over a graph needs a real context to have judged the record
+    # first.
+    def self.wired_deps(operator_class, core = FakeCore.new)
+      validate(operator_class.spec)
+      deps(operator_class, core)
+    end
+
     # One activation, with the fields every kind carries; a caller merges what
     # its own kind adds.
     def self.activation(factory:, **extra)

@@ -9,7 +9,7 @@ require_relative "test_helper"
 class ConcurrencyTest < Minitest::Test
   class Echo < Flezha::Tasklet
     tasklet_name "echo"
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class EchoOperator < Flezha::UnboundedOperator
@@ -151,9 +151,9 @@ class ConcurrencyTest < Minitest::Test
 
   class Recorder < Flezha::Tasklet
     tasklet_name "recorder"
-    def run(input, _ctx)
+    def run(input, ctx)
       ORDER_LOCK.synchronize { ORDER << :dispatched }
-      input
+      ctx.emit(input)
     end
   end
 

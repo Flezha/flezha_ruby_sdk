@@ -9,7 +9,8 @@
 # and idiomatic errors.
 #
 #   class Echo < Flezha::Tasklet
-#     def run(input, _ctx) = input
+#     tasklet_name "echo"
+#     def run(input, ctx) = ctx.emit(input)
 #   end
 #
 #   class EchoOperator < Flezha::UnboundedOperator

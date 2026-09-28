@@ -67,16 +67,15 @@ module Fixtures
   # release gate BEFORE recording it. Carrying all four as overridable methods
   # is what lets every durable tasklet here be a subclass with one line.
   class DurableStep < Flezha::Tasklet
-    def initial_state(_cell_key) = { items: [] }
+    def init_state(_cell_key) = { items: [] }
     def apply_change(state, change) = Fixtures.insert_sorted(state[:items], change[:insert])
 
     # The value this step journals, or nil for none.
     def recorded(_input) = self.class.tasklet_name
     # Whether it waits for the gate before journaling anything.
     def gated?(_input) = false
-    # What it releases. A value is emitted by the dispatcher; a step needing a
-    # key emits through the ctx and answers nil.
-    def released(input, _ctx) = input
+    # What it releases, emitted through the ctx.
+    def released(input, ctx) = ctx.emit(input)
 
     def run(input, ctx)
       Fixtures.block_until_released if gated?(input)
@@ -102,7 +101,7 @@ module Fixtures
 
   class Echo < Flezha::Tasklet
     tasklet_name "echo"
-    def run(input, _ctx) = "echo:#{input}"
+    def run(input, ctx) = ctx.emit("echo:#{input}")
   end
 
   class EchoBounded < Flezha::BoundedOperator
@@ -124,7 +123,7 @@ module Fixtures
       puts("once_ran #{text}")
       $stdout.flush
       ctx.complete(text)
-      "placed:#{text}"
+      ctx.emit("placed:#{text}")
     end
   end
 
@@ -253,7 +252,6 @@ module Fixtures
 
   class KeyedCommit < DurableStep
     tasklet_name "keyed_commit"
-    dynamic_cells
     def compensate(_outputs, _ctx) = nil
   end
 
@@ -393,18 +391,18 @@ module Fixtures
   class BranchC < UndoingStep
     tasklet_name "branch_c"
     def undo_record = "undo-c"
-    def released(input, _ctx) = "c:#{input}"
+    def released(input, ctx) = ctx.emit("c:#{input}")
   end
 
   # The deep leaf under BranchB: blocks (crash-resume), or fails (compensation).
   class BranchD < Flezha::Tasklet
     tasklet_name "branch_d"
 
-    def run(input, _ctx)
+    def run(input, ctx)
       raise "branch_d failed" if ENV.key?(BRANCH_FAIL_ENV)
 
       Fixtures.block_until_released
-      "d:#{input}"
+      ctx.emit("d:#{input}")
     end
   end
 
@@ -451,18 +449,18 @@ module Fixtures
     tasklet_name "diam_b2"
     def recorded(_input) = "diam_b"
     def gated?(_input) = true
-    def released(input, _ctx) = "b:#{input}"
+    def released(input, ctx) = ctx.emit("b:#{input}")
   end
 
   class DiamC < DurableStep
     tasklet_name "diam_c"
-    def released(input, _ctx) = "c:#{input}"
+    def released(input, ctx) = ctx.emit("c:#{input}")
   end
 
   # The join: one `j:`-tagged record per accumulated contribution.
   class DiamJoin < Flezha::Tasklet
     tasklet_name "diam_join"
-    def run(input, _ctx) = "j:#{input}"
+    def run(input, ctx) = ctx.emit("j:#{input}")
   end
 
   class DiamondBounded < Flezha::BoundedOperator
@@ -504,11 +502,11 @@ module Fixtures
     ATTEMPTS = { made: 0 }
     ATTEMPTS_LOCK = Mutex.new
 
-    def run(input, _ctx)
+    def run(input, ctx)
       attempt = ATTEMPTS_LOCK.synchronize { ATTEMPTS[:made] += 1 }
       raise "flaky attempt #{attempt}" if attempt <= ENV.fetch(RETRY_FAILS_ENV, "").to_i
 
-      "attempt:#{attempt}:#{input}"
+      ctx.emit("attempt:#{attempt}:#{input}")
     end
   end
 
@@ -559,18 +557,18 @@ module Fixtures
 
     def released(input, ctx)
       ctx.complete(ctx.state[:items].size.to_s) if input == BYE_TURN
-      input
+      ctx.emit(input)
     end
   end
 
   class ChatReply < Flezha::Tasklet
     tasklet_name "chat_reply"
-    def run(input, _ctx) = "reply:#{input}"
+    def run(input, ctx) = ctx.emit("reply:#{input}")
   end
 
   class ChatReplyUndoable < Flezha::Tasklet
     tasklet_name "chat_reply_undoable"
-    def initial_state(_cell_key) = { said: [] }
+    def init_state(_cell_key) = { said: [] }
 
     def apply_change(state, change)
       change.key?(:said) ? state[:said].push(change[:said]) : state[:said].pop
@@ -578,7 +576,7 @@ module Fixtures
 
     def run(input, ctx)
       ctx.change({ said: input })
-      "reply:#{input}"
+      ctx.emit("reply:#{input}")
     end
 
     def compensate(_outputs, ctx)
@@ -620,8 +618,7 @@ module Fixtures
   # members takes.
   class KeyedLoopCount < Flezha::Tasklet
     tasklet_name "keyed_loop_count"
-    dynamic_cells
-    def initial_state(_cell_key) = { value: 0 }
+    def init_state(_cell_key) = { value: 0 }
     def apply_change(state, change) = state[:value] += change[:delta]
 
     def run(input, ctx)
@@ -656,9 +653,9 @@ module Fixtures
   class BlockingReply < Flezha::Tasklet
     tasklet_name "blocking_reply"
 
-    def run(input, _ctx)
+    def run(input, ctx)
       Fixtures.block_until_released if input == REPLY_CRASH_TURN
-      "reply:#{input}"
+      ctx.emit("reply:#{input}")
     end
   end
 
@@ -716,7 +713,7 @@ module Fixtures
 
   class BenchTurn < Flezha::Tasklet
     tasklet_name "bench_turn"
-    def initial_state(_cell_key) = { turns: 0, last: "" }
+    def init_state(_cell_key) = { turns: 0, last: "" }
 
     def apply_change(state, change)
       state[:turns] += 1
@@ -727,7 +724,7 @@ module Fixtures
       ctx.change({ turn: input })
       after = Integer(ENV.fetch(WAKE_AFTER_ENV, ""), exception: false)
       ctx.timer_after(after) if after && after >= 0
-      input
+      ctx.emit(input)
     end
 
     def on_timer(firing, ctx) = ctx.emit("wake:#{firing[:scheduled_at]}")
@@ -754,17 +751,17 @@ module Fixtures
 
   class TimerTick < Flezha::Tasklet
     tasklet_name "tick"
-    def initial_state(_cell_key) = { items: [] }
+    def init_state(_cell_key) = { items: [] }
     def apply_change(state, change) = Fixtures.insert_sorted(state[:items], change[:insert])
 
     def run(input, ctx)
       if input.start_with?("after:")
         at = ctx.timer_after(millis(input, "after:"))
         ctx.change({ insert: "armed:#{at}" })
-        return "armed:#{at}"
+        return ctx.emit("armed:#{at}")
       end
       sleep(millis(input, "slow:") / 1000.0) if input.start_with?("slow:")
-      input
+      ctx.emit(input)
     end
 
     def on_timer(firing, ctx)
@@ -780,9 +777,9 @@ module Fixtures
   class TimerRelay < Flezha::Tasklet
     tasklet_name "relay"
 
-    def run(input, _ctx)
+    def run(input, ctx)
       Fixtures.hold_at("relay") if input.start_with?("fired:")
-      "relay:#{input}"
+      ctx.emit("relay:#{input}")
     end
   end
 
@@ -801,15 +798,14 @@ module Fixtures
 
   class EventTick < Flezha::Tasklet
     tasklet_name "event_tick"
-    clock :event_time
-    def initial_state(_cell_key) = { items: [] }
+    def init_state(_cell_key) = { items: [] }
     def apply_change(state, change) = Fixtures.insert_sorted(state[:items], change[:insert])
     def event_time(input) = Integer(input.to_s.split(":", 2).first, exception: false) || 0
 
     def run(_input, ctx)
       at = ctx.timer_at_event_time(ctx.now + 100)
       ctx.change({ insert: "armed:#{at}" })
-      "seen:#{ctx.now}"
+      ctx.emit("seen:#{ctx.now}")
     end
 
     def on_timer(firing, ctx) = ctx.emit("fired:#{firing[:scheduled_at]}")

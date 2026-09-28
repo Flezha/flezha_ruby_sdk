@@ -11,9 +11,8 @@ module Flezha
   # The topology is judged in ONE place, `flz_core::host::register::check`:
   # this module records what the author declared, submits it, and renders the
   # core's verdict as this SDK's own refusal. What is refused here instead is
-  # what a record cannot carry — whether a Ruby class defines the method a
-  # declaration promises, and whether it supplies the migration a schema floor
-  # needs. Those the core cannot see.
+  # what a record cannot carry: whether a Ruby class supplies the migration a
+  # schema floor needs, which the core cannot see.
   module Graph
     # The Ruby SDK's byte in the core's `sdk_lang` allocation table.
     SDK_LANG_RUBY = 5
@@ -50,8 +49,8 @@ module Flezha
     end
 
     # The defects this SDK can see that the record cannot carry are refused
-    # first, so an author reads "no event_time method" rather than a topology
-    # verdict about a clock the class does declare.
+    # first, so an author reads "supplies no migration" rather than a topology
+    # verdict about a record the class never wrote.
     def validate(spec, core)
       check_tasklets(spec)
       derived = submit(spec, core)
@@ -91,26 +90,7 @@ module Flezha
     end
 
     def check_tasklets(spec)
-      spec.tasklets.each do |node|
-        check_clocks(spec, node)
-        check_schema(spec, node)
-      end
-    end
-
-    def check_clocks(spec, node)
-      definition = node.definition
-      clock = definition.clock
-
-      if clock == :event_time && !definition.event_time?
-        refuse(spec, node.name,
-               "declares an event_time clock but no event_time method; the core evaluates " \
-               "the declared clock per input and has nothing to evaluate")
-      end
-      return unless clock != :event_time && definition.event_time?
-
-      refuse(spec, node.name,
-             "declares an event_time method with clock `#{clock}`; the extractor is only " \
-             "consulted by an event_time clock, so one of the two is not what was meant")
+      spec.tasklets.each { |node| check_schema(spec, node) }
     end
 
     def check_schema(spec, node)
@@ -124,7 +104,7 @@ module Flezha
                "declares min_readable_schema_version #{floor} above its schema_version " \
                "#{running}")
       end
-      return unless floor < running && !definition.migrate_state && !definition.migrate_change
+      return unless floor < running && !definition.migrate_state? && !definition.migrate_change?
 
       refuse(spec, node.name,
              "declares it reads back to schema version #{floor} but supplies no " \
@@ -151,11 +131,33 @@ module Flezha
       )
     end
 
-    def tasklet_json(node)
+    # The nodes some chain reaches through a `key` link. The cell mode is the
+    # wiring's, so one tasklet can be keyed in one operator and single in
+    # another.
+    def keyed_nodes(spec)
+      spec.channels.flat_map(&:chains).each_with_object(Set.new) do |links, keyed|
+        key = false
+        links.each do |link|
+          case link["link"]
+          when "key" then key = true
+          when "into", "merge" then keyed << link["tasklet"] if key
+          end
+        end
+      end
+    end
+
+    def cell_mode(node, keyed)
+      if node.definition.cell_keys then "static"
+      elsif keyed.include?(node.index) then "dynamic"
+      else "single"
+      end
+    end
+
+    def tasklet_json(node, keyed)
       definition = node.definition
       compact(
         "name" => node.name,
-        "cell_mode" => definition.cell_mode.to_s,
+        "cell_mode" => cell_mode(node, keyed),
         "cell_keys" => definition.cell_keys || [],
         "idle_ttl_ms" => definition.idle_ttl_ms,
         "max_cells" => definition.max_cells,
@@ -164,9 +166,9 @@ module Flezha
         "clock" => definition.clock.to_s,
         "mailbox_capacity" => definition.mailbox_capacity || 1024,
         # A tasklet with no state journals nothing, so a logical clock over
-        # it never advances. Ruby has no per-tasklet Change type; the
-        # presence of an initial state IS the same statement.
-        "change_is_nochange" => !definition.initial_state?,
+        # it never advances. Ruby has no per-tasklet Change type; having a
+        # state IS the same statement.
+        "change_is_nochange" => !definition.stateful?,
         "schema_version" => definition.schema_version || 1,
         "min_readable_schema_version" => definition.min_readable_schema_version
       )
@@ -178,6 +180,7 @@ module Flezha
     # `test/fixtures/host_class_decl_keys.txt`, which this gem's own test
     # reads: a key the core learns that Ruby cannot spell fails that test.
     def to_host_class_decl(spec)
+      keyed = keyed_nodes(spec)
       compact(
         "factory_id" => spec.factory_id,
         "persistent" => spec.persistent,
@@ -195,7 +198,7 @@ module Flezha
         "compact_after_bytes" => spec.compact_after_bytes,
         "sync_durability" => spec.sync_durability,
         "channels" => spec.channels.map { |channel| channel_json(channel) },
-        "tasklets" => spec.tasklets.map { |node| tasklet_json(node) },
+        "tasklets" => spec.tasklets.map { |node| tasklet_json(node, keyed) },
         "bounded" => spec.bounded && compact(
           "loop_mode" => spec.bounded[:loop_mode].to_s,
           "rollback_mode" => spec.bounded[:rollback_mode].to_s,

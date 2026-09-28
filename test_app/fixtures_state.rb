@@ -16,7 +16,7 @@ module Fixtures
   # `checkpoint_store` and `bench_checkpoint` are the same keyed upsert under
   # three acknowledgement postures; only `run` differs.
   class KeyedUpsert < Flezha::Tasklet
-    def initial_state(_cell_key) = { values: {} }
+    def init_state(_cell_key) = { values: {} }
     def apply_change(state, change) = state[:values][change[:key]] = change[:value]
 
     # Record and emit one `key:value` input under its natural key.
@@ -104,7 +104,7 @@ module Fixtures
   # the value `hold` and keeps retrying it, so a runner killed there has made
   # the relay's record durable and not the tally's.
   class Counting < Flezha::Tasklet
-    def initial_state(_cell_key) = { value: 0 }
+    def init_state(_cell_key) = { value: 0 }
     def apply_change(state, change) = state[:value] += change[:delta]
   end
 
@@ -196,12 +196,12 @@ module Fixtures
   # The durable-state reference: every input is appended through a change.
   class StoreInput < Flezha::Tasklet
     tasklet_name "store_input_tasklet"
-    def initial_state(_cell_key) = { binary_inputs: [], text_inputs: [] }
+    def init_state(_cell_key) = { binary_inputs: [], text_inputs: [] }
     def apply_change(state, change) = state[:text_inputs] << change[:push_text]
 
     def run(input, ctx)
       ctx.change({ push_text: input })
-      input
+      ctx.emit(input)
     end
   end
 
@@ -217,12 +217,12 @@ module Fixtures
 
   class CounterEntry < Flezha::Tasklet
     tasklet_name "counter_entry_tasklet"
-    def run(input, _ctx) = AS_INT.call(input)
+    def run(input, ctx) = ctx.emit(AS_INT.call(input))
   end
 
   class Counter < Flezha::Tasklet
     tasklet_name "counter_tasklet"
-    def initial_state(_cell_key) = { value: 0 }
+    def init_state(_cell_key) = { value: 0 }
     def apply_change(state, change) = state[:value] += change[:delta]
 
     def run(input, ctx)
@@ -259,13 +259,13 @@ module Fixtures
 
   class SleepingCounter < Flezha::Tasklet
     tasklet_name "sleeping_counter_tasklet"
-    def initial_state(_cell_key) = { value: 0 }
+    def init_state(_cell_key) = { value: 0 }
     def apply_change(state, change) = state[:value] += change[:delta]
 
     def run(input, ctx)
       key, _, delta = input.to_s.partition(":")
       ctx.change({ delta: AS_INT.call(delta) })
-      "#{key}=#{ctx.state[:value]}"
+      ctx.emit("#{key}=#{ctx.state[:value]}")
     end
   end
 
@@ -284,9 +284,9 @@ module Fixtures
   class TickEntry < Flezha::Tasklet
     tasklet_name "tick_entry_tasklet"
 
-    def run(input, _ctx)
+    def run(input, ctx)
       interval, ts, delta = input.to_s.split(":", 3)
-      { interval: AS_INT.call(interval), ts: AS_INT.call(ts), delta: AS_INT.call(delta) }
+      ctx.emit({ interval: AS_INT.call(interval), ts: AS_INT.call(ts), delta: AS_INT.call(delta) })
     end
   end
 
@@ -297,7 +297,7 @@ module Fixtures
   # state.
   class Tick < Flezha::Tasklet
     tasklet_name "tick_tasklet"
-    def initial_state(_cell_key) = { last: 0 }
+    def init_state(_cell_key) = { last: 0 }
     def apply_change(state, change) = state[:last] = change[:delta]
 
     def run(input, ctx)
@@ -319,14 +319,14 @@ module Fixtures
   # change replay rebuilds the total on restore; no snapshot fast path needed.
   class ResumeProbe < Flezha::Tasklet
     tasklet_name "resume_probe_tasklet"
-    def initial_state(_cell_key) = { total: 0 }
+    def init_state(_cell_key) = { total: 0 }
     def apply_change(state, change) = state[:total] += change[:add]
 
     def run(input, ctx)
       delta = AS_INT.call(input)
       total = ctx.state[:total] + delta
       ctx.change({ add: delta })
-      total.to_s
+      ctx.emit(total.to_s)
     end
   end
 
@@ -351,14 +351,14 @@ module Fixtures
 
   class EvolvingCartV1 < Flezha::Tasklet
     tasklet_name "evolving_cart"
-    def initial_state(_cell_key) = { total: 0 }
+    def init_state(_cell_key) = { total: 0 }
     def apply_change(state, change) = state[:total] += change[:add]
 
     def run(input, ctx)
       delta = AS_INT.call(input)
       total = ctx.state[:total] + delta
       ctx.change({ add: delta })
-      "#{total}:"
+      ctx.emit("#{total}:")
     end
   end
 
@@ -366,20 +366,22 @@ module Fixtures
     tasklet_name "evolving_cart"
     schema_version 2
     min_readable_schema_version 1
-    migrate_state do |from_version, bytes|
+
+    def migrate_state(from_version, bytes)
       raise "no migration from #{from_version}" unless from_version == 1
 
       old = Flezha::Codec.decode(bytes) || {}
       { total: old.fetch(:total, 0), currency: "EUR" }
     end
-    migrate_change do |from_version, bytes|
+
+    def migrate_change(from_version, bytes)
       raise "no migration from #{from_version}" unless from_version == 1
 
       old = Flezha::Codec.decode(bytes) || {}
       { add: old.fetch(:add, 0), note: "migrated" }
     end
 
-    def initial_state(_cell_key) = { total: 0, currency: "" }
+    def init_state(_cell_key) = { total: 0, currency: "" }
     def apply_change(state, change) = state[:total] += change[:add]
 
     def run(input, ctx)
@@ -387,7 +389,7 @@ module Fixtures
       total = ctx.state[:total] + delta
       currency = ctx.state[:currency].to_s.empty? ? "EUR" : ctx.state[:currency]
       ctx.change({ add: delta, note: "live" })
-      "#{total}:#{currency}"
+      ctx.emit("#{total}:#{currency}")
     end
   end
 

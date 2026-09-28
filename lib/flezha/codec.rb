@@ -109,7 +109,7 @@ module Flezha
     # A value the codec cannot carry, named by the declaring type and the path
     # to the offending field.
     #
-    # Walked once at registration against what `initial_state` produces, so an
+    # Walked once at registration against what `init_state` produces, so an
     # author learns at startup rather than at the first restore that their
     # state does not survive one.
     def assert_representable(type_name, sample)

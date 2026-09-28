@@ -22,8 +22,8 @@ class LocalModeTest < Minitest::Test
   # One Cell per word, minted on first sight of it.
   class Tally < Flezha::Tasklet
     tasklet_name "tally"
-    dynamic_cells idle_ttl_ms: 300_000
-    def initial_state(_key) = { seen: 0 }
+    idle_ttl_seconds 300
+    def init_state(_key) = { seen: 0 }
     def apply_change(state, change) = state[:seen] = change[:seen]
 
     def run(word, ctx)
@@ -132,7 +132,7 @@ class LocalModeTest < Minitest::Test
       run.close
     end
 
-    assert_equal 1, ECHOLESS_CALLS.size, "a value with nowhere to go is left alone, never retried"
+    assert_equal 1, ECHOLESS_CALLS.size, "a returned value is not output, and nothing is retried"
   end
 
   def test_an_undeclared_entry_reads_json_and_an_undeclared_sink_follows_the_value

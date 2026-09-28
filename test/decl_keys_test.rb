@@ -16,12 +16,11 @@ class DeclKeysTest < Minitest::Test
   # A declaration populated far enough that every optional key is present.
   class Entry < Flezha::Tasklet
     tasklet_name "entry"
-    clock :event_time
     mailbox_capacity 8
     schema_version 3
     min_readable_schema_version 1
-    migrate_state { |_from, bytes| Flezha::Codec.decode(bytes) }
-    def initial_state(_key) = { seen: [] }
+    def migrate_state(_from, bytes) = Flezha::Codec.decode(bytes)
+    def init_state(_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
     def event_time(input) = Integer(input)
     def run(input, ctx) = ctx.change({ push: input })
@@ -29,8 +28,9 @@ class DeclKeysTest < Minitest::Test
 
   class Downstream < Flezha::Tasklet
     tasklet_name "downstream"
-    dynamic_cells idle_ttl_ms: 1_000, max_cells: 16
-    def run(input, _ctx) = input
+    idle_ttl_seconds 1
+    max_cells 16
+    def run(input, ctx) = ctx.emit(input)
     def compensate(_outputs, _ctx) = nil
   end
 
@@ -38,7 +38,7 @@ class DeclKeysTest < Minitest::Test
     tasklet_name "fanned"
     cell_keys "a", "b"
     def cells_for(_input) = ["a"]
-    def run(input, _ctx) = input
+    def run(input, ctx) = ctx.emit(input)
   end
 
   class FullUnbounded < Flezha::UnboundedOperator

@@ -5,14 +5,14 @@ require_relative "errors"
 module Flezha
   # The class-level declaration DSL the authoring surface shares.
   #
-  # One method reads and writes: `clock` answers what was declared,
-  # `clock :event_time` declares it. Each declaration registers its name, which
+  # One method reads and writes: `max_cells` answers what was declared,
+  # `max_cells 100` declares it. Each declaration registers its name, which
   # is what makes inheritance **total** — a subclass copies exactly the
   # settings that exist, rather than a list someone has to remember to extend
   # when they add one.
   #
   # That inheritance is the point. Without it a subclass silently loses every
-  # declaration its parent made: its cell mode falls back to `:single`, its
+  # declaration its parent made: its static key set falls away, its
   # mailbox capacity to the default, its schema version to 1 — and nothing
   # reports the difference until the topology is wrong at runtime.
   module Declarative

@@ -145,7 +145,7 @@ class SpawnTest < Minitest::Test
 
   class Waiter < Flezha::Tasklet
     tasklet_name "waiter"
-    def run(input, ctx) = ctx.spawn_bounded("worker", input, id: "w1").wait.outcome.to_s
+    def run(input, ctx) = ctx.emit(ctx.spawn_bounded("worker", input, id: "w1").wait.outcome.to_s)
   end
 
   class WaiterOperator < Flezha::UnboundedOperator
@@ -173,7 +173,7 @@ class SpawnTest < Minitest::Test
         end
       end
       RECORDED << ctx.spawn_bounded("worker", input, id: "unread")
-      input
+      ctx.emit(input)
     end
   end
 
