@@ -70,9 +70,7 @@ module Flezha
     def change(change)
       definition = @node.definition
       unless definition.apply_change?
-        raise EmitError,
-              "#{@node.name}: recorded a change but declares no apply_change; a change that " \
-              "cannot be folded cannot rebuild the state it describes"
+        raise Error.new("runtime.change_without_apply_change", tasklet: @node.name)
       end
 
       codec = definition.change_codec
@@ -89,11 +87,9 @@ module Flezha
     def emit(value, key: nil, channel: nil, metadata: nil)
       targets = channel ? @outgoing.select { |c| c.name == channel } : @outgoing
       if targets.empty?
-        raise EmitError,
-              channel ?
-                "#{@node.name}: emits on channel `#{channel}`, which it does not produce on" :
-                "#{@node.name}: emits but declares no output channel; wire its edge with " \
-                "into(...) or sink(...)"
+        raise Error.new("runtime.channel_not_produced", tasklet: @node.name, channel: channel) if channel
+
+        raise Error.new("runtime.no_output_channel", tasklet: @node.name)
       end
 
       targets.each { |target| release(target, value, key, metadata) }
@@ -106,7 +102,7 @@ module Flezha
     end
 
     # Register a processing-time timer `ms` from `now`. Answers its time.
-    # Inside a `compensate` hook each timer call raises naming `TimersUnavailable`.
+    # Inside a `compensate` hook each timer call raises `runtime.timers_unavailable`.
     def timer_after(milliseconds)
       # Anchored on `now`, never an ambient read: that is what makes a replayed
       # invocation register the timestamp the live one did.
@@ -146,7 +142,7 @@ module Flezha
     # An unbounded operator never completes: an unbounded tasklet calling this fails its
     # input, without a retry, with an error naming `CompleteOutsideBounded`.
     def complete(result = nil)
-      @completion = result.nil? ? "".b : Codec.plain_payload(result, @node.name).b
+      @completion = result.nil? ? "".b : Codec.plain_payload(result, "tasklet '#{@node.name}'").b
       nil
     end
 
@@ -156,7 +152,7 @@ module Flezha
     # String as its bytes and anything else as JSON, so the instance's `text`
     # or `json` entry channel reads it as it reads a send. With an `id` already
     # running, `if_running: "deliver"` (the default) hands it `payload` instead,
-    # and `"error"` resolves to `SpawnError::AlreadyRunning`. A replayed
+    # and `"error"` resolves to a `Flezha::Error` coded `operator.already_running`. A replayed
     # invocation sends nothing and resolves to `:skipped_on_replay`.
     #
     # Without an `id` the controller generates one and always starts a new
@@ -172,7 +168,7 @@ module Flezha
       end
 
       handle = @bridge.spawn_request(@token, factory_id, id.to_s,
-                                     Codec.plain_payload(payload, @node.name).b,
+                                     Codec.plain_payload(payload, "tasklet '#{@node.name}'").b,
                                      if_running.to_s, @replay, @offset)
       SpawnHandle.new(@bridge, handle)
     end
@@ -195,11 +191,7 @@ module Flezha
 
     def timer(operation)
       # A rollback is no place to arm a deadline.
-      if @compensating
-        raise EmitError,
-              "TimersUnavailable: #{@node.name}: timers are not available inside compensate; " \
-              "only a tasklet's run / on_timer may register or cancel them"
-      end
+      raise Error.new("runtime.timers_unavailable") if @compensating
 
       @timers << operation
     end
@@ -252,9 +244,7 @@ module Flezha
     def plugin_output(channel, value, key, metadata)
       resolved = key || @cell_key
       if channel.keyed && resolved.nil?
-        raise EmitError,
-              "#{@node.name}: emits on keyed channel `#{channel.name}` with no key, and has " \
-              "no cell key of its own to fall back on; pass `key:` on the emit"
+        raise Error.new("runtime.key_required_on_keyed_channel", channel: channel.name)
       end
 
       pairs = meta_list(metadata)
@@ -289,12 +279,7 @@ module Flezha
       return [] unless metadata
 
       metadata.map do |key, value|
-        if key.to_s.start_with?(RESERVED_PREFIX)
-          raise EmitError,
-                "#{@node.name}: metadata key `#{key}` is inside the reserved " \
-                "`#{RESERVED_PREFIX}` namespace, which the runtime stamps itself (cell " \
-                "identity, sequence, key and offset); choose a key outside it"
-        end
+        raise Error.new("runtime.reserved_metadata_key", key: key.to_s) if key.to_s.start_with?(RESERVED_PREFIX)
 
         [key.to_s, value.to_s]
       end
@@ -318,8 +303,10 @@ module Flezha
       @handle = handle
     end
 
-    # Wait for the answer: a `SpawnResult`, or raises the `SpawnError` naming
-    # why the spawn failed.
+    # Wait for the answer: a `SpawnResult`, or raises the `Flezha::Error`
+    # naming why the spawn failed, its code the controller's (such as
+    # `operator.already_running`) or the core's (`spawn.timeout`,
+    # `spawn.unavailable`).
     #
     # The wait is in the core with the GVL released, as every waiting core
     # call is, so under the fiber executor it holds the dispatch thread until
@@ -340,10 +327,6 @@ module Flezha
       return unless (json = @bridge.spawn_result(@handle, timeout_ms))
 
       answer = JSON.parse(json)
-      if (kind = answer["error"])
-        raise SpawnError::KINDS.fetch(kind.to_sym).new(answer["id"], answer["message"])
-      end
-
       SpawnResult.new(id: answer["id"], outcome: answer["outcome"].to_sym)
     end
   end

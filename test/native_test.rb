@@ -19,20 +19,19 @@ class NativeTest < Minitest::Test
   # connection is attempted: a gem and a native library that disagree must fail
   # at boot rather than half-way through a run.
   def test_a_schema_mismatch_raises_naming_both_versions
-    error = assert_raises(Flezha::Native::SchemaMismatch) do
+    error = assert_raises(Flezha::Error) do
       Flezha::Native.context_new(Flezha::Native.schema_version + 1)
     end
 
-    assert_includes error.message, Flezha::Native.schema_version.to_s
-    assert_includes error.message, (Flezha::Native.schema_version + 1).to_s
-    assert_kind_of Flezha::Native::Error, error, "the schema refusal is a native error"
+    assert_equal "runtime.schema_mismatch", error.code
+    assert_equal({ "shim" => Flezha::Native.schema_version + 1, "core" => Flezha::Native.schema_version },
+                 error.details)
   end
 
   def test_a_call_before_the_context_exists_names_what_the_caller_skipped
-    assert_includes(
-      assert_raises(Flezha::Native::Error) { Flezha::Native.poll(1) }.message,
-      "context_new"
-    )
+    error = assert_raises(Flezha::Error) { Flezha::Native.poll(1) }
+    assert_equal "internal.uncatalogued", error.code
+    assert_includes error.details["reason"], "context_new"
   end
 
   # Every export maps onto one C ABI entry point: the veneer adds no kernel
@@ -60,7 +59,8 @@ class NativeTest < Minitest::Test
     # The three the wrapper reaches other than by delegation: two are class
     # level (`create` negotiates the schema, `free` releases it) and
     # `native_surface` is this assertion's own subject.
-    wrapped = Flezha::Core::ENTRY_POINTS + %i[schema_version context_new context_free native_surface]
+    # `error_document` is reached through `Core.error_document`.
+    wrapped = Flezha::Core::ENTRY_POINTS + %i[schema_version context_new context_free native_surface error_document]
 
     assert_empty exported - wrapped, "the veneer exports entry points Core cannot reach"
     assert_empty wrapped - exported, "Core delegates to entry points the veneer does not export"
@@ -126,12 +126,13 @@ class NativeTest < Minitest::Test
   def test_the_core_refuses_a_declaration_it_cannot_honour
     Flezha::Native.context_new(Flezha::ACTIVATION_SCHEMA_VERSION)
 
-    error = assert_raises(Flezha::Native::Error) do
+    error = assert_raises(Flezha::Error) do
       Flezha::Native.declare_class(JSON.generate({ "factory_id" => "x", "channels" => [],
                                                    "tasklets" => [] }))
     end
 
-    assert_includes error.message, "sdk_lang", "a class that declares no language is refused"
+    assert_equal "topology.declaration_unreadable", error.code
+    assert_includes error.details["reason"], "sdk_lang", "a class that declares no language is refused"
   ensure
     Flezha::Native.context_free
   end
@@ -198,14 +199,12 @@ class NativeTest < Minitest::Test
     operator.channels { |c| c.input("input").key_by { "a" }.key_by { "b" }.into(keyed) }
 
     json = JSON.generate(Flezha::Graph.to_host_class_decl(operator.spec))
-    error = assert_raises(Flezha::Native::Error) { Flezha::Native.check_class(json) }
+    error = assert_raises(Flezha::Error) { Flezha::Native.check_class(json) }
 
-    assert_includes error.message, "topology rejected [DuplicateKeyBy]"
-    # The verdict rides the exception as data too: the ABI fills the out-buffer
-    # on the refusal status, and the veneer surfaces it rather than dropping it.
-    assert_equal ["DuplicateKeyBy"],
-                 JSON.parse(error.verdict)["issues"].map { |issue| issue["name"] }
-    assert_raises(Flezha::Native::Error) { Flezha::Native.declare_class(json) }
+    assert_equal "topology.duplicate_key_by", error.code
+    # Every issue rides the error as data too.
+    assert_equal ["topology.duplicate_key_by"], Flezha::TestSupport.codes(error)
+    assert_equal "topology.duplicate_key_by", assert_raises(Flezha::Error) { Flezha::Native.declare_class(json) }.code
   ensure
     Flezha::Native.context_free
   end

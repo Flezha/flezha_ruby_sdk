@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 require_relative "errors"
 require_relative "version"
 
@@ -13,9 +15,9 @@ module Flezha
   # veneer function — it adds the fork guard, which is a host rule rather than
   # a core one.
   class Core
-    # A core call from a process that did not start the core.
-    class ForkError < Error; end
-
+    # An absent extension is an installation defect rather than a refusal, and
+    # nothing is left to render a catalogue message with, so it stays a
+    # `LoadError`.
     def self.load_extension
       # Ruby derives `Init_flz_core_ffi` from the basename, which is what the
       # veneer exports. A precompiled gem carries one library per Ruby minor,
@@ -31,9 +33,16 @@ module Flezha
         require "flezha/flz_core_ffi"
       end
     rescue LoadError => e
-      raise Error,
+      raise LoadError,
             "the flezha native extension could not be loaded (#{e.message}). Install a " \
             "precompiled platform gem, or build the source gem with cargo and git."
+    end
+
+    # The JSON error document the catalogue renders for `code` and `details`:
+    # what `Flezha::Error` is built from, for a refusal this SDK makes itself.
+    def self.error_document(code, details)
+      load_extension
+      Native.error_document(code.to_s, JSON.generate(details))
     end
 
     # Create the process context, negotiating the activation schema version
@@ -64,10 +73,7 @@ module Flezha
     def guard!
       return if Process.pid == @owner_pid
 
-      raise ForkError,
-            "the flezha core was started in process #{@owner_pid} and this is #{Process.pid}: " \
-            "the core owns native threads that fork(2) does not carry, so a child cannot " \
-            "serve. Declare classes, warm up, fork, and start the core in each child."
+      raise Error.new("runtime.forked_process", owner: @owner_pid, pid: Process.pid)
     end
 
     # Every ABI entry point a running host reaches, in the veneer's own

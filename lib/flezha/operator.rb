@@ -75,34 +75,20 @@ module Flezha
       # `Runner#register_factory` at the call the author wrote and again when
       # the spec is built.
       def check_declaration!
-        unless @factory_id
-          raise DeclarationError.new(to_s, nil, "declares no `factory_id`; an operator's " \
-                                                "factory id is written, never derived")
-        end
+        # A factory id is written, never derived from the class.
+        raise Error.new("topology.missing_factory_id", operator: to_s) unless @factory_id
 
         if short_form?
-          if channels
-            raise DeclarationError.new(
-              @factory_id, "run",
-              "ShortFormWithTopology: defines a `run` body beside `channels`; a short form's " \
-              "one tasklet is `run`, and a graph of tasklets is `channels`, so keep one",
-              ["ShortFormWithTopology"]
-            )
-          end
+          raise Error.new("topology.short_form_with_topology", factory_id: @factory_id) if channels
 
           # Everything else a class declares is a class setting, left at its
           # default on a short form.
-          refuse_written(settings - SHORT_FORM_ONLY - SHORT_FORM_SETTINGS,
-                         " on a short form, whose class settings but the loop mode are the " \
-                         "defaults; write the full form in `channels` to change one")
+          refuse_written("topology.setting_on_short_form", settings - SHORT_FORM_ONLY - SHORT_FORM_SETTINGS)
         elsif channels
-          refuse_written(SHORT_FORM_ONLY,
-                         ", which only a short form reads; a full form wires it in `channels`, " \
-                         "a channel key on the channel and a tasklet setting on the tasklet")
+          refuse_written("topology.short_form_field_on_full_form", SHORT_FORM_ONLY)
         else
-          raise DeclarationError.new(@factory_id, nil,
-                                     "declares no body; write the graph in `channels`, or a " \
-                                     "single tasklet's body as `run`")
+          raise Error.new("topology.missing_body", declaration: "operator '#{@factory_id}'",
+                                                   body: "`channels`, or one tasklet's `run` as the short form")
         end
       end
 
@@ -113,11 +99,11 @@ module Flezha
       def short_form? = method_defined?(:run)
 
       # Refuse the declarations among +names+ this class wrote, naming each.
-      def refuse_written(names, reason)
+      def refuse_written(code, names)
         names = written(names).keys
         return if names.empty?
 
-        raise DeclarationError.new(@factory_id, nil, "declares `#{names.join('`, `')}`#{reason}")
+        raise Error.new(code, factory_id: @factory_id, fields: names.map { |name| "`#{name}`" })
       end
 
       def build_builder

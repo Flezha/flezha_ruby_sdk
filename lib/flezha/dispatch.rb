@@ -49,8 +49,7 @@ module Flezha
 
     def add(spec)
       if @classes.key?(spec.factory_id)
-        raise Error, "DuplicateFactoryId: `#{spec.factory_id}` is already declared on this " \
-                     "runner; a runner declares each factory id once"
+        raise Error.new("topology.duplicate_factory_id", factory_id: spec.factory_id)
       end
 
       @classes[spec.factory_id] = RegisteredClass.new(spec)
@@ -81,7 +80,7 @@ module Flezha
     # read by a user, and a multi-line backtrace there is noise the retry
     # ladder multiplies. The backtrace is logged host-side instead, where it is
     # a diagnostic rather than a record.
-    def error_message(error) = "#{error.class}: #{error.message}"
+    def error_message(error) = "#{error.class}: #{error.is_a?(Error) ? error.detailed_message : error.message}"
 
     # A handler declares an error non-retryable by answering `non_retryable?`.
     def non_retryable?(error)
@@ -223,10 +222,10 @@ module Flezha
     def run_item(registered, node, item, now, ctx)
       definition = node.definition
       if item[:kind] == :timer
+        # Registration is a runtime call, so this cannot be refused at
+        # declaration time.
         unless definition.on_timer?
-          raise Error,
-                "#{node.name} registered a timer but declares no on_timer; registration " \
-                "is a runtime call, so this cannot be refused at declaration time"
+          raise Error.new("runtime.timer_without_on_timer", tasklet: node.name)
         end
 
         definition.instance.on_timer(

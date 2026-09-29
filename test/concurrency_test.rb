@@ -244,8 +244,9 @@ class ConcurrencyTest < Minitest::Test
     core = Flezha::Core.allocate
     core.instance_variable_set(:@owner_pid, Process.pid - 1)
 
-    error = assert_raises(Flezha::Core::ForkError) { core.guard! }
-    assert_includes error.message, "fork"
+    error = assert_raises(Flezha::Error) { core.guard! }
+    assert_equal ["runtime.forked_process", { "owner" => Process.pid - 1, "pid" => Process.pid }],
+                 [error.code, error.details]
     assert_includes error.message, "start the core in each child"
   end
 

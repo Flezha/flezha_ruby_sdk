@@ -6,7 +6,7 @@ require_relative "test_helper"
 # the clock and the initial state read from what the class defines, the cell
 # mode read from the wiring, and output only through the context.
 class TaskletFormTest < Minitest::Test
-  def refusal(&) = assert_raises(Flezha::DeclarationError, &)
+  def refusal(&) = assert_raises(Flezha::Error, &)
 
   def operator(factory, base: Flezha::UnboundedOperator, &channels)
     Class.new(base).tap do |klass|
@@ -57,11 +57,10 @@ class TaskletFormTest < Minitest::Test
     named = refusal { operator("nameless") { |c| c.input("in").into(Nameless).sink("out") }.spec }
     anonymous = refusal { operator("anonymous") { |c| c.input("in").into(tasklet).sink("out") }.spec }
 
-    assert_includes named.message, "TaskletFormTest::Nameless"
-    assert_includes named.message, "tasklet_name"
-    assert_includes anonymous.message, "anonymous"
-    assert_includes anonymous.message, "tasklet_name"
-    assert_includes refusal { tasklet("").definition }.message, "tasklet_name"
+    assert_equal %w[topology.tasklet_name_missing TaskletFormTest::Nameless], [named.code, named.details["tasklet"]]
+    assert_equal ["topology.tasklet_name_missing", "an anonymous tasklet class"],
+                 [anonymous.code, anonymous.details["tasklet"]]
+    assert_equal "topology.tasklet_name_missing", refusal { tasklet("").definition }.code
   end
 
   class Totals < Flezha::Tasklet
@@ -127,8 +126,9 @@ class TaskletFormTest < Minitest::Test
 
   def test_an_idle_ttl_that_is_not_a_positive_whole_number_is_refused_where_it_is_written
     [0.2, "60", 0, -1].each do |value|
-      message = refusal { tasklet("bad_ttl") { idle_ttl_seconds value } }.message
-      assert_includes message, "idle_ttl_seconds #{value.inspect}"
+      error = refusal { tasklet("bad_ttl") { idle_ttl_seconds value } }
+      assert_equal ["topology.invalid_setting", "idle_ttl_seconds", value.inspect],
+                   [error.code, error.details["setting"], error.details["value"]]
     end
   end
 
@@ -168,9 +168,8 @@ class TaskletFormTest < Minitest::Test
       def event_time(input) = Integer(input)
     end
 
-    message = refusal { both.definition }.message
-    assert_includes message, "`event_time`"
-    assert_includes message, "`logical_clock`"
+    error = refusal { both.definition }
+    assert_equal ["topology.two_clocks", { "tasklet" => "both_clocks" }], [error.code, error.details]
   end
 
   def test_a_logical_clock_on_a_stateless_tasklet_keeps_the_cores_refusal
@@ -178,7 +177,8 @@ class TaskletFormTest < Minitest::Test
     stateless = tasklet("stateless_logical") { logical_clock }
     klass = operator("stateless_logical_op") { |c| c.input("in").into(stateless).sink("out") }
 
-    assert_includes refusal { Flezha::TestSupport.validate(klass.spec) }.refusals, "UnservableClock"
+    assert_includes Flezha::TestSupport.codes(refusal { Flezha::TestSupport.validate(klass.spec) }),
+                    "topology.unservable_clock"
   end
 
   # -- the initial state -------------------------------------------------------
@@ -214,9 +214,10 @@ class TaskletFormTest < Minitest::Test
   end
 
   def test_a_state_type_that_cannot_be_built_is_refused
-    message = refusal { tasklet("unbuildable") { state_type Required }.definition }.message
+    error = refusal { tasklet("unbuildable") { state_type Required }.definition }
 
-    %w[TaskletFormTest::Required state_type init_state].each { |word| assert_includes message, word }
+    assert_equal ["topology.state_not_constructible", { "tasklet" => "unbuildable", "state" => "TaskletFormTest::Required" }],
+                 [error.code, error.details]
   end
 
   def test_a_hash_change_needs_no_class_and_folds_again_on_restore
@@ -264,7 +265,8 @@ class TaskletFormTest < Minitest::Test
     end
     klass = operator("floor_op") { |c| c.input("in").into(floor).sink("out") }
 
-    assert_includes refusal { Flezha::Graph.validate(klass.spec, nil) }.message, "supplies no migration"
+    assert_equal ["topology.schema_floor_without_migration", { "tasklet" => "floor", "floor" => 1 }],
+                 refusal { Flezha::Graph.validate(klass.spec, nil) }.then { |e| [e.code, e.details] }
   end
 
   # -- what no longer exists ---------------------------------------------------
@@ -287,7 +289,8 @@ class TaskletFormTest < Minitest::Test
     hidden = tasklet("hidden_leftover") { private def initial_state(_cell_key) = {} }
 
     [leftover, hidden].each do |klass|
-      assert_includes refusal { klass.definition }.message, "`init_state(cell_key)`"
+      error = refusal { klass.definition }
+      assert_equal ["topology.retired_callback", "`init_state(cell_key)`"], [error.code, error.details["instead"]]
     end
   end
 
@@ -329,7 +332,7 @@ class TaskletFormTest < Minitest::Test
     klass = operator("routed_op") { |c| c.input("in").key_by(&:to_s).into(routed).sink("out") }
 
     error = refusal { Flezha::TestSupport.validate(klass.spec) }
-    assert_includes error.refusals, "KeyByOnUnkeyableTarget"
+    assert_includes Flezha::TestSupport.codes(error), "topology.key_by_on_unkeyable_target"
     assert_includes error.message, "routed"
   end
 

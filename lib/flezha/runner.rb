@@ -49,10 +49,9 @@ module Flezha
     # Register an operator class of either kind, short form or full. The kind
     # is read from the class, never named by the call.
     def register_factory(klass)
+      # A tasklet is registered by the operator that wires it.
       unless klass.is_a?(Class) && (klass < UnboundedOperator || klass < BoundedOperator)
-        raise Error, "UnknownOperatorKind: `#{klass}` is neither a Flezha::UnboundedOperator nor " \
-                     "a Flezha::BoundedOperator; a tasklet is registered by the operator " \
-                     "that wires it"
+        raise Error.new("topology.unknown_operator_kind", module: klass.to_s)
       end
 
       klass.check_declaration!
@@ -67,14 +66,9 @@ module Flezha
     # from a registry the executor already holds, and it cannot stop serving
     # one. Saying so is what makes the call honest rather than ignored.
     def unregister_factory(klass)
-      if @core
-        raise Error, "`#{klass}` cannot be unregistered: a running Ruby runner cannot stop " \
-                     "serving a started declaration"
-      end
-
-      unless @classes.delete(klass)
-        raise Error, "`#{klass}` is not registered on this runner"
-      end
+      factory = klass.respond_to?(:factory_id) && klass.factory_id || klass.to_s
+      raise Error.new("runtime.factory_in_service", module: klass.to_s) if @core
+      raise Error.new("runtime.class_not_registered", factory: factory) unless @classes.delete(klass)
 
       self
     end
@@ -198,7 +192,7 @@ module Flezha
       # this SDK renders it, so an author meets a declaration refusal rather
       # than a native failure at the first connection.
       @classes.each { |klass| Graph.declare(klass.spec, @core, @registry) }
-      raise Error, "a runner declares at least one operator class" if @registry.empty?
+      raise Error.new("runtime.no_operators") if @registry.empty?
     end
 
     def build_executor
@@ -207,7 +201,8 @@ module Flezha
       when :threads then ThreadExecutor.new(@core, deps, **@executor_options)
       when :fibers then FiberExecutor.new(@core, deps, **@executor_options)
       else
-        raise Error, "unknown executor `#{@executor_kind}`; the seam has :threads and :fibers"
+        raise Error.new("usage.unknown_word", noun: "executor", value: @executor_kind.to_s,
+                                              allowed: %w[threads fibers])
       end
     end
 

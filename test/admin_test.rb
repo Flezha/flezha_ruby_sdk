@@ -36,11 +36,11 @@ class AdminTest < Minitest::Test
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
     core = Flezha::TestSupport::FakeCore.new
-    refusal = ->(*) { raise Flezha::Native::Error, "max_operators reached" }
+    refusal = ->(*) { raise Flezha::Error.new("quota.exceeded", kind: "max_operators", current: 3, limit: 3) }
 
-    error = assert_raises(Flezha::Native::Error) do
+    error = assert_raises(Flezha::Error) do
       core.stub(:admin_call, refusal) { Flezha::Admin.new(core).start_operator("echo") }
     end
-    assert_includes error.message, "max_operators"
+    assert_equal ["quota.exceeded", "max_operators"], [error.code, error.details["kind"]]
   end
 end

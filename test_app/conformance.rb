@@ -316,19 +316,22 @@ module Conformance
     registry = Flezha::Registry.new
     declare_shorthands(declarations).each { |operator| registry.add(operator.spec) }
     { "topology" => row[:topology], "outcome" => "accepted" }
-  rescue Flezha::DeclarationError => e
-    { "topology" => row[:topology], "outcome" => "refused",
-      "names" => [refusal_name(e.defect)] }
   rescue Flezha::Error => e
-    { "topology" => row[:topology], "outcome" => "refused",
-      "names" => [refusal_name(e.message)] }
+    refused(row, e)
   end
 
-  # The leading refusal name of a message the contract requires to begin with one.
-  def self.refusal_name(message) = message.split(":", 2).first.strip
+  # Every code a refusal carries: each issue's, or its own.
+  def self.codes_of(error)
+    codes = Array(error.details["issues"]).map { |issue| issue["code"] }
+    codes.empty? ? [error.code] : codes
+  end
 
-  # One row's verdict, in the report's shape. The refusal NAMES are the core's
-  # own, carried on the refusal this SDK raises; nothing here re-derives one.
+  def self.refused(row, error)
+    { "topology" => row[:topology], "outcome" => "refused", "names" => codes_of(error) }
+  end
+
+  # One row's verdict, in the report's shape. The refusal codes are the core's
+  # own, carried on the error this SDK raises; nothing here re-derives one.
   def self.judge(row, core)
     unless carried?(row)
       return { "topology" => row[:topology], "outcome" => "skipped", "needs" => row[:needs] }
@@ -339,8 +342,8 @@ module Conformance
 
     derived = Flezha::Graph.validate(class_for(row).spec, core)
     { "topology" => row[:topology], "outcome" => "accepted", "derived" => channels_of(derived) }
-  rescue Flezha::DeclarationError => e
-    { "topology" => row[:topology], "outcome" => "refused", "names" => e.refusals }
+  rescue Flezha::Error => e
+    refused(row, e)
   end
 
   # The derived declaration in the columns the fixture's seven-column table

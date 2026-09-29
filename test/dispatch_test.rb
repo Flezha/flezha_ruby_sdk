@@ -297,7 +297,7 @@ class DispatchTest < Minitest::Test
     result = answer_on(ArmsOnUndoBounded, kind: :compensate_run, outputs: [])
 
     assert_equal "failed", result[:outcome]
-    assert_includes result[:error], "TimersUnavailable: arms_on_undo"
+    assert result[:error].end_with?("(runtime.timers_unavailable)"), result[:error]
   end
 
   def test_an_unbounded_tasklet_still_registers_its_timer
@@ -313,9 +313,10 @@ class DispatchTest < Minitest::Test
       def run(_input, ctx) = ctx.complete(Float::NAN)
     end
 
-    error = assert_raises(Flezha::EmitError) { Flezha::Testing::Harness.new(klass).feed("x") }
+    error = assert_raises(Flezha::Error) { Flezha::Testing::Harness.new(klass).feed("x") }
 
-    assert_includes error.message, "completes_with_nan: a Float cannot be sent as JSON"
+    assert_equal ["runtime.value_not_json", "tasklet 'completes_with_nan'", "Float"],
+                 [error.code, error.details["owner"], error.details["type"]]
   end
 
   # The handout contract, against the collaborator that decides it. A real core
@@ -331,7 +332,7 @@ class DispatchTest < Minitest::Test
     said = reported { Flezha::Dispatch.dispatch(activation(:work, items: []), core, @deps) }
     core.free
 
-    assert_match(/unknown activation token 1/, said)
+    assert_includes said, "(runtime.unknown_activation_token)"
     assert_match(/abandoning activation 1 failed/, said)
   end
 

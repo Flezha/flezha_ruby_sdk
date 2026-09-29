@@ -30,10 +30,12 @@ module Flezha
       instance = instance_id.to_s.b
       tasklet = tasklet_name.to_s.b
       key = cell_key.to_s.b
-      if instance.bytesize > 255 || tasklet.bytesize > 255
-        raise Error, "operator class / tasklet id must be at most 255 bytes"
-      end
-      raise Error, "cell key must be at most 65535 bytes" if key.bytesize > 0xffff
+      [["operator id", instance_id, 255], ["tasklet name", tasklet_name, 255], ["cell key", cell_key, 0xffff]]
+        .each do |part, value, limit|
+          next if value.to_s.bytesize <= limit
+
+          raise Error.new("runtime.identity_too_long", part: part, value: value.to_s, limit: limit)
+        end
 
       [instance.bytesize, instance, tasklet.bytesize, tasklet, key.bytesize, key]
         .pack("Ca*Ca*na*")

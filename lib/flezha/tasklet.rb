@@ -20,14 +20,13 @@ module Flezha
 
     def initialize(type, which)
       unless type.method_defined?(:to_h)
-        raise DeclarationError.new(type.to_s, which,
-                                   "declares no `to_h`; a durable #{which} is encoded as the " \
-                                   "Hash it answers")
+        raise Codec.unrepresentable(type, which.to_s, "it declares no `to_h`; a durable #{which} is encoded as the " \
+                                                      "Hash it answers")
       end
       unless type.respond_to?(:from_h)
-        raise DeclarationError.new(type.to_s, which,
-                                   "declares no `.from_h`; a durable #{which} is rebuilt from " \
-                                   "the Hash it was encoded as")
+        raise Codec.unrepresentable(type, which.to_s,
+                                    "it declares no `.from_h`; a durable #{which} is rebuilt from the Hash it " \
+                                    "was encoded as")
       end
 
       @type = type
@@ -148,9 +147,9 @@ module Flezha
       return @idle_ttl_seconds if seconds.nil?
 
       unless seconds.is_a?(Integer) && seconds.positive?
-        raise DeclarationError.new("<tasklet>", to_s,
-                                   "declares `idle_ttl_seconds #{seconds.inspect}`; the idle " \
-                                   "TTL is a positive whole number of seconds")
+        raise Error.new("topology.invalid_setting", declaration: "tasklet '#{self}'", setting: "idle_ttl_seconds",
+                                                    value: seconds.inspect,
+                                                    expected: "a positive whole number of seconds")
       end
 
       @idle_ttl_seconds = seconds
@@ -216,12 +215,9 @@ module Flezha
       # A tasklet has no sink: the one-tasklet short form is an operator,
       # and its sink is written there.
       def sink(*, **)
-        raise DeclarationError.new(
-          "<tasklet>", to_s,
-          "declares a `sink`, and a tasklet has none; a one-tasklet operator is a " \
-          "Flezha::UnboundedOperator or Flezha::BoundedOperator subclass with a `run` body, " \
-          "and its `sink` is written there"
-        )
+        raise Error.new("topology.operator_field_on_tasklet",
+                        tasklet: to_s, fields: ["`sink`"],
+                        instead: "a Flezha::UnboundedOperator or Flezha::BoundedOperator subclass with a `run` body")
       end
 
       # The resolved declaration. Built once: it instantiates the tasklet,
@@ -236,33 +232,28 @@ module Flezha
         check_name
         definition = Definition.new(self)
         check_hooks(definition)
-        refuse("declares an empty static key set; a static tasklet names its cells") if @cell_keys&.empty?
-        if definition.event_time? && logical_clock?
-          refuse("defines `event_time` and declares `logical_clock`; the clock is event time " \
-                 "or logical, so keep one")
+        if @cell_keys&.empty?
+          raise Error.new("topology.static_tasklet_without_cell_keys", tasklet: @tasklet_name)
         end
+        raise Error.new("topology.two_clocks", tasklet: @tasklet_name) if definition.event_time? && logical_clock?
+
         check_state(definition)
       end
 
       def check_name
         return unless @tasklet_name.to_s.empty?
 
-        raise DeclarationError.new("<tasklet>", nil,
-                                   "#{name || 'an anonymous tasklet class'} declares no " \
-                                   "`tasklet_name`; every tasklet writes `tasklet_name " \
-                                   "\"...\"`, the name its Cells' state is kept under")
+        raise Error.new("topology.tasklet_name_missing", tasklet: name || "an anonymous tasklet class")
       end
 
       def check_hooks(definition)
         unless body.method_defined?(:run)
-          stale = body.method_defined?(:process) ? " (`process` is not read)" : ""
-          refuse("#{body} declares no `run` method#{stale}; a tasklet's body is its `run`, " \
-                 "what runs against an input")
+          raise Error.new("topology.missing_body", declaration: "tasklet '#{@tasklet_name}'", body: "`run`")
         end
         return unless definition.declares?(:initial_state)
 
-        refuse("#{body} defines `initial_state`, which is not read; a Cell's starting state " \
-               "is `init_state(cell_key)`")
+        raise Error.new("topology.retired_callback", tasklet: @tasklet_name, callback: "`initial_state`",
+                                                     instead: "`init_state(cell_key)`")
       end
 
       # State without a fold is legitimate: a value seeded at start and read
@@ -270,9 +261,9 @@ module Flezha
       # refuses at the point of use. A fold with no state to fold into is not.
       def check_state(definition)
         if definition.apply_change? && !definition.stateful?
-          refuse("declares apply_change but neither init_state nor state_type; there is " \
-                 "nothing for a change to fold into")
+          raise Error.new("topology.change_without_state", tasklet: @tasklet_name)
         end
+
         # A state that cannot be built or encoded fails at the first Cell or
         # the first restart. Build the starting state now instead.
         if definition.init_state? && !state_codec
@@ -285,13 +276,9 @@ module Flezha
 
       def check_state_type
         state_type.new
-      rescue StandardError => e
-        refuse("declares `state_type #{state_type}` and no `init_state`, and " \
-               "`#{state_type}.new` raised #{e.class}: #{e.message}; define `init_state` or " \
-               "give the state_type a constructor that takes no argument")
+      rescue StandardError
+        raise Error.new("topology.state_not_constructible", tasklet: @tasklet_name, state: state_type.to_s)
       end
-
-      def refuse(defect) = raise(DeclarationError.new("<tasklet>", @tasklet_name, defect))
     end
   end
 end

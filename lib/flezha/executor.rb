@@ -328,9 +328,10 @@ module Flezha
       begin
         require "async"
       rescue LoadError
-        raise Error,
-              "the fiber executor needs a Fiber::Scheduler. Add the `async` gem, or pass " \
-              "`scheduler:` a callable answering one."
+        raise Error.new("runtime.executor_unavailable",
+                        executor: "fibers",
+                        reason: "it needs a Fiber::Scheduler; add the `async` gem, or pass `scheduler:` " \
+                                "a callable answering one")
       end
       Async::Scheduler.new
     end

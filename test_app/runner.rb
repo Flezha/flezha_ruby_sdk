@@ -48,4 +48,13 @@ warn(
   "executor=#{ENV.fetch('FLEZHA_RUBY_EXECUTOR', 'threads')}"
 )
 
-runner.run
+begin
+  runner.run
+rescue Flezha::Error => e
+  raise unless e.code.start_with?("topology.")
+
+  # A refused declaration names itself: its codes ride the error as data, and
+  # the drill reads them off this process's output.
+  warn("[ruby_runner] declaration refused: #{Conformance.codes_of(e).join(', ')}\n#{e.message}")
+  exit 1
+end

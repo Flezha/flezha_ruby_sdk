@@ -105,10 +105,9 @@ class LocalModeCapabilitiesTest < Minitest::Test
   # from, so a local run says so instead of running the graph.
   def test_a_controller_capability_is_refused_by_name_not_approximated
     operator = declares("effectively_once", "tier_store")
-    message = assert_raises(Flezha::Native::Error) { Flezha::LocalOperator.start(operator) }.message
+    error = assert_raises(Flezha::Error) { Flezha::LocalOperator.start(operator) }
 
-    assert_includes message, "effectively_once"
-    assert_includes message, "requires a controller"
+    assert_equal %w[runtime.local_needs_controller effectively_once], [error.code, error.details["capability"]]
   end
 
   private

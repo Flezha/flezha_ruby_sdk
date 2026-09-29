@@ -9,8 +9,8 @@ module Flezha
   # The `HostClassDecl` the core is handed, and the verdict it answers.
   #
   # The topology is judged in ONE place, `flz_core::host::register::check`:
-  # this module records what the author declared, submits it, and renders the
-  # core's verdict as this SDK's own refusal. What is refused here instead is
+  # this module records what the author declared, submits it, and the core's
+  # refusal reaches the author as the `Flezha::Error` it raises. What is refused here instead is
   # what a record cannot carry: whether a Ruby class supplies the migration a
   # schema floor needs, which the core cannot see.
   module Graph
@@ -27,10 +27,6 @@ module Flezha
     FORMAT_ID_MSGPACK = 5
 
     module_function
-
-    def refuse(spec, handler, defect)
-      raise DeclarationError.new(spec.factory_id, handler, defect)
-    end
 
     # Judge one declaration and answer what the core derived from it: the
     # channel names, kinds, consumers, sink names and acknowledgement
@@ -58,24 +54,11 @@ module Flezha
       derived
     end
 
-    # The record, over the ABI, and the verdict back.
-    #
-    # `Flezha::Native::Error` is what the veneer raises; it exists because
-    # `core` came from the extension that defines it.
+    # The record, over the ABI, and the verdict back. A refusal raises the
+    # core's `Flezha::Error`: its code is the first issue's, and
+    # `details["issues"]` lists every issue as `{code, message, details}`.
     def submit(spec, core)
       JSON.parse(core.check_class(JSON.generate(to_host_class_decl(spec))))
-    rescue Native::Error => e
-      raise DeclarationError.new(spec.factory_id, nil, e.message, refusals_of(e))
-    end
-
-    # The core's own names for what it refused, read off the verdict it hands
-    # back as data beside the rendered message. Empty when the failure carried
-    # no verdict — a context refusal rather than a judgement on the record.
-    def refusals_of(error)
-      verdict = error.verdict
-      return [] unless verdict
-
-      JSON.parse(verdict).fetch("issues", []).map { |issue| issue["name"] }
     end
 
     # The consumers the CORE derived, each carrying the closures of the chain
@@ -90,26 +73,21 @@ module Flezha
     end
 
     def check_tasklets(spec)
-      spec.tasklets.each { |node| check_schema(spec, node) }
+      spec.tasklets.each { |node| check_schema(node) }
     end
 
-    def check_schema(spec, node)
+    def check_schema(node)
       definition = node.definition
       floor = definition.min_readable_schema_version
       return unless floor
 
       running = definition.schema_version || 1
       if floor > running
-        refuse(spec, node.name,
-               "declares min_readable_schema_version #{floor} above its schema_version " \
-               "#{running}")
+        raise Error.new("topology.schema_floor_above_version", tasklet: node.name, floor: floor, version: running)
       end
       return unless floor < running && !definition.migrate_state? && !definition.migrate_change?
 
-      refuse(spec, node.name,
-             "declares it reads back to schema version #{floor} but supplies no " \
-             "migration; a floor without one fails at the first old record instead of " \
-             "at startup")
+      raise Error.new("topology.schema_floor_without_migration", tasklet: node.name, floor: floor)
     end
 
     # Drop the keys whose value is nil, so the JSON omits them.

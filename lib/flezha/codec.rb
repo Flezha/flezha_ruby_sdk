@@ -76,15 +76,15 @@ module Flezha
       case codec
       when :bytes then ->(value) { value.is_a?(String) ? value : refuse_payload(channel, codec, value) }
       when :text then ->(value) { value.is_a?(String) ? utf8_text(value, channel) : refuse_payload(channel, codec, value) }
-      when :json then ->(value) { json_payload("channel `#{channel.name}`", value) }
+      when :json then ->(value) { json_payload("channel '#{channel.name}'", value) }
       when :msgpack then method(:encode)
-      else ->(value) { plain_payload(value, "channel `#{channel.name}`") }
+      else ->(value) { plain_payload(value, "channel '#{channel.name}'") }
       end
     end
 
     # A String as its bytes and anything else as JSON: what a sink naming no
-    # codec sends, and what a bounded completion carries. `owner` is what a
-    # refusal names.
+    # codec sends, and what a bounded completion carries. `owner` is the
+    # channel or tasklet a refusal names.
     def plain_payload(value, owner)
       value.is_a?(String) ? value : json_payload(owner, value)
     end
@@ -99,11 +99,15 @@ module Flezha
     def json_payload(owner, value)
       JSON.generate(value)
     rescue JSON::GeneratorError => e
-      raise EmitError, "#{owner}: a #{value.class} cannot be sent as JSON: #{e.message}"
+      raise Error.new("runtime.value_not_json", owner: owner, type: value.class.to_s, reason: e.message)
     end
 
     def refuse_payload(channel, codec, value)
-      raise EmitError, "channel `#{channel.name}` names the #{codec} codec and cannot send a #{value.class}"
+      raise Error.new("runtime.value_wrong_for_codec", channel: channel.name, codec: codec.to_s, type: value.class.to_s)
+    end
+
+    def unrepresentable(type_name, path, reason)
+      Error.new("topology.state_unrepresentable", path: "#{type_name}.#{path.empty? ? '<root>' : path}", reason: reason)
     end
 
     # A value the codec cannot carry, named by the declaring type and the path
@@ -118,14 +122,12 @@ module Flezha
 
     def walk(type_name, value, path, seen)
       reason = unrepresentable_reason(value)
-      raise UnrepresentableValueError.new(type_name, path.empty? ? "<root>" : path, reason) if reason
+      raise unrepresentable(type_name, path, reason) if reason
       return unless value.is_a?(Hash) || value.is_a?(Array)
 
       if seen.key?(value.object_id)
-        raise UnrepresentableValueError.new(
-          type_name, path.empty? ? "<root>" : path,
-          "the value refers back to itself; MessagePack has no representation for a cycle"
-        )
+        raise unrepresentable(type_name, path,
+                              "the value refers back to itself; MessagePack has no representation for a cycle")
       end
       seen[value.object_id] = true
       if value.is_a?(Array)
@@ -133,10 +135,8 @@ module Flezha
       else
         value.each do |key, item|
           unless key.is_a?(Symbol) || key.is_a?(String)
-            raise UnrepresentableValueError.new(
-              type_name, path.empty? ? "<root>" : path,
-              "a Hash key of #{key.class} decodes as a String; declare Symbol or String keys"
-            )
+            raise unrepresentable(type_name, path,
+                                  "a Hash key of #{key.class} decodes as a String; declare Symbol or String keys")
           end
           walk(type_name, item, path.empty? ? key.to_s : "#{path}.#{key}", seen)
         end

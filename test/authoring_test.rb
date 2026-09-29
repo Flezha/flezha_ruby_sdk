@@ -13,8 +13,10 @@ require_relative "test_helper"
 # SDK's own refusal.
 class AuthoringTest < Minitest::Test
   def refusal(&block)
-    assert_raises(Flezha::DeclarationError, &block)
+    assert_raises(Flezha::Error, &block)
   end
+
+  def codes(error) = Flezha::TestSupport.codes(error)
 
   def pass_through(name)
     Class.new(Flezha::Tasklet) do
@@ -41,9 +43,10 @@ class AuthoringTest < Minitest::Test
   def test_a_tasklet_without_a_run_method_is_refused_by_name
     klass = Class.new(Flezha::Tasklet) { tasklet_name "no_body" }
 
-    message = refusal { klass.definition }.message
-    assert_includes message, "no_body"
-    assert_includes message, "`run`"
+    error = refusal { klass.definition }
+    assert_equal "topology.missing_body", error.code
+    assert_includes error.details["declaration"], "no_body"
+    assert_equal "`run`", error.details["body"]
   end
 
   class StillProcess < Flezha::Tasklet
@@ -52,10 +55,10 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_tasklet_defining_process_and_no_run_is_refused_naming_run
-    message = refusal { StillProcess.definition }.message
+    error = refusal { StillProcess.definition }
 
-    assert_includes message, "AuthoringTest::StillProcess"
-    assert_includes message, "`run`"
+    assert_equal ["topology.missing_body", { "declaration" => "tasklet 'still_process'", "body" => "`run`" }],
+                 [error.code, error.details]
   end
 
   def test_a_tasklet_s_body_is_its_run_method
@@ -74,8 +77,8 @@ class AuthoringTest < Minitest::Test
       def run(input, ctx) = ctx.emit(input)
     end
 
-    message = refusal { klass.definition }.message
-    %w[apply_change init_state state_type].each { |word| assert_includes message, word }
+    assert_equal ["topology.change_without_state", { "tasklet" => "fold_only" }],
+                 refusal { klass.definition }.then { |e| [e.code, e.details] }
   end
 
   def test_a_state_that_cannot_be_encoded_is_refused_at_registration
@@ -85,7 +88,7 @@ class AuthoringTest < Minitest::Test
       def run(input, ctx) = ctx.emit(input)
     end
 
-    assert_raises(Flezha::UnrepresentableValueError) { klass.definition }
+    assert_equal "topology.state_unrepresentable", refusal { klass.definition }.code
   end
 
   # The other refusal the builder keeps: a channel with no producer has no
@@ -94,7 +97,8 @@ class AuthoringTest < Minitest::Test
   def test_a_plugin_sink_on_an_entry_channel_is_refused_here
     klass = operator("entry_sink") { |c| c.input("in").sink }
 
-    assert_includes refusal { klass.spec }.message, "a plugin sink is fed by a tasklet"
+    error = refusal { klass.spec }
+    assert_equal ["topology.sink_on_entry", { "channel" => "<derived>" }], [error.code, error.details]
   end
 
   # `validate` IS the submission: the record crosses the ABI and the core's
@@ -110,11 +114,10 @@ class AuthoringTest < Minitest::Test
 
     error = refusal { validate(klass.spec) }
 
-    assert error.message.start_with?("dup_key_by: topology rejected [DuplicateKeyBy]:\n  - "), error.message
-    assert_includes error.message, "declares .key_by(...) twice before one `.into(...)`"
-    # And the names as DATA: the core hands the verdict out beside the rendered
-    # message, so nothing here reads them out of the prose.
-    assert_equal ["DuplicateKeyBy"], error.refusals
+    assert_equal "topology.duplicate_key_by", error.code
+    assert_equal "channel 'in' declares key_by twice before one into", error.message
+    # And every issue as DATA, so nothing here reads them out of the prose.
+    assert_equal ["topology.duplicate_key_by"], codes(error)
   end
 
   # The three checkpoint options each write their own raw flag now — the
@@ -142,7 +145,8 @@ class AuthoringTest < Minitest::Test
 
     error = refusal { klass.spec }
 
-    assert_equal "bodiless", error.factory_id
+    assert_equal "topology.missing_body", error.code
+    assert_equal "operator 'bodiless'", error.details["declaration"]
     assert_includes error.message, "`channels`"
   end
 
@@ -152,7 +156,7 @@ class AuthoringTest < Minitest::Test
     klass.factory_id "empty"
     klass.channels { |_c| nil }
 
-    assert_includes refusal { validate(klass.spec) }.message, "at least one tasklet"
+    assert_includes codes(refusal { validate(klass.spec) }), "topology.no_tasklets"
   end
 
   def test_two_unnamed_mentions_of_one_tasklet_are_one_node
@@ -182,11 +186,8 @@ class AuthoringTest < Minitest::Test
 
     error = refusal { klass.spec }
 
-    # The one refusal this builder raises under a core name reads the way the core's do.
-    assert_equal ["NodeIdentityCollision"], error.refusals
-    assert error.message.start_with?(
-      "collide: same_name: topology rejected [NodeIdentityCollision]:\n  - two different tasklets"
-    ), error.message
+    # The one refusal this builder raises under a core code.
+    assert_equal ["topology.node_identity_collision", { "name" => "same_name" }], [error.code, error.details]
   end
 
   def test_an_undeclared_class_never_reaches_the_registry
@@ -295,9 +296,9 @@ class AuthoringTest < Minitest::Test
       c.input("in").into(pass_through("producer")).named("a").sink("b")
     end
 
-    error = assert_raises(Flezha::DeclarationError) { validate(klass.spec) }
-    assert_match(/ChannelNamedTwice/, error.message)
-    assert_match(/both name it/, error.message)
+    error = refusal { validate(klass.spec) }
+    assert_equal ["topology.channel_named_twice"], codes(error)
+    assert_equal %w[a b], [error.details["named"], error.details["sink"]]
   end
 
   def test_a_channel_option_with_nothing_wired_after_it_still_reaches_the_channel
@@ -305,8 +306,7 @@ class AuthoringTest < Minitest::Test
     keyed = operator("trailing_keyed") { |c| c.input("in").into(pass_through("producer")).keyed }
 
     assert_equal %w[in renamed], channels_of(renamed).map(&:first)
-    error = assert_raises(Flezha::DeclarationError) { validate(keyed.spec) }
-    assert_match(/KeyedChannelWithoutPluginWire/, error.message)
+    assert_equal ["topology.keyed_channel_without_plugin_wire"], codes(refusal { validate(keyed.spec) })
   end
 
   def test_two_channels_naming_one_sink_is_refused
@@ -315,8 +315,7 @@ class AuthoringTest < Minitest::Test
        .into(pass_through("b")).sink("shared")
     end
 
-    error = assert_raises(Flezha::DeclarationError) { validate(klass.spec) }
-    assert_match(/DuplicateSinkName/, error.message)
+    assert_equal ["topology.duplicate_sink_name"], codes(refusal { validate(klass.spec) })
   end
 
   def test_a_transform_before_one_into_reaches_that_consumer_only
@@ -353,9 +352,9 @@ class AuthoringTest < Minitest::Test
   # What an author writes reaches the core whatever the kind, and a setting of
   # the other kind is refused there by its own name rather than dropped here.
   UNBOUNDED_SETTINGS_ON_A_BOUNDED = {
-    "EffectivelyOnceOnBounded" => ->(c) { c.effectively_once },
-    "CheckpointOnBounded" => ->(c) { c.checkpoint_every(500) },
-    "CorrectionWindowOnBounded" => ->(c) { c.correction_window(60_000) }
+    "topology.effectively_once_on_bounded" => ->(c) { c.effectively_once },
+    "topology.checkpoint_on_bounded" => ->(c) { c.checkpoint_every(500) },
+    "topology.correction_window_on_bounded" => ->(c) { c.correction_window(60_000) }
   }.freeze
 
   def test_a_stream_setting_on_a_bounded_is_refused_by_name
@@ -366,7 +365,7 @@ class AuthoringTest < Minitest::Test
         c.input("in").into(step)
       end
 
-      assert_equal [name], refusal { validate(klass.spec) }.refusals
+      assert_equal [name], codes(refusal { validate(klass.spec) })
     end
   end
 
@@ -375,7 +374,7 @@ class AuthoringTest < Minitest::Test
     klass = operator("sync_unbounded") { |c| c.input("in").into(step) }
     klass.sync_durability
 
-    assert_equal ["SyncDurabilityOnUnbounded"], refusal { validate(klass.spec) }.refusals
+    assert_equal ["topology.sync_durability_on_unbounded"], codes(refusal { validate(klass.spec) })
   end
 
   def test_sleeping_defaults_to_persistence_on_a_bounded_only
@@ -399,7 +398,7 @@ class AuthoringTest < Minitest::Test
       klass.persistent(false)
       klass.sleep_when_idle
 
-      assert_includes refusal { validate(klass.spec) }.message, "SleepWithoutPersistence"
+      assert_equal ["topology.sleep_without_persistence"], codes(refusal { validate(klass.spec) })
     end
   end
 
@@ -420,15 +419,15 @@ class AuthoringTest < Minitest::Test
 
   def test_a_loop_mode_outside_its_values_is_refused_where_it_is_written
     refused_mode(:loop_mode, :forever).each do |error|
-      assert_includes error.message, "loop_mode :forever"
-      assert_includes error.message, "`once`, `per_input`, `chained`"
+      assert_equal ["topology.invalid_mode", { "factory_id" => "mode", "knob" => "loop_mode", "value" => "forever" }],
+                   [error.code, error.details]
     end
   end
 
   def test_a_rollback_mode_outside_its_values_is_refused_where_it_is_written
     refused_mode(:rollback_mode, :best_effort).each do |error|
-      assert_includes error.message, "rollback_mode :best_effort"
-      assert_includes error.message, "`all_or_nothing`, `keep_progress`"
+      assert_equal ["topology.invalid_mode", "rollback_mode", "best_effort"],
+                   [error.code, error.details["knob"], error.details["value"]]
     end
   end
 
@@ -467,7 +466,7 @@ class AuthoringTest < Minitest::Test
       c.merge.from(c.input("in")) { |value| value }.into(pass_through("plain"))
     end
 
-    assert_includes refusal { validate(klass.spec) }.refusals, "MergeTooFewSources"
+    assert_includes codes(refusal { validate(klass.spec) }), "topology.merge_too_few_sources"
   end
 
   def test_a_merge_naming_one_source_twice_is_refused_as_a_duplicate_source
@@ -477,7 +476,7 @@ class AuthoringTest < Minitest::Test
       c.merge.from(source) { |value| value }.from(source) { |value| value }.into(pass_through("plain"))
     end
 
-    assert_includes refusal { validate(klass.spec) }.refusals, "DuplicateMergeSource"
+    assert_includes codes(refusal { validate(klass.spec) }), "topology.duplicate_merge_source"
   end
 
   def test_a_merge_source_already_wired_into_the_node_with_a_transform_is_refused
@@ -488,7 +487,7 @@ class AuthoringTest < Minitest::Test
       c.merge.from(ticks) { |value| value }.from(c.input("quotes")) { |value| value }.into(target)
     end
 
-    assert_includes refusal { validate(klass.spec) }.refusals, "EdgeAlreadyWired"
+    assert_includes codes(refusal { validate(klass.spec) }), "topology.edge_already_wired"
   end
 
   def test_the_latest_document_router_is_a_route_latest_node_and_the_named_form_names_it
@@ -571,19 +570,21 @@ class AuthoringTest < Minitest::Test
   def test_a_refusal_names_the_channel_and_a_bytes_sink_takes_a_string
     decode, text = codec_slots({ codec: :text }, { codec: :text })
     assert_includes assert_raises(EncodingError) { decode.call("\xFF".b) }.message, "`in`"
-    assert_includes assert_raises(Flezha::EmitError) { text.call(42) }.message, "`out`"
+    assert_equal({ "channel" => "out", "codec" => "text", "type" => "Integer" }, refusal { text.call(42) }.details)
 
     bytes = codec_slots({}, { codec: :bytes })[1]
-    assert_includes assert_raises(Flezha::EmitError) { bytes.call(42) }.message, "`out`"
+    error = refusal { bytes.call(42) }
+    assert_equal ["runtime.value_wrong_for_codec", "out"], [error.code, error.details["channel"]]
     assert_equal "hello", bytes.call("hello")
   end
 
   def test_an_unknown_codec_name_is_refused_naming_the_operator_the_channel_and_the_names
     [[{ codec: :yaml }, {}, "in"], [{}, { codec: "yaml" }, "out"]].each do |input, sink, channel|
-      message = refusal { codec_slots(input, sink) }.message
+      error = refusal { codec_slots(input, sink) }
 
-      assert_includes message, "codecs: #{channel}: unknown codec `yaml`"
-      assert_includes message, "bytes, text, json, msgpack"
+      assert_equal ["topology.unknown_codec", { "channel" => channel, "codec" => "yaml",
+                                                "codecs" => %w[bytes text json msgpack] }],
+                   [error.code, error.details]
     end
   end
 
@@ -592,7 +593,8 @@ class AuthoringTest < Minitest::Test
       [{ codec: :text, decode: ->(bytes) { bytes } }, {}, "in"],
       [{}, { codec: :text, encode: ->(value) { value } }, "out"]
     ].each do |input, sink, channel|
-      assert_includes refusal { codec_slots(input, sink) }.message, "codecs: #{channel}: names both a codec"
+      error = refusal { codec_slots(input, sink) }
+      assert_equal ["topology.codec_with_callable", { "channel" => channel }], [error.code, error.details]
     end
   end
 end

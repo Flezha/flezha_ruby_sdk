@@ -155,7 +155,8 @@ class TestingTest < Minitest::Test
                  harness.feed("x", replay: true).outputs.first,
                  "a spawn is an external effect; a replay must not issue it twice"
     error = assert_raises(Flezha::Error) { handles.first.try_result }
-    assert_includes error.message, "released", "as live, a handle is read inside the invocation that made it"
+    assert_equal "runtime.spawn_handle_released", error.code,
+                 "as live, a handle is read inside the invocation that made it"
   end
 
   def test_stable_id_is_replay_stable_within_an_invocation
@@ -215,5 +216,43 @@ class TestingTest < Minitest::Test
 
     assert_empty harness.feed({ traffic: "A" }).outputs
     assert_empty harness.feed({ document: "doc" }).changes
+  end
+
+  class Misuses < Flezha::Tasklet
+    tasklet_name "misuses"
+
+    def run(input, ctx)
+      case input
+      when "channel" then ctx.emit(input, channel: "elsewhere")
+      when "metadata" then ctx.emit(input, metadata: { "flz.cell" => "forged" })
+      else ctx.change({ n: 1 })
+      end
+    end
+  end
+
+  def test_a_runtime_misuse_raises_the_one_error_with_its_code
+    {
+      "channel" => ["runtime.channel_not_produced", { "tasklet" => "misuses", "channel" => "elsewhere" }],
+      "metadata" => ["runtime.reserved_metadata_key", { "key" => "flz.cell" }],
+      "change" => ["runtime.change_without_apply_change", { "tasklet" => "misuses" }]
+    }.each do |misuse, (code, details)|
+      error = assert_raises(Flezha::Error) { Flezha::Testing::Harness.new(Misuses).feed(misuse) }
+      assert_equal [code, details], [error.code, error.details]
+    end
+  end
+
+  def test_a_restore_the_tasklet_cannot_fold_names_the_hook
+    definition = Misuses.definition
+    [[{ changes: [{ bytes: "".b }] }, "runtime.change_without_apply_change"],
+     [{ snapshot: { from_version: 1, bytes: "".b } }, "runtime.hook_missing"]].each do |payload, code|
+      error = assert_raises(Flezha::Error) { Flezha::State.fold_restore(definition, payload, nil, "misuses") }
+      assert_equal code, error.code
+    end
+  end
+
+  def test_an_identity_part_over_its_length_is_refused_naming_it
+    error = assert_raises(Flezha::Error) { Flezha::Identity.cell_identity("op", "t" * 256, nil) }
+    assert_equal ["runtime.identity_too_long", "tasklet name", 255],
+                 [error.code, error.details["part"], error.details["limit"]]
   end
 end

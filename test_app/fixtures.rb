@@ -595,8 +595,8 @@ module Fixtures
     def self.report(label, handle)
       result = handle.wait
       puts("spawn_result #{label} #{result.id} #{result.outcome}")
-    rescue Flezha::SpawnError => e
-      puts("spawn_result #{label} error #{e.kind}")
+    rescue Flezha::Error => e
+      puts("spawn_result #{label} error #{e.code}")
     ensure
       $stdout.flush
     end

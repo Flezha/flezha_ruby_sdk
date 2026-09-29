@@ -17,9 +17,7 @@ class SpawnTest < Minitest::Test
 
   def resolved(id, outcome) = JSON.generate({ "id" => id, "outcome" => outcome })
 
-  def failed(id, kind)
-    JSON.generate({ "id" => id, "error" => kind, "message" => "the #{kind} sentence" })
-  end
+  def failed(code, **details) = Flezha::Error.new(code, **details)
 
   def test_a_spawn_without_an_id_asks_for_one_and_reads_the_generated_id
     core = FakeCore.new(spawns: [resolved("worker-k7m2qzxw4pd3fn2a", "spawned")])
@@ -58,21 +56,19 @@ class SpawnTest < Minitest::Test
   end
 
   def test_the_error_policy_is_sent_and_an_existing_instance_raises_already_running
-    core = FakeCore.new(spawns: [failed("w1", "already_running")])
+    core = FakeCore.new(spawns: [failed("operator.already_running", operator: "w1")])
     handle = ctx(core).spawn_bounded("worker", "p", id: "w1", if_running: "error")
 
     assert_equal "error", core.spawn_requests.first[4]
-    error = assert_raises(Flezha::SpawnError::AlreadyRunning) { handle.wait }
-    assert_equal "w1", error.id
-    assert_equal :already_running, error.kind
+    error = assert_raises(Flezha::Error) { handle.wait }
+    assert_equal ["operator.already_running", { "operator" => "w1" }], [error.code, error.details]
   end
 
   def test_a_spawn_naming_an_unbounded_factory_raises_factory_not_bounded
-    handle = ctx(FakeCore.new(spawns: [failed("w1", "factory_not_bounded")]))
-             .spawn_bounded("prices", "p", id: "w1")
+    refusal = failed("operator.factory_not_bounded", factory: "prices", namespace: "default")
+    handle = ctx(FakeCore.new(spawns: [refusal])).spawn_bounded("prices", "p", id: "w1")
 
-    error = assert_raises(Flezha::SpawnError::FactoryNotBounded) { handle.wait }
-    assert_equal :factory_not_bounded, error.kind
+    assert_equal "operator.factory_not_bounded", assert_raises(Flezha::Error) { handle.wait }.code
   end
 
   def test_if_running_without_an_id_raises_at_the_call_and_sends_nothing
@@ -85,16 +81,18 @@ class SpawnTest < Minitest::Test
   end
 
   # A refusal and a timeout among them: the call returns a handle, and only a
-  # read raises, each kind as its own class under the SDK's hierarchy.
-  def test_every_failure_kind_is_raised_by_a_read_as_its_own_class
-    Flezha::SpawnError::KINDS.each do |kind, klass|
-      handle = ctx(FakeCore.new(spawns: [failed("", kind.to_s)])).spawn_bounded("worker", "p")
+  # read raises, each failure as the one error carrying its own code.
+  def test_every_failure_is_raised_by_a_read_as_the_one_error_with_its_code
+    {
+      "operator.factory_unknown" => { factory: "worker", namespace: "default" },
+      "authz.no_role_binding" => {},
+      "spawn.timeout" => { seconds: 30 },
+      "spawn.unavailable" => {}
+    }.each do |code, details|
+      handle = ctx(FakeCore.new(spawns: [failed(code, **details)])).spawn_bounded("worker", "p")
 
-      error = assert_raises(klass) { handle.wait }
-      assert_kind_of Flezha::Error, error
-      assert_equal kind, error.kind
-      assert_equal "the #{kind} sentence", error.message
-      assert_equal "", error.id
+      error = assert_raises(Flezha::Error) { handle.wait }
+      assert_equal [code, details.transform_keys(&:to_s)], [error.code, error.details]
     end
   end
 
@@ -108,11 +106,11 @@ class SpawnTest < Minitest::Test
   end
 
   def test_a_resolved_handle_answers_every_later_read_the_same
-    core = FakeCore.new(spawns: [failed("w1", "refused")])
+    core = FakeCore.new(spawns: [failed("authz.no_role_binding")])
     handle = ctx(core).spawn_bounded("worker", "p", id: "w1")
 
-    assert_raises(Flezha::SpawnError::Refused) { handle.wait }
-    assert_raises(Flezha::SpawnError::Refused) { handle.try_result }
+    assert_equal "authz.no_role_binding", assert_raises(Flezha::Error) { handle.wait }.code
+    assert_equal "authz.no_role_binding", assert_raises(Flezha::Error) { handle.try_result }.code
     assert_equal [[1, Flezha::SpawnHandle::WAIT_MS], [1, 0]], core.spawn_reads, "every read asks the core"
   end
 
@@ -168,7 +166,7 @@ class SpawnTest < Minitest::Test
       [-> { unnamed.wait }, -> { named.wait }, -> { named.try_result }].each do |read|
         RECORDED << begin
           read.call
-        rescue Flezha::SpawnError => e
+        rescue Flezha::Error => e
           e
         end
       end
@@ -203,19 +201,15 @@ class SpawnTest < Minitest::Test
     core&.free
   end
 
-  def test_without_a_control_plane_a_read_raises_unavailable_naming_the_requested_id
+  def test_without_a_control_plane_a_read_raises_unavailable
     dispatch_one(replay: false) do |_core, unnamed, named|
-      assert_instance_of Flezha::SpawnError::Unavailable, unnamed
-      assert_equal "", unnamed.id
-      assert_instance_of Flezha::SpawnError::Unavailable, named
-      assert_equal "w1", named.id
+      assert_equal %w[spawn.unavailable spawn.unavailable], [unnamed.code, named.code]
     end
   end
 
   def test_a_resolved_handle_answers_every_read_inside_its_invocation_the_same
     dispatch_one(replay: false) do |_core, _unnamed, named, again|
-      assert_instance_of Flezha::SpawnError::Unavailable, again
-      assert_equal [named.id, named.message], [again.id, again.message]
+      assert_equal [named.code, named.message], [again.code, again.message]
     end
   end
 
@@ -241,8 +235,7 @@ class SpawnTest < Minitest::Test
 
   def test_a_handle_read_after_its_invocation_completed_answers_released
     dispatch_one(replay: false) do |_core, _unnamed, _named, _again, unread|
-      error = assert_raises(Flezha::Native::Error) { unread.try_result }
-      assert_includes error.message, "released"
+      assert_equal "runtime.spawn_handle_released", assert_raises(Flezha::Error) { unread.try_result }.code
     end
   end
 end

@@ -130,7 +130,7 @@ module Flezha
       unless output[:target] == :plugin
         # The core queues what a sink released and nothing else; an edge
         # output is an in-process mailbox push that never leaves.
-        raise Error, "local mode released a #{output[:target]} output"
+        raise "local mode released a #{output[:target]} output"
       end
 
       channel = output[:plugin_channel]

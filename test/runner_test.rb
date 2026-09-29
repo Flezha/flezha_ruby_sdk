@@ -93,17 +93,17 @@ class RunnerTest < Minitest::Test
   def test_a_runner_with_no_class_is_refused
     runner = Flezha::Runner.new("test-ns")
 
-    assert_raises(Flezha::Error) { runner.boot(core: Flezha::TestSupport::FakeCore.new) }
+    error = assert_raises(Flezha::Error) { runner.boot(core: Flezha::TestSupport::FakeCore.new) }
+    assert_equal "runtime.no_operators", error.code
   end
 
   def test_an_unknown_executor_is_refused_by_name
     runner = Flezha::Runner.new("test-ns").register_factory(EchoOperator).executor(:ractors)
 
     Flezha::TestSupport.without_a_terminal do
-      assert_includes(
-        assert_raises(Flezha::Error) { runner.boot(core: Flezha::TestSupport::FakeCore.new) }.message,
-        ":threads and :fibers"
-      )
+      error = assert_raises(Flezha::Error) { runner.boot(core: Flezha::TestSupport::FakeCore.new) }
+      assert_equal ["usage.unknown_word", "ractors", %w[threads fibers]],
+                   [error.code, error.details["value"], error.details["allowed"]]
     end
   end
 
@@ -185,7 +185,7 @@ class RunnerTest < Minitest::Test
   def decl(operator) = Flezha::Graph.to_host_class_decl(operator.spec)
 
   def refused(operator)
-    assert_raises(Flezha::DeclarationError) { Flezha::Runner.new("test-ns").register_factory(operator) }
+    assert_raises(Flezha::Error) { Flezha::Runner.new("test-ns").register_factory(operator) }
   end
 
   # The short forms under test are the test app's own, the classes the
@@ -305,11 +305,27 @@ class RunnerTest < Minitest::Test
     assert_equal %w[sugar_do_nothing], declared(runner)
   end
 
+  def test_unregistering_after_start_is_refused
+    core = Flezha::TestSupport::FakeCore.new
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperator)
+    Flezha::TestSupport.without_a_terminal do
+      Process.stub(:warmup, -> {}) do
+        runner.boot(core: core)
+        error = assert_raises(Flezha::Error) { runner.unregister_factory(EchoOperator) }
+
+        assert_equal ["runtime.factory_in_service", EchoOperator.to_s], [error.code, error.details["module"]]
+      ensure
+        runner.stop
+        runner.drain
+      end
+    end
+  end
+
   def test_unregistering_something_never_registered_is_refused
     runner = Flezha::Runner.new("test-ns").register_factory(Fixtures::SugarDoNothing)
 
     error = assert_raises(Flezha::Error) { runner.unregister_factory(Fixtures::SugarBounded) }
-    assert_match(/not registered/, error.message)
+    assert_equal ["runtime.class_not_registered", { "factory" => "sugar_bounded" }], [error.code, error.details]
   end
 
   def test_a_run_body_beside_a_channels_body_is_refused
@@ -320,8 +336,8 @@ class RunnerTest < Minitest::Test
     end
 
     error = refused(both)
-    assert_equal ["ShortFormWithTopology"], error.refusals
-    assert error.defect.start_with?("ShortFormWithTopology"), error.defect
+    assert_equal ["topology.short_form_with_topology", { "factory_id" => "both" }], [error.code, error.details]
+    assert_includes error.detailed_message, "(topology.short_form_with_topology)"
   end
 
   def test_a_short_form_with_no_factory_id_is_refused_rather_than_derived
@@ -330,7 +346,9 @@ class RunnerTest < Minitest::Test
       def run(input, ctx) = ctx.emit(input)
     end
 
-    assert_includes refused(derived).message, "factory_id"
+    error = refused(derived)
+    assert_equal "topology.missing_factory_id", error.code
+    assert_includes error.message, "declares no factory id"
   end
 
   def test_a_malformed_short_form_is_refused_before_its_tasklet_is_generated
@@ -344,10 +362,9 @@ class RunnerTest < Minitest::Test
       def run(input, ctx) = ctx.emit(input)
     end
 
-    assert_includes assert_raises(Flezha::DeclarationError) { derived.tasklet }.message,
-                    "factory_id"
-    assert_includes assert_raises(Flezha::DeclarationError) { time_limited.tasklet }.message,
-                    "max_duration_ms"
+    assert_equal "topology.missing_factory_id", assert_raises(Flezha::Error) { derived.tasklet }.code
+    error = assert_raises(Flezha::Error) { time_limited.tasklet }
+    assert_equal ["topology.setting_on_short_form", ["`max_duration_ms`"]], [error.code, error.details["fields"]]
   end
 
   def test_an_operator_with_neither_body_is_refused_naming_both
@@ -384,9 +401,8 @@ class RunnerTest < Minitest::Test
         public_send(key, value)
       end
 
-      message = refused(full).message
-      assert_includes message, "`#{key}`"
-      assert_includes message, "`channels`"
+      error = refused(full)
+      assert_equal ["topology.short_form_field_on_full_form", ["`#{key}`"]], [error.code, error.details["fields"]]
     end
   end
 
@@ -418,15 +434,17 @@ class RunnerTest < Minitest::Test
     registry.add(Fixtures::SugarDoNothing.spec)
 
     error = assert_raises(Flezha::Error) { registry.add(twin.spec) }
-    assert error.message.start_with?("DuplicateFactoryId"), error.message
+    assert_equal ["topology.duplicate_factory_id", { "factory_id" => "sugar_do_nothing" }],
+                 [error.code, error.details]
     assert_includes error.message, "sugar_do_nothing"
   end
 
   def test_a_sink_on_a_tasklet_is_refused_naming_the_operator_bases
-    error = assert_raises(Flezha::DeclarationError) do
+    error = assert_raises(Flezha::Error) do
       Class.new(Flezha::Tasklet) { sink "out" }
     end
 
+    assert_equal ["topology.operator_field_on_tasklet", ["`sink`"]], [error.code, error.details["fields"]]
     assert_includes error.message, "Flezha::UnboundedOperator"
     assert_includes error.message, "Flezha::BoundedOperator"
   end
@@ -435,6 +453,6 @@ class RunnerTest < Minitest::Test
     error = assert_raises(Flezha::Error) do
       Flezha::Runner.new("test-ns").register_factory(DoNothingTasklet)
     end
-    assert error.message.start_with?("UnknownOperatorKind"), error.message
+    assert_equal "topology.unknown_operator_kind", error.code
   end
 end

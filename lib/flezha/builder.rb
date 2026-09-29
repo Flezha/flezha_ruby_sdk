@@ -151,17 +151,13 @@ module Flezha
     def channel_codec(channel, codec, callable)
       return nil if codec.nil?
 
-      if callable
-        raise DeclarationError.new(@factory_id, channel.name, "names both a codec and its own callable; give one")
-      end
+      raise Error.new("topology.codec_with_callable", channel: channel.name) if callable
 
       known = Codec::CHANNEL_CODECS.find { |name| name.to_s == codec.to_s }
       return known if known
 
-      raise DeclarationError.new(
-        @factory_id, channel.name,
-        "unknown codec `#{codec}`; a channel codec is one of #{Codec::CHANNEL_CODECS.join(', ')}"
-      )
+      raise Error.new("topology.unknown_codec", channel: channel.name, codec: codec.to_s,
+                                                codecs: Codec::CHANNEL_CODECS.map(&:to_s))
     end
 
     # Merge two or more sources into one tasklet: see `Merge`.
@@ -209,12 +205,7 @@ module Flezha
         # The node table is keyed by identity and physically cannot hold two,
         # so the record the core would judge is unwritable. The refusal answers
         # under the core's own name all the same.
-        raise DeclarationError.new(
-          @factory_id, identity,
-          "two different tasklets claim this node identity; name one of them on the " \
-          "`into(...)` so each node has its own",
-          ["NodeIdentityCollision"]
-        )
+        raise Error.new("topology.node_identity_collision", name: identity)
       end
 
       node = TaskNode.new(@tasklets.size, identity, klass, definition, nil)
@@ -380,10 +371,7 @@ module Flezha
     # value as JSON, so a sink needs neither for a string, bytes or a JSON value.
     def sink(name = nil, encode: nil, codec: nil)
       unless @from[0] == :tasklet
-        raise DeclarationError.new(
-          @builder.factory_id, name || "<derived>",
-          "a plugin sink is fed by a tasklet; wire the entry channel into one first"
-        )
+        raise Error.new("topology.sink_on_entry", channel: name || "<derived>")
       end
 
       target = channel

@@ -18,8 +18,9 @@ module Flezha
   # restore calls. So what it proves is what the runner does, rather than
   # something that agrees with it.
   module Testing
-    # The recorded change log and the live state disagree.
-    class ReplayMismatch < Error
+    # The recorded change log and the live state disagree: the harness's own
+    # assertion about the tasklet under test, not a refusal.
+    class ReplayMismatch < StandardError
       def initialize(tasklet, live, replayed)
         super(
           "#{tasklet}: replaying the recorded change log against a fresh initial state " \
@@ -130,7 +131,7 @@ module Flezha
       end
 
       def spawn_result(handle, _timeout_ms)
-        @spawns.fetch(handle) { raise Error, "spawn handle #{handle} was released" }
+        @spawns.fetch(handle) { raise Error.new("runtime.spawn_handle_released", handle: handle) }
       end
 
       private

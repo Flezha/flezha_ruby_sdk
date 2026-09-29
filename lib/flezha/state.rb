@@ -28,10 +28,10 @@ module Flezha
       if from_version
         migration = :"migrate_#{which}"
         unless definition.declares?(migration)
-          raise Error,
-                "#{tasklet} was handed a #{which} record written at schema version " \
-                "#{from_version} and defines no #{migration}; define one, or raise " \
-                "min_readable_schema_version so the record is refused rather than misread"
+          raise Error.new("runtime.hook_missing",
+                          tasklet: tasklet,
+                          action: "was handed a #{which} record written at schema version #{from_version}",
+                          hook: migration.to_s)
         end
 
         return definition.instance.public_send(migration, from_version, bytes)
@@ -55,9 +55,7 @@ module Flezha
 
       Array(payload[:changes]).each do |body|
         unless definition.apply_change?
-          raise Error,
-                "#{tasklet} was handed a change log but declares no apply_change; a " \
-                "tasklet that records no changes should have no durable records to fold"
+          raise Error.new("runtime.change_without_apply_change", tasklet: tasklet)
         end
 
         definition.fold_change(state, decode_body(definition, :change, body, tasklet))

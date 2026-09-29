@@ -39,11 +39,8 @@ module Flezha
           return instance_variable_get(:"@#{name}") if value.nil?
 
           if one_of && !one_of.include?(value.to_s.to_sym)
-            raise DeclarationError.new(
-              @factory_id || to_s, nil,
-              "declares `#{name} #{value.inspect}`, which is not one of " \
-              "`#{one_of.join('`, `')}`"
-            )
+            raise Error.new("topology.invalid_mode", factory_id: @factory_id || to_s, knob: name,
+                                                     value: value.to_s)
           end
 
           instance_variable_set(:"@#{name}", value)

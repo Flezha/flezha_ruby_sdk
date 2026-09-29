@@ -46,10 +46,11 @@ class CodecTest < Minitest::Test
   end
 
   def test_a_value_the_codec_cannot_carry_is_refused_by_name
-    error = assert_raises(Flezha::UnrepresentableValueError) do
+    error = assert_raises(Flezha::Error) do
       Flezha::Codec.assert_representable("Order.state", { lines: [{ price: Object.new }] })
     end
 
+    assert_equal ["topology.state_unrepresentable", "Order.state.lines[0].price"], [error.code, error.details["path"]]
     assert_includes error.message, "Order.state.lines[0].price"
   end
 
@@ -57,9 +58,8 @@ class CodecTest < Minitest::Test
     state = { name: "a" }
     state[:self] = state
 
-    assert_raises(Flezha::UnrepresentableValueError) do
-      Flezha::Codec.assert_representable("S", state)
-    end
+    error = assert_raises(Flezha::Error) { Flezha::Codec.assert_representable("S", state) }
+    assert_equal "topology.state_unrepresentable", error.code
   end
 
   # A rename of the declaring class must not break restore: the durable form is
@@ -84,14 +84,12 @@ class CodecTest < Minitest::Test
     only_to_h = Class.new { def to_h = {} }
     only_from_h = Class.new { def self.from_h(hash) = hash }
 
-    assert_includes(
-      assert_raises(Flezha::DeclarationError) { Flezha::TypeCodec.new(only_to_h, "state") }.message,
-      "from_h"
-    )
-    assert_includes(
-      assert_raises(Flezha::DeclarationError) { Flezha::TypeCodec.new(only_from_h, "change") }.message,
-      "to_h"
-    )
+    missing_from_h = assert_raises(Flezha::Error) { Flezha::TypeCodec.new(only_to_h, "state") }
+    missing_to_h = assert_raises(Flezha::Error) { Flezha::TypeCodec.new(only_from_h, "change") }
+
+    assert_equal "topology.state_unrepresentable", missing_from_h.code
+    assert_includes missing_from_h.message, "from_h"
+    assert_includes missing_to_h.message, "to_h"
   end
 end
 

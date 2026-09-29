@@ -1,75 +1,54 @@
 # frozen_string_literal: true
 
+require "json"
+
 module Flezha
-  # Base of everything this SDK raises, so a host can rescue one thing.
-  class Error < StandardError; end
+  # Anything Flezha refuses: the controller, the core, or this SDK itself.
+  #
+  # `code` (`family.snake`) and `error_class` (`invalid`, `not_found`,
+  # `denied`, ...) are what a program branches on; `message` is one sentence
+  # for a reader, `details` names what the message is about, and `hint` is the
+  # next command to run, when there is one. An uncaught one prints the code
+  # after the message.
+  #
+  # A refusal this SDK makes is built from its code and details, and its
+  # message is the catalogue's, rendered by the core:
+  #
+  #   raise Flezha::Error.new("topology.duplicate_factory_id", factory_id: "echo")
+  class Error < StandardError
+    attr_reader :code, :error_class, :details, :hint
 
-  # A registration refusal: names the offending class, the handler and the
-  # defect. Registration-time refusal replaces the Rust SDK's compile-time one,
-  # so the message carries what a compiler would have pointed at.
-  class DeclarationError < Error
-    attr_reader :factory_id, :handler, :defect, :refusals
-
-    def initialize(factory_id, handler, defect, refusals = [])
-      @factory_id = factory_id
-      @handler = handler
-      @defect = defect
-      # The core's vocabulary names for what was refused: the core's verdict,
-      # or a refusal this SDK makes under one of them. Empty for a refusal of
-      # this SDK's own surface.
-      @refusals = refusals
-      # A named refusal reads the way the core renders its verdict. The core's
-      # own verdict arrives already rendered, header included.
-      header = "topology rejected [#{refusals.join(', ')}]:"
-      defect = "#{header}\n  - #{defect}" unless refusals.empty? || defect.start_with?(header)
-      super(handler ? "#{factory_id}: #{handler}: #{defect}" : "#{factory_id}: #{defect}")
+    # The error a JSON error document `{"error": {...}}` carries. The native
+    # extension raises every failure through here.
+    def self.from_document(document)
+      allocate.tap { |error| error.send(:fill, JSON.parse(document).fetch("error")) }
     end
-  end
 
-  # An emit the declaration cannot carry — a channel the tasklet does not
-  # produce on, a reserved metadata key, a keyed channel with no key, a timer
-  # inside a bounded operator.
-  class EmitError < Error; end
+    def initialize(code, **details)
+      super()
+      fill(JSON.parse(Flezha::Core.error_document(code, details)).fetch("error"))
+    end
 
-  # A value the durable codec cannot represent, named by the declaring type and
-  # the path to the offending field.
-  class UnrepresentableValueError < Error
-    def initialize(type_name, path, reason)
-      super("#{type_name}.#{path} cannot be encoded for durable state: #{reason}")
+    def to_s = @message
+
+    # How an uncaught one prints: the message, then the code.
+    def detailed_message(**) = "#{message} (#{code})"
+
+    private
+
+    def fill(fields)
+      @code = fields.fetch("code")
+      @error_class = fields.fetch("class")
+      @message = fields.fetch("message")
+      @details = fields["details"] || {}
+      @hint = fields["hint"]
     end
   end
 
   # A handler error the retry ladder must not retry. Raise this (or set
-  # `non_retryable` on any error) to park an item immediately.
-  class NonRetryableError < Error
+  # `non_retryable` on any error) to park an item immediately. An author's own
+  # steering type, not a refusal, so it is no `Flezha::Error`.
+  class NonRetryableError < StandardError
     def non_retryable? = true
-  end
-
-  # Why a spawn reached no instance, raised by a read of its handle as the
-  # subclass naming the kind, and never by the spawn call itself.
-  class SpawnError < Error
-    # The id the request named; empty when it named none.
-    attr_reader :id
-
-    def initialize(id, message)
-      @id = id
-      super(message)
-    end
-
-    class AlreadyRunning < SpawnError; end
-    class FactoryUnknown < SpawnError; end
-    class FactoryNotBounded < SpawnError; end
-    class Refused < SpawnError; end
-    class Timeout < SpawnError; end
-    class Unavailable < SpawnError; end
-
-    KINDS = {
-      already_running: AlreadyRunning, factory_unknown: FactoryUnknown,
-      factory_not_bounded: FactoryNotBounded, refused: Refused, timeout: Timeout,
-      unavailable: Unavailable
-    }.freeze
-
-    # The kind as the core words it, such as `:refused`.
-    def kind = KINDS.key(self.class)
   end
 end

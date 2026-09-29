@@ -126,6 +126,12 @@ module Flezha
     # topology needs a live core. `flz_core_check_class` registers nothing and
     # a context is a plain allocation, so a test pays one per call rather than
     # sharing a process-wide handle with the suites that make and free theirs.
+    # Every code a refusal carries: each issue's, or its own.
+    def self.codes(error)
+      codes = Array(error.details["issues"]).map { |issue| issue["code"] }
+      codes.empty? ? [error.code] : codes
+    end
+
     def self.validate(spec)
       core = Flezha::Core.create
       Flezha::Graph.validate(spec, core)
@@ -264,11 +270,15 @@ module Flezha
         end
       end
 
+      # A scripted `Flezha::Error` is what a refused read raises.
       def spawn_result(handle, timeout_ms)
-        @lock.synchronize do
+        answer = @lock.synchronize do
           @spawn_reads << [handle, timeout_ms]
           @resolved[handle] ||= @spawns.shift
         end
+        raise answer if answer.is_a?(Flezha::Error)
+
+        answer
       end
 
       # Wake every blocked call: a shutdown a test has to wait out is a sleep

@@ -86,10 +86,10 @@ class LocalModeTest < Minitest::Test
   def test_a_channel_the_class_does_not_declare_is_refused_by_name
     run = Flezha::LocalOperator.start(WordCount)
     begin
-      message = assert_raises(Flezha::Native::Error) { run.feed("nope", "1") }.message
+      error = assert_raises(Flezha::Error) { run.feed("nope", "1") }
 
-      assert_includes message, "nope"
-      assert_includes message, "lines"
+      assert_equal ["runtime.channel_undeclared", "nope"], [error.code, error.details["channel"]]
+      assert_includes error.details["channels"], "lines"
     ensure
       run.close
     end
