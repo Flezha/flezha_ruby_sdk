@@ -905,6 +905,18 @@ module Fixtures
     channels { |c| c.input("in", codec: :text).into(StaticCellStep).sink("out") }
   end
 
+  # call_turn: a durable per-input loop whose turn answers the outside call
+  # through `response`.
+  class CallTurnStep < Flezha::Tasklet
+    tasklet_name "call_turn"
+    def run(input, ctx) = ctx.emit(input)
+  end
+
+  class CallTurn < LoopBounded
+    factory_id "call_turn"
+    channels { |c| c.input("in", codec: :text).into(CallTurnStep).response }
+  end
+
   # Every bounded operator this app registers, in the reference's order.
   BOUNDED = [
     EchoBounded, TypedOnceBounded, CommitBlockBounded, SyncDurableBounded, OptoutCommitBlock,
@@ -915,6 +927,6 @@ module Fixtures
     ReplyBlockLoopBounded,
     RetryBounded,
     BranchBounded, DiamondBounded, *BENCH_CHAINS, BenchLoopBounded,
-    StaticCellBounded, TimerLoopBounded, EventTimerBounded
+    StaticCellBounded, TimerLoopBounded, EventTimerBounded, CallTurn
   ].freeze
 end

@@ -20,10 +20,11 @@ module Flezha
   Chain = Struct.new(:source, :links, :superseded, :edge, keyword_init: true)
 
   # A channel as the graph holds it. Its position in the list IS its id.
-  # `sink` is the plugin sink attached to it; nil means none. `sink_encode` is
-  # that sink's payload encoder and belongs to the sink frame alone: an
-  # inter-tasklet frame is decoded with the class codec, so encoding one with
-  # it hands the consuming tasklet bytes it cannot read.
+  # `sink` is the channel's name once a plugin end, a sink or a response, is
+  # attached; nil means none, and the core's answer names no sink for a
+  # response. `sink_encode` is that end's payload encoder and belongs to the
+  # plugin frame alone: an inter-tasklet frame is decoded with the class codec,
+  # so encoding one with it hands the consuming tasklet bytes it cannot read.
   #
   # `chain_edges` runs parallel to `chains`: the closures each sequence closed
   # on, at the position the core reads that sequence at. `consumers` is filled
@@ -370,30 +371,44 @@ module Flezha
     # format instead. With neither, a String is sent as its bytes and any other
     # value as JSON, so a sink needs neither for a string, bytes or a JSON value.
     def sink(name = nil, encode: nil, codec: nil)
+      link = { "link" => "sink" }
+      link["name"] = name.to_s unless name.nil?
+      plug_end(link, name&.to_s, encode, codec)
+    end
+
+    # Terminate this edge's channel on the answer to the outside call its input
+    # carried, and answer the edge. Each value emitted on it answers that
+    # caller and reaches no plugin. It takes no name, so the channel keeps the
+    # one it would have without it, and consumers may follow it exactly as
+    # after `sink`. A channel ends in one sink or one response. `encode` and
+    # `codec` are `sink`'s.
+    def response(encode: nil, codec: nil)
+      plug_end({ "link" => "response" }, nil, encode, codec)
+    end
+
+    protected
+
+    # Attach a plugin end, a sink or a response: both leave as a plugin output
+    # encoded the same way, and the core refuses a second end on a channel.
+    def plug_end(link, name, encode, codec)
       unless @from[0] == :tasklet
         raise Error.new("topology.sink_on_entry", channel: name || "<derived>")
       end
 
       target = channel
-      link = { "link" => "sink" }
       # The name written here IS the channel's name; `sink` with none leaves it
       # derived as it would be without a sink at all.
-      unless name.nil?
-        link["name"] = name.to_s
-        target.name = name.to_s
-      end
+      target.name = name unless name.nil?
       named = @builder.channel_codec(target, codec, encode)
       @builder.link_chain(@from, @pending[:chain], link)
       # First call wins on the builder's own side, as the reference does; a
-      # second `sink` link is what the core refuses the class for.
+      # second end is what the core refuses the class for.
       if target.sink.nil?
         target.sink = target.name
         target.sink_encode = encode || Codec.channel_encoder(named, target)
       end
       self
     end
-
-    protected
 
     # The channel this edge's values leave on, with the pending options
     # applied. An entry edge already has one; a tasklet edge's is created on

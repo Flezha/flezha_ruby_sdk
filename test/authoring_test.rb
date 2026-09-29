@@ -309,6 +309,31 @@ class AuthoringTest < Minitest::Test
     assert_equal ["topology.keyed_channel_without_plugin_wire"], codes(refusal { validate(keyed.spec) })
   end
 
+  def test_response_records_its_link_and_ends_the_channel_as_a_sink_would
+    terminal = operator("answers") { |c| c.input("in").into(pass_through("producer")).response }
+    hybrid = operator("answers_and_feeds") do |c|
+      c.input("in").into(pass_through("producer")).response.into(pass_through("consumer"))
+    end
+
+    assert_equal [[{ "link" => "response" }]],
+                 Flezha::Graph.to_host_class_decl(terminal.spec)["channels"][1]["chains"]
+    # A response takes no name, and is a plugin end but not a sink.
+    assert_equal [["in", "entry", nil, [0], nil], ["producer", "plugin", 0, [], nil]],
+                 channels_of(terminal)
+    assert_equal [["in", "entry", nil, [0], nil], ["producer", "inter_task", 0, [1], nil]],
+                 channels_of(hybrid)
+  end
+
+  def test_a_sink_beside_a_response_on_one_channel_is_refused
+    klass = operator("ends_twice") do |c|
+      c.input("in").into(pass_through("producer")).sink("out").response
+    end
+
+    error = refusal { validate(klass.spec) }
+    assert_equal ["topology.channel_ends_twice"], codes(error)
+    assert_equal "out", error.details["channel"]
+  end
+
   def test_two_channels_naming_one_sink_is_refused
     klass = operator("one_sink_two_channels") do |c|
       c.input("in").into(pass_through("a")).sink("shared")

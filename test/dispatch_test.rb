@@ -452,6 +452,22 @@ class DispatchTest < Minitest::Test
     assert_empty plain[:metadata]
   end
 
+  class Answer < Flezha::Tasklet
+    tasklet_name "answer"
+    def run(input, ctx) = ctx.emit(input)
+  end
+
+  class AnsweringOperator < Flezha::UnboundedOperator
+    factory_id "answering_op"
+    channels { |c| c.input("in", codec: :text).into(Answer).response }
+  end
+
+  def test_an_emit_on_a_response_channel_leaves_as_a_sinks_plugin_output
+    output, = answer_on(AnsweringOperator, items: [input_item("once")])[:effects][0][:outputs]
+
+    assert_equal %w[plugin answer once], [output[:target], output[:plugin_channel], output[:payload]]
+  end
+
   def test_user_metadata_rides_a_keyed_plugin_frame_with_the_stamps_after_it
     keyed, = stamp_answer("mixed")[:effects][0][:outputs]
 

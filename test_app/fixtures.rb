@@ -658,6 +658,59 @@ module Fixtures
     end
   end
 
+  # -- call_response -------------------------------------------------------
+
+  # Operators an outside caller calls and whose graph answers it through
+  # `response`: from the first tasklet, from a downstream one, and from
+  # whichever of two filtered paths the input took. `call_turn` is the bounded
+  # one, in fixtures_bounded.rb.
+  class CallEchoTasklet < PassThrough
+    tasklet_name "call_echo"
+  end
+
+  class CallEcho < Flezha::UnboundedOperator
+    factory_id "call_echo"
+    channels { |c| c.input("in", codec: :text).into(CallEchoTasklet).response }
+  end
+
+  class CallParse < PassThrough
+    tasklet_name "call_parse"
+  end
+
+  class CallAnswer < Flezha::Tasklet
+    tasklet_name "call_answer"
+    def run(input, ctx) = ctx.emit("re:#{input}")
+  end
+
+  class CallDownstream < Flezha::UnboundedOperator
+    factory_id "call_downstream"
+    channels { |c| c.input("in", codec: :text).into(CallParse).into(CallAnswer).response }
+  end
+
+  # An input starting `no` takes the refused path, every other the accepted one.
+  class CallAdmit < PassThrough
+    tasklet_name "call_admit"
+  end
+
+  class CallAccept < Flezha::Tasklet
+    tasklet_name "call_accept"
+    def run(input, ctx) = ctx.emit("accepted:#{input}")
+  end
+
+  class CallRefuse < Flezha::Tasklet
+    tasklet_name "call_refuse"
+    def run(input, ctx) = ctx.emit("refused:#{input}")
+  end
+
+  class CallSplit < Flezha::UnboundedOperator
+    factory_id "call_split"
+    channels do |c|
+      admitted = c.input("in", codec: :text).into(CallAdmit)
+      admitted.filter { |input| !input.start_with?("no") }.into(CallAccept).response
+      admitted.filter { |input| input.start_with?("no") }.into(CallRefuse).response
+    end
+  end
+
   # Every operator this app registers, in declaration order.
   ALL = [
     DoNothingOperator, BenchEchoOperator, CompareFilterOperator,
@@ -666,7 +719,8 @@ module Fixtures
     MergedInputOperator, TransformChainOperator, CellStressOperator, *STATE,
     CandleOperator, PoisonProbeOperator, WedgeProbeOperator, SessionTimeoutOperator, *BOUNDED_MAILBOX,
     PartitionRelayOperator, DynamicCellOperator, SpawnRequesterOperator,
-    SpawnHoldRequesterOperator, SpawnOnceRequesterOperator
+    SpawnHoldRequesterOperator, SpawnOnceRequesterOperator,
+    CallEcho, CallDownstream, CallSplit
   ].freeze
 
   # The §5 short forms this app registers.

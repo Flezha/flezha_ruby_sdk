@@ -37,7 +37,8 @@
     "merge",
     "bounded",
     "sync_durability",
-    "shorthand"
+    "shorthand",
+    "response"
   ],
   "deferred": [],
   "fixtures": {
@@ -100,6 +101,12 @@
     ],
     "keyed_channels": [
       "partition_relay"
+    ],
+    "call_response": [
+      "call_echo",
+      "call_downstream",
+      "call_split",
+      "call_turn"
     ],
     "partitioned": [
       "partition_relay",
