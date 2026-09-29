@@ -169,14 +169,15 @@ module Flezha
     # written back whether or not the body raised: a change recorded before the
     # raise is already journaled, and dropping it here would make the live
     # cell disagree with its own log.
-    def invoke(activation, registered, node, deps, now, replay, offset = nil)
+    def invoke(activation, registered, node, deps, now, replay, offset = nil, item: nil)
       address = RegisteredClass.address(activation, node)
       ctx = Ctx.new(
         spec: registered.spec, node: node, outgoing: registered.outgoing[node.index],
         operator: activation[:operator], cell_key: activation[:cell_key],
         change_seq: activation[:change_seq], now: now, replay: replay,
         state: registered.state_of(node, address), bridge: deps.bridge,
-        token: activation[:token], offset: offset, compensating: activation[:kind] == :compensate_run
+        token: activation[:token], offset: offset, item: item,
+        compensating: activation[:kind] == :compensate_run
       )
       begin
         yield(ctx)
@@ -189,11 +190,11 @@ module Flezha
     def run_work(activation, registered, node, deps)
       effects = []
 
-      Array(activation[:items]).each do |item|
+      Array(activation[:items]).each_with_index do |item, index|
         now = item[:now] || 0
         begin
           ctx = invoke(activation, registered, node, deps, now, item[:replay] || false,
-                       item[:consumed_offset]) do |c|
+                       item[:consumed_offset], item: index) do |c|
             run_item(registered, node, item, now, c)
           end
           effects << ctx.effect(item[:consumed_offset])

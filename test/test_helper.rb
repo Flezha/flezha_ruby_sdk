@@ -180,14 +180,15 @@ module Flezha
     # blocking calls answer on a signal, so no test waits on a clock.
     class FakeCore
       attr_reader :events, :declarations, :completed, :abandoned, :polled, :spawn_requests,
-                  :spawn_reads
+                  :spawn_reads, :parts
 
       # `activations` are handed out in order; `starvations` is how many times
       # `wait_starvation` reports one before it starts timing out; `hold` runs
       # inside `complete`, which is where a test holds a worker without
       # reaching through the dispatcher; `spawns` are what `spawn_result`
-      # answers in order, the core's JSON or nil for pending.
-      def initialize(activations: [], starvations: 0, hold: nil, spawns: [])
+      # answers in order, the core's JSON or nil for pending; `part_refusal`
+      # is the `Flezha::Error` every part raises.
+      def initialize(activations: [], starvations: 0, hold: nil, spawns: [], part_refusal: nil)
         @pending = Thread::Queue.new
         activations.each { |activation| @pending.push(activation) }
         @starvations = starvations
@@ -196,6 +197,8 @@ module Flezha
         @resolved = {}
         @spawn_requests = []
         @spawn_reads = []
+        @parts = []
+        @part_refusal = part_refusal
         @events = []
         @declarations = []
         @completed = []
@@ -279,6 +282,12 @@ module Flezha
         raise answer if answer.is_a?(Flezha::Error)
 
         answer
+      end
+
+      # A part records its token, its item index and its bytes.
+      def part(token, item, payload)
+        @lock.synchronize { @parts << [token, item, payload] }
+        raise @part_refusal if @part_refusal
       end
 
       # Wake every blocked call: a shutdown a test has to wait out is a sleep

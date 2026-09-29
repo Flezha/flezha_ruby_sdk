@@ -134,6 +134,10 @@ module Flezha
         @spawns.fetch(handle) { raise Error.new("runtime.spawn_handle_released", handle: handle) }
       end
 
+      # The part bridge a `Ctx` asks. A harness has no controller and no
+      # listener, so the part, already encoded, goes nowhere.
+      def part(_token, _item, _payload) = nil
+
       private
 
       # What the body answers is dropped, as the dispatcher drops it.

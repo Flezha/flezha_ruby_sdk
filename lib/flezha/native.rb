@@ -87,7 +87,7 @@ module Flezha
     ENTRY_POINTS = %i[
       declare_class check_class start poll wait_starvation complete abandon shutdown
       local_start local_on_sink local_feed local_next_output local_run_until_idle local_stop
-      watch_stdin_eof spawn_request spawn_result admin_call monotonic_nanos last_error
+      watch_stdin_eof spawn_request spawn_result part admin_call monotonic_nanos last_error
     ].freeze
 
     ENTRY_POINTS.each do |entry|

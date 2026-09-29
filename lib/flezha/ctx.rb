@@ -22,8 +22,11 @@ module Flezha
     attr_reader :changes, :outputs, :timers, :cell_key, :replay
 
     def initialize(spec:, node:, outgoing:, operator:, cell_key:, change_seq:,
-                   now:, replay:, state:, bridge:, token:, offset: nil, compensating: false)
+                   now:, replay:, state:, bridge:, token:, offset: nil, item: nil, compensating: false)
       @token = token
+      # The index of the work item this invocation runs within its activation,
+      # which the core numbers and stamps a part by. A compensation has none.
+      @item = item
       # The input-log offset of the item this invocation runs: a spawn carries
       # it so a crash re-run of the same input resolves to the worker the first
       # run spawned.
@@ -93,6 +96,31 @@ module Flezha
       end
 
       targets.each { |target| release(target, value, key, metadata) }
+      nil
+    end
+
+    # Send `value` as a part: a preview of the output this invocation is
+    # producing, which leaves the runner now rather than when the handler
+    # returns. It previews the tasklet's own output channel and is encoded as
+    # an emit of the same value there would be. The operator's listeners
+    # receive it before the output; a sink never does, and it is never durable
+    # or replayed. Parts are numbered from 0 within each attempt, so a retry
+    # starts its preview again.
+    #
+    # It never waits: a part that cannot leave at once (no connection, a local
+    # run, a stream that would block, a frame over the size limit) is dropped,
+    # and a replayed input sends none. Raises a `Flezha::Error` coded
+    # `part.no_sink` when the output channel does not end in a sink (it only
+    # feeds another tasklet, or ends in `response`), and `part.outside_invocation`
+    # through a context whose invocation has returned.
+    def part(value)
+      channel = @outgoing.first
+      # A channel with no plugin end has no encoding; the core refuses its part
+      # before reading a byte.
+      payload = channel&.sink ? channel.sink_encode.call(value).b : "".b
+      # A compensation holds no work item, which the core answers as outside
+      # any invocation, whatever the index.
+      @bridge.part(@token, @item || 0, payload)
       nil
     end
 
