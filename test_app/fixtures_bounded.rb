@@ -646,6 +646,72 @@ module Fixtures
     end
   end
 
+  # failing_turn_loop_bounded: a session whose turn can fail after `note`
+  # committed. `note` records each message and its undo moves the latest one to
+  # `undone`; `answer` replies `re:<message>` on the sink `answer`, and fails on
+  # `boom` always, on `boom-once` while the release env is unset (the first
+  # runner of a crash drill), and on `boom-until-healed` until a `heal` turn set
+  # its state. failing_turn_all_or_nothing_bounded is the same under
+  # all-or-nothing.
+  class Note < Flezha::Tasklet
+    tasklet_name "note"
+    def init_state(_cell_key) = { notes: [], undone: [] }
+
+    def apply_change(state, change)
+      if change.key?(:noted)
+        state[:notes].push(change[:noted])
+      elsif !state[:notes].empty?
+        state[:undone].push(state[:notes].pop)
+      end
+    end
+
+    def run(input, ctx)
+      ctx.change({ noted: input })
+      ctx.emit(input)
+    end
+
+    def compensate(_outputs, ctx) = ctx.change({ undone: true })
+  end
+
+  class Answer < Flezha::Tasklet
+    tasklet_name "answer"
+    def init_state(_cell_key) = { healed: false }
+    def apply_change(state, _change) = state[:healed] = true
+
+    def run(input, ctx)
+      raise "answer refused #{input}" if fails?(input, ctx.state)
+
+      ctx.change({ healed: true }) if input == "heal"
+      ctx.emit("re:#{input}")
+    end
+
+    private
+
+    def fails?(input, state)
+      input == "boom" ||
+        (input == "boom-once" && !ENV.key?(RELEASE_ENV)) ||
+        (input == "boom-until-healed" && !state[:healed])
+    end
+  end
+
+  class FailingTurnLoopBounded < LoopBounded
+    factory_id "failing_turn_loop_bounded"
+    rollback_mode :keep_progress
+    channels do |c|
+      c.input("in", codec: :text).into(Note).named("noted")
+       .into(Answer).sink("answer")
+    end
+  end
+
+  class FailingTurnAllOrNothingBounded < LoopBounded
+    factory_id "failing_turn_all_or_nothing_bounded"
+    rollback_mode :all_or_nothing
+    channels do |c|
+      c.input("in", codec: :text).into(Note).named("noted")
+       .into(Answer).sink("answer")
+    end
+  end
+
   # The reply that blocks on the turn `reply-crash` while the release env is
   # unset, after the root has committed.
   REPLY_CRASH_TURN = "reply-crash"
@@ -845,6 +911,7 @@ module Fixtures
     TierCommitBlockBounded, SagaBlockBounded, KeyedBlockBounded, KeyedSagaBounded,
     OutboxBlockBounded, UndoOutboxBounded, FailedStageBounded,
     ChatLoopBounded, StatelessLoopBounded, KeyedLoopBounded, ChatRewindBounded,
+    FailingTurnLoopBounded, FailingTurnAllOrNothingBounded,
     ReplyBlockLoopBounded,
     RetryBounded,
     BranchBounded, DiamondBounded, *BENCH_CHAINS, BenchLoopBounded,
