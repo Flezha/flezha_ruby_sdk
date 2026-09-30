@@ -311,11 +311,13 @@ module Flezha
       return failed(activation[:token], "a key request carried no payloads", non_retryable: true) unless request
 
       channel = registered.spec.channels[request[:channel]]
-      # The crossing answers one key set for the whole payload, so it reads the
-      # first consumer edge — the one the core routes the answer to.
-      edge = channel&.consumers&.first
-      node = edge && registered.spec.tasklets[edge.tasklet]
-      definition = node&.definition
+      # The crossing answers one key set for the whole payload, which the core
+      # hands every keyed consumer, so it reads the first keyed consumer's edge:
+      # an unkeyed one's filter must not drop the key.
+      edges = channel&.consumers || []
+      definition_of = ->(e) { registered.spec.tasklets[e.tasklet]&.definition }
+      edge = edges.find { |e| e.key_by || definition_of.(e)&.cells_for? } || edges.first
+      definition = edge && definition_of.(edge)
 
       answers = request[:payloads].map do |payload|
         begin

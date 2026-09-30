@@ -766,6 +766,25 @@ class DispatchTest < Minitest::Test
     assert_equal [%w[a b c], []], prepared.map { |answer| answer[:keys] }
   end
 
+  class SplitKeyedOperator < Flezha::UnboundedOperator
+    factory_id "split_keyed_op"
+    channels do |c|
+      entry = c.input("in", codec: :text)
+      entry.filter { |value| value == "drop" }.into(PassThrough, "watch").sink("dropped")
+      entry.filter { |value| value != "drop" }.key_by { |value| value.split(":").first }
+           .into(PassThrough, "keyed").sink("out")
+    end
+  end
+
+  # The keys are the keyed consumer's, whatever an unkeyed consumer declared
+  # before it filters out.
+  def test_a_key_request_answers_the_keyed_consumer_behind_an_unkeyed_one
+    request = { channel: 0, payloads: ["a:1".b, "drop".b], want_keys: true, want_event_time: false }
+    prepared = answer_on(SplitKeyedOperator, kind: :key_request, key_request: request)[:prepared]
+
+    assert_equal [["a"], []], prepared.map { |answer| answer[:keys] }
+  end
+
   # The crossing answered every key, so the payload reaches each Cell whole:
   # each keeps only the values keyed to it.
   def test_each_cell_a_fanned_payload_reaches_runs_only_its_own_values
