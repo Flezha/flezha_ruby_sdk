@@ -10,6 +10,11 @@ module Flezha
   # One consumer of a channel, with the transforms and key of its own edge.
   ConsumerEdge = Struct.new(:tasklet, :transforms, :key_by, keyword_init: true)
 
+  # A channel's call end: the transforms and key of the chain that closed on
+  # it, applied to a value before it becomes a request, and the request's
+  # encoder.
+  CallEnd = Struct.new(:transforms, :key_by, :encode, keyword_init: true)
+
   # One fluent sequence declared off a channel handle, as the record carries
   # it: `links` in the order the author called them, for the core to judge.
   # Every transform or `key_by` answers a new sequence over the previous,
@@ -25,13 +30,14 @@ module Flezha
   # response. `sink_encode` is that end's payload encoder and belongs to the
   # plugin frame alone: an inter-tasklet frame is decoded with the class codec,
   # so encoding one with it hands the consuming tasklet bytes it cannot read.
+  # `call` is the channel's call end, when a chain closes on one.
   #
   # `chain_edges` runs parallel to `chains`: the closures each sequence closed
   # on, at the position the core reads that sequence at. `consumers` is filled
   # from the derived declaration — the core says which chains became edges.
   ChannelSpec = Struct.new(
     :index, :name, :kind, :producer, :consumers, :chains, :chain_edges, :overflow,
-    :retry_max, :retry_backoff_ms, :keyed, :sink, :decode, :sink_encode,
+    :retry_max, :retry_backoff_ms, :keyed, :sink, :decode, :sink_encode, :call,
     keyword_init: true
   )
 
@@ -386,6 +392,28 @@ module Flezha
       plug_end({ "link" => "response" }, nil, encode, codec)
     end
 
+    # End this edge's chain in a call to another operator, and answer the edge
+    # of its Response channel: the entry channel `<channel>.response`, whose
+    # values are `Flezha::Response`s. Every value reaching the call, after this
+    # chain's transforms and key, is one request. `target` names an instance,
+    # or a partition group whose member the key chooses; `factory:` instead
+    # names a factory whose instance the key names, started when absent unless
+    # `create: false`. `channel:` names the callee's entry channel. `codec`
+    # names the format of both the request and the answer, JSON by default. A
+    # call is not an edge, so the Response channel may feed this tasklet.
+    def call(target = nil, factory: nil, deadline_ms:, create: true, channel: nil, codec: nil)
+      raise Error.new("topology.sink_on_entry", channel: @from[1].name) unless @from[0] == :tasklet
+
+      source = self.channel
+      named = @builder.channel_codec(source, codec || :json, nil)
+      @builder.link_chain(@from, @pending[:chain], call_link(target, factory, deadline_ms, create, channel, source))
+      # First call wins, as for a sink; a second end is the core's to refuse.
+      source.call ||= CallEnd.new(transforms: transforms, key_by: @pending[:key_by],
+                                  encode: Codec.channel_encoder(named, source))
+      decode = Codec.channel_decoder(named, source)
+      @builder.input("#{source.name}.response", decode: ->(bytes) { Response.decode(bytes, decode) })
+    end
+
     protected
 
     # Attach a plugin end, a sink or a response: both leave as a plugin output
@@ -434,6 +462,17 @@ module Flezha
     private
 
     def transforms = @pending[:transforms] || []
+
+    # The `call` link as the record carries it; which of `target` and `factory`
+    # is named, and whether exactly one is, is the core's to judge.
+    def call_link(target, factory, deadline_ms, create, channel, source)
+      link = { "link" => "call" }
+      link["target"] = target.to_s unless target.nil?
+      link["factory"] = factory.to_s unless factory.nil?
+      link.merge!("deadline_ms" => deadline_ms, "create" => create)
+      link["channel"] = channel.to_s unless channel.nil?
+      link.merge("response" => "#{source.name}.response")
+    end
 
     # Applied now, as the reference applies it: an option no terminator follows
     # would otherwise be dropped. This call is why `channel` is protected.

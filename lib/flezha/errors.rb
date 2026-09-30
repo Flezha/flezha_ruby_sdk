@@ -20,8 +20,12 @@ module Flezha
 
     # The error a JSON error document `{"error": {...}}` carries. The native
     # extension raises every failure through here.
-    def self.from_document(document)
-      allocate.tap { |error| error.send(:fill, JSON.parse(document).fetch("error")) }
+    def self.from_document(document) = from_object(JSON.parse(document).fetch("error"))
+
+    # The error a parsed error object (`code`, `class`, `message`, `details`,
+    # `hint`) carries, as a controller writes one into a call's outcome.
+    def self.from_object(fields)
+      allocate.tap { |error| error.send(:fill, fields) }
     end
 
     def initialize(code, **details)

@@ -129,10 +129,10 @@ module Conformance
       head, rest = step.split(".", 2)
       return class_flag(builder, rest) if head == "class"
 
-      rest.split(".").reduce(handle(head)) { |current, link| apply_link(current, link) }
+      rest.split(".").reduce(handle(head)) { |current, link| apply_link(current, link, head) }
     end
 
-    def apply_link(edge, link)
+    def apply_link(edge, link, role)
       verb, arg = Conformance.split_call(link)
       case verb
       when "map" then edge.map { |value| value }
@@ -145,6 +145,7 @@ module Conformance
       when "on_full" then edge.on_full(arg.to_sym)
       when "sink" then arg.empty? ? edge.sink : edge.sink(arg)
       when "response" then edge.response
+      when /\Acall/ then call_step(edge, verb, arg, role)
       when "into" then wire(edge, arg)
       # Declared on the tasklet in this SDK, and read as its class was
       # minted — one step earlier than the step that names it.
@@ -157,6 +158,21 @@ module Conformance
     # result is that tasklet's output channel, addressed by its role.
     def wire(edge, role)
       @handles[role] = edge.into(tasklet_class(role))
+    end
+
+    # `<x>.call…(<arg>)`: a 500 ms call whose Response channel feeds the role
+    # that produces x, unless the step leaves it unread.
+    def call_step(edge, verb, arg, role)
+      response =
+        case verb
+        when "call_factory" then edge.call(factory: arg, deadline_ms: 500)
+        when "call_factory_nocreate" then edge.call(factory: arg, deadline_ms: 500, create: false)
+        when "call_deadline" then edge.call("pricing", deadline_ms: Integer(arg))
+        when "call", "call_unread" then edge.call(arg, deadline_ms: 500)
+        else raise "the fixture spells a call this interpreter does not map: #{verb}"
+        end
+      response.into(tasklet_class(role)) unless verb == "call_unread"
+      edge
     end
 
     # `merge(<role>, <x>, <x>…)`: one merge over the listed sources, each

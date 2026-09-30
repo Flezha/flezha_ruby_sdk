@@ -111,7 +111,7 @@ module Flezha
     # run, a stream that would block, a frame over the size limit) is dropped,
     # and a replayed input sends none. Raises a `Flezha::Error` coded
     # `part.no_sink` when the output channel does not end in a sink (it only
-    # feeds another tasklet, or ends in `response`), and `part.outside_invocation`
+    # feeds another tasklet, or ends in `response` or `call`), and `part.outside_invocation`
     # through a context whose invocation has returned.
     def part(value)
       channel = @outgoing.first
@@ -237,6 +237,20 @@ module Flezha
         end
       end
       @outputs << plugin_output(channel, value, key, metadata) if channel.sink
+      @outputs.concat(call_outputs(channel, value, metadata)) if channel.call
+    end
+
+    # The requests a call end sends, with the call chain's transforms and key
+    # applied here as an edge's are; the core stamps the call onto each.
+    def call_outputs(channel, value, metadata)
+      call = channel.call
+      Flezha.apply_transforms(call.transforms, value).map do |request|
+        {
+          target: "plugin", channel: nil, consumer: nil, plugin_channel: channel.name,
+          key: call.key_by&.call(request), event_time: nil, metadata: meta_list(metadata),
+          payload: call.encode.call(request).b
+        }
+      end
     end
 
     def bounded_output(channel, edge, value)
