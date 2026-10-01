@@ -391,12 +391,13 @@ class AuthoringTest < Minitest::Test
     end
   end
 
-  def test_a_remote_flow_class_is_refused_by_name
+  def test_a_flow_class_may_keep_its_work_remote
     step = pass_through("producer")
     klass = operator("remote_flow") { |c| c.input("in").into(step) }
     klass.durable :remote
 
-    assert_equal ["topology.remote_on_flow"], codes(refusal { validate(klass.spec) })
+    validate(klass.spec)
+    assert_equal "remote", Flezha::Graph.to_host_class_decl(klass.spec)["durable"]
   end
 
   def test_the_durability_reaches_the_declaration_as_written

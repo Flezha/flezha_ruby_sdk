@@ -104,6 +104,13 @@ module Fixtures
     end
   end
 
+  # `tier_store` kept `durable: remote`: an input is acknowledged only once the
+  # durability backend holds the records it produced.
+  class RemoteTierStoreOperator < TierStoreOperator
+    factory_id "remote_tier_store"
+    durable :remote
+  end
+
   # -- tier_chain ------------------------------------------------------------
   #
   # An effectively-once stream of two tasklets. `tier_relay` counts what it
@@ -420,7 +427,8 @@ module Fixtures
     BenchKeyedNoPersistOperator, StoreInputOperator, StatefulCounterOperator,
     PersistenceOffCounterOperator, SleepingCounterOperator, CoalescingCounterOperator,
     ResumeProbeOperator, BenchKeyedOperator, SchemaEvolutionV1Operator,
-    SchemaEvolutionV2Operator, TierStoreOperator, TierChainOperator, CheckpointStoreOperator,
+    SchemaEvolutionV2Operator, TierStoreOperator, RemoteTierStoreOperator, TierChainOperator,
+    CheckpointStoreOperator,
     CheckpointBatchedOperator, BenchCheckpointOperator
   ].freeze
 end
