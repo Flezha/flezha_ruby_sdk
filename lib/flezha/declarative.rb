@@ -48,7 +48,7 @@ module Flezha
       end
     end
 
-    # A declaration whose bare mention declares it: `sync_durability`.
+    # A declaration whose bare mention declares it: `logical_clock`.
     def flag(name)
       declares(name)
       singleton_class.define_method(name) do |value = true|

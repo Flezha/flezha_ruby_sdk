@@ -20,7 +20,7 @@ class PartTest < Minitest::Test
     end
   end
 
-  class PreviewOperator < Flezha::UnboundedOperator
+  class PreviewOperator < Flezha::Operator
     factory_id "preview_op"
     channels do |c|
       c.input("in", codec: :text).into(Previewer).sink("answer", encode: ->(v) { "<#{v.to_json}>".b })
@@ -89,7 +89,7 @@ class PartTest < Minitest::Test
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class FeederOperator < Flezha::UnboundedOperator
+  class FeederOperator < Flezha::Operator
     factory_id "part_feeder_op"
     channels { |c| c.input("in", codec: :text).into(Feeder).into(Relay).sink("answer") }
   end
@@ -98,7 +98,7 @@ class PartTest < Minitest::Test
     tasklet_name "part_answerer"
   end
 
-  class AnswererOperator < Flezha::UnboundedOperator
+  class AnswererOperator < Flezha::Operator
     factory_id "part_answerer_op"
     channels { |c| c.input("in", codec: :text).into(Answerer).response }
   end

@@ -217,7 +217,7 @@ module Flezha
       def sink(*, **)
         raise Error.new("topology.operator_field_on_tasklet",
                         tasklet: to_s, fields: ["`sink`"],
-                        instead: "a Flezha::UnboundedOperator or Flezha::BoundedOperator subclass with a `run` body")
+                        instead: "a Flezha::Operator subclass with a `run` body")
       end
 
       # The resolved declaration. Built once: it instantiates the tasklet,

@@ -10,7 +10,7 @@ Flezha::TestSupport.require_test_app("fixtures")
 # what passes there cannot be two different graphs.
 #
 # The other ten capabilities in the vocabulary are the controller's:
-# persistence, effectively-once, correction, partitioning, bounded operators,
+# persistence, effectively-once, correction, partitioning, steps operators,
 # liveness, restarts. Local mode refuses them by name rather than
 # approximating them, and `sdk-local-mode` says a sixth needs its own
 # proposal.

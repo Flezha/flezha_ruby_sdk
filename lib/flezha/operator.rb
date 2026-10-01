@@ -23,16 +23,12 @@ module Flezha
     setting(*SHORT_FORM_KEYS)
     # The declarations only a short form reads.
     SHORT_FORM_ONLY = (SHORT_FORM_KEYS + TaskletSettings::NAMES).freeze
-    # The one class setting a short form keeps: a loop is still one tasklet.
-    SHORT_FORM_SETTINGS = %i[loop_mode].freeze
-    declares :persistent
-    # Whether an idle instance is written out and dropped from memory until
-    # its next input. Unwritten, a bounded operator sleeps when it persists and a
-    # stream never does.
-    flag :sleep_when_idle
-    # A bounded operator's setting. An unbounded operator carries it too, so that the core refuses
-    # it there by name rather than this SDK dropping it.
-    flag :sync_durability
+    # The class settings, the tree's own data: `run :steps`,
+    # `run steps: { each: :per_input }`, `durable false`,
+    # `durable local: { sleep_after: 2_000 }`. Either form takes them; the core
+    # reads the tree when the class registers and refuses a misplaced setting
+    # by name.
+    setting :run, :durable, :max_duration_ms, :description
     # `factory_id` is deliberately NOT inherited: two operators cannot share
     # one, and a subclass silently taking its parent's would be refused by the
     # core at declare time rather than here.
@@ -42,13 +38,6 @@ module Flezha
         return @factory_id if id.nil?
 
         @factory_id = id.to_s
-      end
-
-      # Whether change bytes are flushed to the per-cell WAL. Default true.
-      def persistent(flag = nil)
-        return @persistent.nil? ? true : @persistent if flag.nil?
-
-        @persistent = flag
       end
 
       def spec
@@ -80,10 +69,6 @@ module Flezha
 
         if short_form?
           raise Error.new("topology.short_form_with_topology", factory_id: @factory_id) if channels
-
-          # Everything else a class declares is a class setting, left at its
-          # default on a short form.
-          refuse_written("topology.setting_on_short_form", settings - SHORT_FORM_ONLY - SHORT_FORM_SETTINGS)
         elsif channels
           refuse_written("topology.short_form_field_on_full_form", SHORT_FORM_ONLY)
         else
@@ -119,57 +104,28 @@ module Flezha
         edge.sink(sink) if sink
       end
 
-      # Every flag the builder recorded, for either kind: the core judges which
-      # a kind may carry and refuses the rest by name.
-      def class_spec(kind, bounded)
+      # The graph and the settings tree as written: the core judges the tree
+      # and refuses a misplaced setting by name.
+      def build_spec
         # Sealed before the channels are read: filing every declared sequence
         # on its channel is what can still create one.
         builder = build_builder.seal
         ClassSpec.new(
-          factory_id: @factory_id, kind: kind, persistent: persistent,
-          sleep_when_idle: @sleep_when_idle.nil? ? kind == :bounded && persistent : @sleep_when_idle,
-          effectively_once: builder.effectively_once_flag,
-          checkpoint_ack: builder.checkpoint_ack_flag,
-          checkpoint_every: builder.checkpoint_every_value,
-          checkpoint_outputs: builder.checkpoint_outputs_value,
-          checkpoint_max_delay_ms: builder.checkpoint_max_delay_ms_value,
-          correction_window_ms: builder.correction_window_ms_value,
-          beyond_window_policy: builder.beyond_window_policy_value,
+          factory_id: @factory_id, description: description, max_duration_ms: max_duration_ms,
+          run: Flezha.tree_json(run), durable: Flezha.tree_json(durable),
           compact_after_bytes: builder.compact_after_bytes_value,
-          sync_durability: @sync_durability || false,
-          tasklets: builder.tasklets, channels: builder.channels, bounded: bounded
+          tasklets: builder.tasklets, channels: builder.channels
         )
       end
     end
   end
 
-  # An unbounded operator: fed by the controller through its entry channels.
-  class UnboundedOperator < Operator
-    class << self
-      private
-
-      def build_spec = class_spec(:unbounded, nil)
-    end
-  end
-
-  # A bounded operator: a chain of tasklets over a channels graph, run
-  # once or looping. Retry is the edges', as on an unbounded operator.
-  class BoundedOperator < Operator
-    setting :loop_mode, one_of: %i[once per_input chained]
-    setting :rollback_mode, one_of: %i[all_or_nothing keep_progress]
-    setting :max_duration_ms
-
-    class << self
-      private
-
-      def build_spec
-        facts = {
-          loop_mode: (loop_mode || :once).to_sym,
-          rollback_mode: (rollback_mode || :all_or_nothing).to_sym,
-          max_duration_ms: max_duration_ms
-        }
-        class_spec(:bounded, facts)
-      end
+  # A settings tree as its JSON: symbols are strings, `nil` stays absent.
+  def self.tree_json(tree)
+    case tree
+    when Hash then tree.to_h { |name, member| [name.to_s, tree_json(member)] }
+    when Symbol then tree.to_s
+    else tree
     end
   end
 end

@@ -26,7 +26,7 @@ module Flezha
 
     # Where the cell an activation names keeps its state. The operator is part
     # of it: one class serves every operator of its factory on this runner,
-    # such as each bounded instance, and each has cells of its own.
+    # such as each steps instance, and each has cells of its own.
     def self.address(activation, node) = [activation[:operator], node.index, activation[:cell_key]]
 
     # The cell's live state, created from the declaration on first touch.
@@ -90,7 +90,7 @@ module Flezha
     # An entry channel's decoder, or the entry edge's transforms over what it
     # decoded, rejected a message. Only the entrance raises this: the verdict
     # it becomes tells the core the message is unreadable rather than that the
-    # handler failed, so a bounded operator parks it and keeps waiting instead of
+    # handler failed, so a steps operator parks it and keeps waiting instead of
     # ending.
     class UnreadableMessage < StandardError
       def initialize(cause)
@@ -239,11 +239,11 @@ module Flezha
       # This node's own edge off the channel: a transform chain declared before
       # one `into` belongs to that consumer and to no other. It is evaluated
       # here only for a payload that reached us untransformed — an entry
-      # payload, whose producer is the wire, or a bounded stage's released
-      # value. An unbounded producer evaluated it as its activation completed, and
+      # payload, whose producer is the wire, or a steps stage's released
+      # value. A flow producer evaluated it as its activation completed, and
       # evaluating it again would compose the chain with itself.
       untransformed =
-        channel.nil? || channel.kind == :entry || registered.spec.structured_bounded?
+        channel.nil? || channel.kind == :entry || registered.spec.runs_in_steps?
       edge = untransformed ? edge_into(channel, node.index) : nil
       # The entrance (the entry channel's decoder and the entry edge's
       # transforms) is where a message the operator cannot read is told

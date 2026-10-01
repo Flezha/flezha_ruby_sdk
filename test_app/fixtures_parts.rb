@@ -9,6 +9,8 @@
 
 require "flezha"
 
+require_relative "fixtures_state"
+
 module Fixtures
   class PartSender < Flezha::Tasklet
     # The `retry:` inputs that have already failed once in this process.
@@ -37,7 +39,7 @@ module Fixtures
     tasklet_name "part_echo"
   end
 
-  class PartEcho < Flezha::UnboundedOperator
+  class PartEcho < Flezha::Operator
     factory_id "part_echo"
     channels do |c|
       c.input("in", codec: :text).retry_backoff_ms(25).into(PartEchoStep).sink("answer")
@@ -48,14 +50,15 @@ module Fixtures
     tasklet_name "part_echo_turn"
   end
 
-  class PartEchoBounded < Flezha::BoundedOperator
-    factory_id "part_echo_bounded"
-    loop_mode :per_input
+  class PartEchoSteps < Flezha::Operator
+    factory_id "part_echo_steps"
+    run steps: { each: :per_input }
+    durable FIXTURE_DURABLE
     max_duration_ms 600_000
     channels do |c|
       c.input("in", codec: :text).retry_backoff_ms(25).into(PartEchoTurn).sink("answer")
     end
   end
 
-  PARTS = [PartEcho, PartEchoBounded].freeze
+  PARTS = [PartEcho, PartEchoSteps].freeze
 end

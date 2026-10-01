@@ -52,12 +52,7 @@ module Flezha
         builder = Builder.new("<harness>")
         builder.input("in").into(tasklet_class).sink("out", codec: :msgpack)
         @node = builder.tasklets.first
-        @spec = ClassSpec.new(
-          factory_id: "<harness>", kind: :unbounded, persistent: true, effectively_once: false,
-          checkpoint_ack: false, checkpoint_outputs: :as_produced,
-          beyond_window_policy: :process_as_arrival, sync_durability: false,
-          tasklets: builder.tasklets, channels: builder.channels
-        )
+        @spec = ClassSpec.new(factory_id: "<harness>", tasklets: builder.tasklets, channels: builder.channels)
         # The dispatcher's own cell store, so the state this harness reports
         # is the state a runner would hold.
         @registered = RegisteredClass.new(@spec)

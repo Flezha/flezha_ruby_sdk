@@ -4,7 +4,7 @@
 # operators.
 #
 # Declare every operator you want served before `boot`. One runner can serve
-# several, and the same call takes a bounded operator.
+# several, and the same call takes a steps operator.
 
 require "flezha"
 require_relative "echo_operator"

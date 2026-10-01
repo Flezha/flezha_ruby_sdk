@@ -25,8 +25,8 @@ class AuthoringTest < Minitest::Test
     end
   end
 
-  def operator(factory, base: Flezha::UnboundedOperator, &channels)
-    klass = Class.new(base)
+  def operator(factory, &channels)
+    klass = Class.new(Flezha::Operator)
     klass.factory_id factory
     klass.channels(&channels)
     klass
@@ -120,27 +120,21 @@ class AuthoringTest < Minitest::Test
     assert_equal ["topology.duplicate_key_by"], codes(error)
   end
 
-  # The three checkpoint options each write their own raw flag now — the
-  # granularity is the core's to imply — so none of them may clear another.
-  def test_the_checkpoint_options_compose_in_any_order_and_none_clears_another
-    klass = operator("compose") do |c|
-      c.effectively_once
-      c.outputs_at_checkpoint(250)
-      c.checkpoint_ack
-      c.checkpoint_every(4)
-      c.input("in").into(pass_through("p")).keyed.sink
-    end
+  def test_an_ack_at_checkpoint_with_its_members_reaches_the_declaration_as_the_tree
+    klass = operator("compose") { |c| c.input("in").into(pass_through("p")).keyed.sink }
+    klass.run flow: { exactly: { effectively_once: { ack: { checkpoint: { every: 4, outputs: :at_checkpoint,
+                                                                          max_delay_ms: 250 } } } } }
     decl = Flezha::Graph.to_host_class_decl(klass.spec)
 
-    assert_equal true, decl["checkpoint_ack"]
-    assert_equal 4, decl["checkpoint_every"]
-    assert_equal "at_checkpoint", decl["checkpoint_outputs"]
-    assert_equal 250, decl["checkpoint_max_delay_ms"]
-    refute_includes decl.keys, "ack_granularity", "the granularity is derived, never declared"
+    assert_equal({ "flow" => { "exactly" => { "effectively_once" => { "ack" => { "checkpoint" => {
+                   "every" => 4, "outputs" => "at_checkpoint", "max_delay_ms" => 250
+                 } } } } } }, decl["run"])
+    assert_equal "checkpoint", validate(klass.spec)["ack_granularity"]
   end
 
-  def test_a_bounded_declaring_no_channels_is_refused_naming_them
-    klass = Class.new(Flezha::BoundedOperator)
+  def test_a_steps_class_declaring_no_channels_is_refused_naming_them
+    klass = Class.new(Flezha::Operator)
+    klass.run :steps
     klass.factory_id "bodiless"
 
     error = refusal { klass.spec }
@@ -151,8 +145,9 @@ class AuthoringTest < Minitest::Test
   end
 
   # The core's own check, reached through the one submission path.
-  def test_a_bounded_declaring_no_tasklet_is_refused
-    klass = Class.new(Flezha::BoundedOperator)
+  def test_a_steps_class_declaring_no_tasklet_is_refused
+    klass = Class.new(Flezha::Operator)
+    klass.run :steps
     klass.factory_id "empty"
     klass.channels { |_c| nil }
 
@@ -374,91 +369,65 @@ class AuthoringTest < Minitest::Test
     assert_equal [0], derived["channels"][0]["consumers"].map { |e| e["tasklet"] }
   end
 
-  # What an author writes reaches the core whatever the kind, and a setting of
-  # the other kind is refused there by its own name rather than dropped here.
-  UNBOUNDED_SETTINGS_ON_A_BOUNDED = {
-    "topology.effectively_once_on_bounded" => ->(c) { c.effectively_once },
-    "topology.checkpoint_on_bounded" => ->(c) { c.checkpoint_every(500) },
-    "topology.correction_window_on_bounded" => ->(c) { c.correction_window(60_000) }
-  }.freeze
+  # The tree reaches the core as written, and a setting under a parent that
+  # does not carry it is refused there by its own name and its parent's.
+  MISPLACED = [
+    [:run, { flow: { each: :per_input } }, "each", "flow"],
+    [:run, { steps: { correction_ms: 5_000 } }, "correction_ms", "steps"],
+    [:run, { flow: { exactly: { at_least_once: { ack: :checkpoint } } } }, "ack", "at_least_once"],
+    [:durable, { false: { sleep_after: 1_000 } }, "sleep_after", "false"]
+  ].freeze
 
-  def test_a_stream_setting_on_a_bounded_is_refused_by_name
-    UNBOUNDED_SETTINGS_ON_A_BOUNDED.each do |name, write|
+  def test_a_misplaced_setting_is_refused_naming_it_and_its_parent
+    MISPLACED.each do |setting, tree, field, parent|
       step = pass_through("producer")
-      klass = operator("unbounded_setting_bounded", base: Flezha::BoundedOperator) do |c|
-        write.call(c)
-        c.input("in").into(step)
-      end
+      klass = operator("misplaced") { |c| c.input("in").into(step) }
+      klass.public_send(setting, tree)
+      error = refusal { validate(klass.spec) }
 
-      assert_equal [name], codes(refusal { validate(klass.spec) })
+      assert_equal ["topology.unknown_field"], codes(error)
+      assert_includes error.message, field
+      assert_includes error.message, "'#{parent}'"
     end
   end
 
-  def test_sync_durability_on_a_stream_is_refused_by_name
+  def test_a_remote_flow_class_is_refused_by_name
     step = pass_through("producer")
-    klass = operator("sync_unbounded") { |c| c.input("in").into(step) }
-    klass.sync_durability
+    klass = operator("remote_flow") { |c| c.input("in").into(step) }
+    klass.durable :remote
 
-    assert_equal ["topology.sync_durability_on_unbounded"], codes(refusal { validate(klass.spec) })
+    assert_equal ["topology.remote_on_flow"], codes(refusal { validate(klass.spec) })
   end
 
-  def test_sleeping_defaults_to_persistence_on_a_bounded_only
+  def test_the_durability_reaches_the_declaration_as_written
     step = pass_through("step")
-    sleeps = lambda do |base, persistent|
-      klass = operator("sleep_default", base: base) { |c| c.input("in").into(step) }
-      klass.persistent(persistent)
-      Flezha::Graph.to_host_class_decl(klass.spec)["sleep_when_idle"]
+    durable = lambda do |*tree|
+      klass = operator("kept") { |c| c.input("in").into(step) }
+      klass.run :steps
+      klass.durable(*tree) unless tree.empty?
+      Flezha::Graph.to_host_class_decl(klass.spec)["durable"]
     end
 
-    assert_equal [true, false, false],
-                 [sleeps.call(Flezha::BoundedOperator, true),
-                  sleeps.call(Flezha::BoundedOperator, false),
-                  sleeps.call(Flezha::UnboundedOperator, true)]
+    assert_equal [nil, false, { "local" => { "sleep_after" => false } }],
+                 [durable.call, durable.call(false), durable.call({ local: { sleep_after: false } })]
   end
 
-  def test_sleeping_without_persistence_is_refused_by_name
-    step = pass_through("step")
-    [Flezha::UnboundedOperator, Flezha::BoundedOperator].each do |base|
-      klass = operator("sleep_no_persist", base: base) { |c| c.input("in").into(step) }
-      klass.persistent(false)
-      klass.sleep_when_idle
+  def test_a_value_outside_its_choice_is_refused_at_registration
+    [[{ steps: { each: :forever } }, "forever"], [{ steps: { on_failure: :best_effort } }, "best_effort"],
+     [:bounded, "bounded"]].each do |run, value|
+      step = pass_through("step")
+      klass = operator("moded") { |c| c.input("in").into(step) }
+      klass.run run
+      error = refusal { validate(klass.spec) }
 
-      assert_equal ["topology.sleep_without_persistence"], codes(refusal { validate(klass.spec) })
-    end
-  end
-
-  # A mode outside its declared values is refused where the class body writes
-  # it, on the full form and the short form alike.
-  def refused_mode(setting, value)
-    [->(c) { c.channels { |b| b.input("in") } }, ->(c) { c.define_method(:run) { |i, _| i } }]
-      .map do |body|
-        refusal do
-          Class.new(Flezha::BoundedOperator) do
-            factory_id "mode"
-            body.call(self)
-            public_send(setting, value)
-          end
-        end
-      end
-  end
-
-  def test_a_loop_mode_outside_its_values_is_refused_where_it_is_written
-    refused_mode(:loop_mode, :forever).each do |error|
-      assert_equal ["topology.invalid_mode", { "factory_id" => "mode", "knob" => "loop_mode", "value" => "forever" }],
-                   [error.code, error.details]
-    end
-  end
-
-  def test_a_rollback_mode_outside_its_values_is_refused_where_it_is_written
-    refused_mode(:rollback_mode, :best_effort).each do |error|
-      assert_equal ["topology.invalid_mode", "rollback_mode", "best_effort"],
-                   [error.code, error.details["knob"], error.details["value"]]
+      assert_equal ["topology.invalid_setting"], codes(error)
+      assert_includes error.message, value
     end
   end
 
   def test_the_retired_class_retry_and_wake_settings_are_not_declared
     %i[retry_attempts retry_backoff_ms barrier_retry_attempts wake_after_ms].each do |retired|
-      assert_raises(NoMethodError) { Class.new(Flezha::BoundedOperator).public_send(retired, 5) }
+      assert_raises(NoMethodError) { Class.new(Flezha::Operator).public_send(retired, 5) }
     end
   end
 

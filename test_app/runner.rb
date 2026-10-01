@@ -14,7 +14,7 @@ $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 require "flezha"
 require_relative "conformance"
 require_relative "fixtures"
-require_relative "fixtures_bounded"
+require_relative "fixtures_steps"
 require_relative "fixtures_parts"
 require_relative "fixtures_call"
 
@@ -35,7 +35,7 @@ if (topology = ENV["FLEZHA_REFUSAL_FIXTURE"])
 else
   Fixtures::ALL.each { |operator| runner.register_factory(operator) }
   Fixtures::SHORTHAND.each { |short_form| runner.register_factory(short_form) }
-  Fixtures::BOUNDED.each { |operator| runner.register_factory(operator) }
+  Fixtures::STEPS.each { |operator| runner.register_factory(operator) }
   Fixtures::PARTS.each { |operator| runner.register_factory(operator) }
   Fixtures::CALLS.each { |operator| runner.register_factory(operator) }
 end

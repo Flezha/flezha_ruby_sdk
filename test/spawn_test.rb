@@ -21,7 +21,7 @@ class SpawnTest < Minitest::Test
 
   def test_a_spawn_without_an_id_asks_for_one_and_reads_the_generated_id
     core = FakeCore.new(spawns: [resolved("worker-k7m2qzxw4pd3fn2a", "spawned")])
-    handle = ctx(core, offset: 11).spawn_bounded("worker", "p1")
+    handle = ctx(core, offset: 11).spawn_steps("worker", "p1")
 
     assert_equal [[7, "worker", "", "p1".b, "", false, 11]], core.spawn_requests,
                  "the activation token, an empty id, the payload's own bytes, no policy and the input offset"
@@ -31,8 +31,8 @@ class SpawnTest < Minitest::Test
   def test_a_spawn_with_an_id_spawns_and_then_delivers
     core = FakeCore.new(spawns: [resolved("w1", "spawned"), resolved("w1", "delivered")])
     context = ctx(core)
-    first = context.spawn_bounded("worker", "p1", id: "w1")
-    second = context.spawn_bounded("worker", "p2", id: "w1")
+    first = context.spawn_steps("worker", "p1", id: "w1")
+    second = context.spawn_steps("worker", "p2", id: "w1")
 
     assert_equal Flezha::SpawnResult.new(id: "w1", outcome: :spawned), first.wait
     assert_equal Flezha::SpawnResult.new(id: "w1", outcome: :delivered), second.wait
@@ -41,13 +41,13 @@ class SpawnTest < Minitest::Test
   end
 
   # The payload takes the no-codec sink rule `complete` applies: a String is
-  # its bytes and anything else its JSON, so the spawned bounded operator's `text` or
+  # its bytes and anything else its JSON, so the spawned steps operator's `text` or
   # `json` entry decodes it as it decodes a send's payload.
   def test_a_spawn_payload_is_what_a_text_or_json_entry_reads
     core = FakeCore.new(spawns: [resolved("a", "spawned"), resolved("b", "spawned")])
     context = ctx(core)
-    context.spawn_bounded("place", "o-1")
-    context.spawn_bounded("place", { "symbol" => "AAPL", "quantity" => 10 })
+    context.spawn_steps("place", "o-1")
+    context.spawn_steps("place", { "symbol" => "AAPL", "quantity" => 10 })
 
     text, json = core.spawn_requests.map { |request| request[3] }
     assert_equal "o-1".b, text
@@ -57,23 +57,23 @@ class SpawnTest < Minitest::Test
 
   def test_the_error_policy_is_sent_and_an_existing_instance_raises_already_running
     core = FakeCore.new(spawns: [failed("operator.already_running", operator: "w1")])
-    handle = ctx(core).spawn_bounded("worker", "p", id: "w1", if_running: "error")
+    handle = ctx(core).spawn_steps("worker", "p", id: "w1", if_running: "error")
 
     assert_equal "error", core.spawn_requests.first[4]
     error = assert_raises(Flezha::Error) { handle.wait }
     assert_equal ["operator.already_running", { "operator" => "w1" }], [error.code, error.details]
   end
 
-  def test_a_spawn_naming_an_unbounded_factory_raises_factory_not_bounded
-    refusal = failed("operator.factory_not_bounded", factory: "prices", namespace: "default")
-    handle = ctx(FakeCore.new(spawns: [refusal])).spawn_bounded("prices", "p", id: "w1")
+  def test_a_spawn_naming_a_flow_factory_raises_factory_not_steps
+    refusal = failed("operator.factory_not_steps", factory: "prices", namespace: "default")
+    handle = ctx(FakeCore.new(spawns: [refusal])).spawn_steps("prices", "p", id: "w1")
 
-    assert_equal "operator.factory_not_bounded", assert_raises(Flezha::Error) { handle.wait }.code
+    assert_equal "operator.factory_not_steps", assert_raises(Flezha::Error) { handle.wait }.code
   end
 
   def test_if_running_without_an_id_raises_at_the_call_and_sends_nothing
     core = FakeCore.new
-    error = assert_raises(ArgumentError) { ctx(core).spawn_bounded("worker", "p", if_running: "error") }
+    error = assert_raises(ArgumentError) { ctx(core).spawn_steps("worker", "p", if_running: "error") }
 
     assert_includes error.message, "spawner: "
     assert_includes error.message, "if_running without an id"
@@ -89,7 +89,7 @@ class SpawnTest < Minitest::Test
       "spawn.timeout" => { seconds: 30 },
       "spawn.unavailable" => {}
     }.each do |code, details|
-      handle = ctx(FakeCore.new(spawns: [failed(code, **details)])).spawn_bounded("worker", "p")
+      handle = ctx(FakeCore.new(spawns: [failed(code, **details)])).spawn_steps("worker", "p")
 
       error = assert_raises(Flezha::Error) { handle.wait }
       assert_equal [code, details.transform_keys(&:to_s)], [error.code, error.details]
@@ -98,7 +98,7 @@ class SpawnTest < Minitest::Test
 
   def test_the_non_waiting_read_answers_nil_until_the_answer_arrives
     core = FakeCore.new(spawns: [nil, resolved("w1", "spawned")])
-    handle = ctx(core).spawn_bounded("worker", "p", id: "w1")
+    handle = ctx(core).spawn_steps("worker", "p", id: "w1")
 
     assert_nil handle.try_result
     assert_equal :spawned, handle.try_result.outcome
@@ -107,7 +107,7 @@ class SpawnTest < Minitest::Test
 
   def test_a_resolved_handle_answers_every_later_read_the_same
     core = FakeCore.new(spawns: [failed("authz.no_role_binding")])
-    handle = ctx(core).spawn_bounded("worker", "p", id: "w1")
+    handle = ctx(core).spawn_steps("worker", "p", id: "w1")
 
     assert_equal "authz.no_role_binding", assert_raises(Flezha::Error) { handle.wait }.code
     assert_equal "authz.no_role_binding", assert_raises(Flezha::Error) { handle.try_result }.code
@@ -116,7 +116,7 @@ class SpawnTest < Minitest::Test
 
   def test_a_wait_waits_in_the_core_and_reads_again_while_pending
     core = FakeCore.new(spawns: [nil, resolved("w1", "spawned")])
-    ctx(core).spawn_bounded("worker", "p", id: "w1").wait
+    ctx(core).spawn_steps("worker", "p", id: "w1").wait
 
     assert_equal [[1, Flezha::SpawnHandle::WAIT_MS]] * 2, core.spawn_reads
   end
@@ -143,10 +143,10 @@ class SpawnTest < Minitest::Test
 
   class Waiter < Flezha::Tasklet
     tasklet_name "waiter"
-    def run(input, ctx) = ctx.emit(ctx.spawn_bounded("worker", input, id: "w1").wait.outcome.to_s)
+    def run(input, ctx) = ctx.emit(ctx.spawn_steps("worker", input, id: "w1").wait.outcome.to_s)
   end
 
-  class WaiterOperator < Flezha::UnboundedOperator
+  class WaiterOperator < Flezha::Operator
     factory_id "waiter_op"
     channels { |c| c.input("in", codec: :text).into(Waiter).sink("out") }
   end
@@ -161,8 +161,8 @@ class SpawnTest < Minitest::Test
     tasklet_name "spawner"
 
     def run(input, ctx)
-      unnamed = ctx.spawn_bounded("worker", input)
-      named = ctx.spawn_bounded("worker", input, id: "w1")
+      unnamed = ctx.spawn_steps("worker", input)
+      named = ctx.spawn_steps("worker", input, id: "w1")
       [-> { unnamed.wait }, -> { named.wait }, -> { named.try_result }].each do |read|
         RECORDED << begin
           read.call
@@ -170,12 +170,12 @@ class SpawnTest < Minitest::Test
           e
         end
       end
-      RECORDED << ctx.spawn_bounded("worker", input, id: "unread")
+      RECORDED << ctx.spawn_steps("worker", input, id: "unread")
       ctx.emit(input)
     end
   end
 
-  class SpawnerOperator < Flezha::UnboundedOperator
+  class SpawnerOperator < Flezha::Operator
     factory_id "spawner_op"
     channels { |c| c.input("in", codec: :text).into(Spawner).sink("out") }
   end
@@ -227,7 +227,7 @@ class SpawnTest < Minitest::Test
     end
 
     assert_equal "p", released&.fetch(:payload)
-    warnings = stderr.lines.grep(/spawn_bounded\(/)
+    warnings = stderr.lines.grep(/spawn_steps\(/)
     assert_equal 1, warnings.size, stderr
     assert_includes warnings.first, "`unread`"
     assert_includes warnings.first, "no control plane"

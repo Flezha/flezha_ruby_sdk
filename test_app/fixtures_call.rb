@@ -5,9 +5,9 @@
 # tasklet names, channel names and payloads: operators that call another
 # operator from their graph and read the outcome as a `Flezha::Response`.
 #
-# - `call_pricing`: an unbounded callee answering `price:<input>`; an input
+# - `call_pricing`: a flow callee answering `price:<input>`; an input
 #   starting `silent` is never answered.
-# - `call_orders`: an unbounded caller calling the instance `pricing`.
+# - `call_orders`: a flow caller calling the instance `pricing`.
 # - `call_agent`: a durable per-input keep-progress session answering
 #   `answer:<turn>`; `boom` fails the turn, `slow` answers after 2 s.
 # - `call_gateway`: an effectively-once caller calling `call_agent` by the
@@ -22,6 +22,8 @@
 # `<request>=error:<code>@<target>/<created>`.
 
 require "flezha"
+
+require_relative "fixtures_state"
 
 module Fixtures
   module OperatorCall
@@ -58,7 +60,7 @@ module Fixtures
     def run(input, ctx) = input.start_with?("silent") ? nil : ctx.emit("price:#{input}")
   end
 
-  class CallPricing < Flezha::UnboundedOperator
+  class CallPricing < Flezha::Operator
     factory_id "call_pricing"
     channels { |c| c.input("in", codec: :text).into(PricingQuote).response }
   end
@@ -72,7 +74,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit(OperatorCall.render(input))
   end
 
-  class CallOrders < Flezha::UnboundedOperator
+  class CallOrders < Flezha::Operator
     factory_id "call_orders"
     channels do |c|
       c.input("in", codec: :text).into(OrderAsk).named("order")
@@ -93,10 +95,10 @@ module Fixtures
     end
   end
 
-  class CallAgent < Flezha::BoundedOperator
+  class CallAgent < Flezha::Operator
     factory_id "call_agent"
-    loop_mode :per_input
-    rollback_mode :keep_progress
+    run steps: { each: :per_input, on_failure: :keep_progress }
+    durable FIXTURE_DURABLE
     max_duration_ms 600_000
     channels { |c| c.input("turn", codec: :text).into(AgentTurn).response }
   end
@@ -116,10 +118,10 @@ module Fixtures
     def run(input, ctx) = ctx.emit(input.delete_prefix(OperatorCall::OUTCOME))
   end
 
-  class CallGateway < Flezha::UnboundedOperator
+  class CallGateway < Flezha::Operator
     factory_id "call_gateway"
+    run flow: { exactly: :effectively_once }
     channels do |c|
-      c.effectively_once
       account = c.input("in", codec: :text).into(GatewayAccount).named("gateway")
       account.filter { |line| OperatorCall.turn?(line) }.key_by { |line| OperatorCall.session(line) }
              .call(factory: "call_agent", deadline_ms: OperatorCall::DEADLINE_MS, codec: :text)
@@ -143,9 +145,10 @@ module Fixtures
     def run(input, ctx) = ctx.emit(input.delete_prefix(OperatorCall::OUTCOME))
   end
 
-  class CallToolSession < Flezha::BoundedOperator
+  class CallToolSession < Flezha::Operator
     factory_id "call_tool_session"
-    loop_mode :per_input
+    run steps: { each: :per_input }
+    durable FIXTURE_DURABLE
     max_duration_ms 600_000
     channels do |c|
       turn = c.input("turn", codec: :text).into(ToolTurn).named("tool")

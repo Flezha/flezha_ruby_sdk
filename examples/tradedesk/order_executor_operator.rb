@@ -6,10 +6,10 @@ require_relative "place_order"
 require_relative "confirm_fill"
 require_relative "record_order"
 
-# The desk's bounded operator: one instance per order, which runs its steps
+# The desk's steps operator: one instance per order, which runs its steps
 # once and then ends.
 #
-# A bounded operator declares its steps the way an unbounded operator declares
+# A steps operator declares its steps the way a flow operator declares
 # its graph, on the same builder, and the controller schedules, restarts and
 # relocates it in the same way. What differs is the lifecycle: each step's
 # output is written down as it commits, so an instance that is interrupted
@@ -25,8 +25,9 @@ require_relative "record_order"
 # reverse, through their `compensate` methods: the order is cancelled, then the
 # money is released. A step with no `compensate` is skipped, which is why the
 # desk's book is left alone.
-class OrderExecutorOperator < Flezha::BoundedOperator
+class OrderExecutorOperator < Flezha::Operator
   factory_id "order_executor"
+  run :steps
 
   # Two steps in order, then a fan-out: confirming the fill and booking the
   # order are two independent consequences of the placement, and neither waits

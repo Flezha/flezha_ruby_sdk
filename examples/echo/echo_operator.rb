@@ -11,7 +11,7 @@ require_relative "echo_tasklet"
 # cannot work is refused at startup. The entry names the text codec, so the
 # tasklet is handed a String, and the sink names none, so a String result
 # leaves as its own bytes.
-class EchoOperator < Flezha::UnboundedOperator
+class EchoOperator < Flezha::Operator
   # The operator's stable identity, and the name `flz operator start` takes.
   factory_id "echo"
 

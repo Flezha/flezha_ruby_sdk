@@ -41,14 +41,16 @@ class DeclKeysTest < Minitest::Test
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class FullUnbounded < Flezha::UnboundedOperator
-    factory_id "decl_keys_unbounded"
+  class FullFlow < Flezha::Operator
+    factory_id "decl_keys_flow"
+    description "every flow key"
+    run flow: { exactly: { effectively_once: {
+      ack: { checkpoint: { every: 4, outputs: :at_checkpoint, max_delay_ms: 250 } },
+      correction_ms: 5_000, beyond_window: :drop
+    } } }
+    durable local: { sleep_after: 2_000 }
+    max_duration_ms 60_000
     channels do |c|
-      c.effectively_once
-      c.checkpoint_every(4)
-      c.outputs_at_checkpoint(250)
-      c.correction_window(5_000)
-      c.beyond_window_policy(:drop)
       c.compact_after_bytes(4_096)
       edge = c.input("input").into(Entry)
       edge.named("hop").key_by { |value| value.to_s }.retry_max(5).retry_backoff_ms(50)
@@ -58,23 +60,11 @@ class DeclKeysTest < Minitest::Test
     end
   end
 
-  class FullBounded < Flezha::BoundedOperator
-    factory_id "decl_keys_bounded"
-    loop_mode :chained
-    rollback_mode :keep_progress
-    max_duration_ms 60_000
-    sync_durability
-    channels { |c| c.input("input").into(Downstream).sink }
-  end
-
   def spelled
-    stream = Flezha::Graph.to_host_class_decl(FullUnbounded.spec)
-    bounded = Flezha::Graph.to_host_class_decl(FullBounded.spec)
+    stream = Flezha::Graph.to_host_class_decl(FullFlow.spec)
     keys = stream.keys.map { |key| "class.#{key}" }
-    keys |= bounded.keys.map { |key| "class.#{key}" }
     keys |= stream["channels"].flat_map { |c| c.keys.map { |key| "channel.#{key}" } }
     keys |= stream["tasklets"].flat_map { |p| p.keys.map { |key| "tasklet.#{key}" } }
-    keys |= bounded["bounded"].keys.map { |key| "bounded.#{key}" }
     keys.sort
   end
 
@@ -102,7 +92,7 @@ class DeclKeysTest < Minitest::Test
   # source's own links, its mapping, the merge's key, then the merge naming
   # the node and a group of its own per merge.
   def test_a_merge_records_each_source_chain_in_the_cores_link_shape
-    klass = Class.new(Flezha::UnboundedOperator)
+    klass = Class.new(Flezha::Operator)
     klass.factory_id "decl_keys_merge"
     klass.channels do |c|
       c.merge.from(c.input("a")) { |v| v }.from(c.input("b").flat_map { |v| [v] }) { |v| v }
@@ -117,32 +107,6 @@ class DeclKeysTest < Minitest::Test
     assert_equal [[[transform, key, first]], [[transform, transform, key, first]],
                   [[transform, second]], [[transform, second]]],
                  Flezha::Graph.to_host_class_decl(klass.spec)["channels"].map { |c| c["chains"] }
-  end
-
-  # --- what the author wrote reaches the core, whatever the kind -----------
-  #
-  # `flz_core::host::register::refuse_bounded_facts` names each unbounded-only
-  # key a bounded class may not carry. This builder puts every one on the
-  # wire for either kind, so the refusal is the core's, by name, and never a
-  # drop.
-  UNBOUNDED_ONLY = %w[
-    effectively_once checkpoint_ack checkpoint_every checkpoint_outputs
-    checkpoint_max_delay_ms correction_window_ms beyond_window_policy
-  ].freeze
-
-  # The unbounded fixture's spec re-kinded: every unbounded-only key populated at once.
-  def tier_spec(kind)
-    spec = FullUnbounded.spec.dup
-    spec.kind = kind
-    spec.bounded = kind == :bounded ? FullBounded.spec.bounded : nil
-    spec
-  end
-
-  def test_every_unbounded_setting_reaches_the_wire_for_either_kind
-    %i[unbounded bounded].each do |kind|
-      dropped = UNBOUNDED_ONLY - Flezha::Graph.to_host_class_decl(tier_spec(kind)).keys
-      assert_empty dropped, "#{kind} keys dropped before the core could judge them: #{dropped.join(', ')}"
-    end
   end
 end
 
@@ -169,7 +133,7 @@ class ReferenceTopologiesTest < Minitest::Test
     def run(_input, _ctx) = nil
   end
 
-  class HybridChannel < Flezha::UnboundedOperator
+  class HybridChannel < Flezha::Operator
     factory_id "hybrid_channel"
     channels do |c|
       c.input("input").into(HybridProducer)
@@ -187,8 +151,9 @@ class ReferenceTopologiesTest < Minitest::Test
     def run(_input, _ctx) = nil
   end
 
-  class CommitBlockChain < Flezha::BoundedOperator
+  class CommitBlockChain < Flezha::Operator
     factory_id "commit_block_chain"
+    run :steps
     channels do |c|
       c.input("in").into(TierCommitA).keyed
        .sink("mid", encode: BYTES).into(BlockB)
@@ -225,7 +190,7 @@ class ReferenceTopologiesTest < Minitest::Test
     assert_equal golden("hybrid_channel"), emitted("hybrid_channel", HybridChannel.spec)
   end
 
-  def test_the_structured_bounded_topology_is_the_reference
+  def test_the_structured_steps_topology_is_the_reference
     assert_equal golden("commit_block_chain"), emitted("commit_block_chain", CommitBlockChain.spec)
   end
 end

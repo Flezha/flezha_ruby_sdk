@@ -10,6 +10,14 @@ module Fixtures
   # The reference parses `i64` and reads an unparsable input as 0.
   AS_INT = ->(value) { Integer(value.to_s, exception: false) || 0 }
 
+  # A kept instance that sleeps after `FLEZHA_FIXTURE_SLEEP_AFTER_MS`, so a
+  # test can watch one sleep; the class default when the variable is unset.
+  FIXTURE_DURABLE = if (sleep_after = AS_INT.call(ENV.fetch("FLEZHA_FIXTURE_SLEEP_AFTER_MS", ""))).positive?
+                      { local: { sleep_after: sleep_after } }
+                    else
+                      :local
+                    end
+
   # -- bench_keyed_nopersist / bench_keyed / the tier stores -----------------
   #
   # The reference's `TierStoreState` and its upsert fold: `tier_store`,
@@ -62,7 +70,7 @@ module Fixtures
 
   # The same keyed upsert under both durability postures, so the round-trip
   # bench can isolate the cost of per-Cell persistence.
-  class KeyedUpsertOperator < Flezha::UnboundedOperator
+  class KeyedUpsertOperator < Flezha::Operator
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
        .into(TierStore).keyed
@@ -74,7 +82,7 @@ module Fixtures
   # isolates against the durable one.
   class BenchKeyedNoPersistOperator < KeyedUpsertOperator
     factory_id "bench_keyed_nopersist"
-    persistent false
+    durable false
   end
 
   class BenchKeyedOperator < KeyedUpsertOperator
@@ -86,10 +94,10 @@ module Fixtures
   # Declared DropNothing: a durable-input-log operator that shed at its
   # mailbox would hold the min-watermark on the shed offset forever while the
   # log behind it kept growing.
-  class TierStoreOperator < Flezha::UnboundedOperator
+  class TierStoreOperator < Flezha::Operator
     factory_id "tier_store"
+    run flow: { exactly: :effectively_once }
     channels do |c|
-      c.effectively_once
       c.input("input", codec: :text).on_full(:drop_nothing).retry_backoff_ms(300)
        .into(TierStore).keyed
        .sink("sink")
@@ -131,10 +139,10 @@ module Fixtures
     end
   end
 
-  class TierChainOperator < Flezha::UnboundedOperator
+  class TierChainOperator < Flezha::Operator
     factory_id "tier_chain"
+    run flow: { exactly: :effectively_once }
     channels do |c|
-      c.effectively_once
       c.input("input", codec: :text).on_full(:drop_nothing)
        .into(TierRelay)
        .key_by { |value| PREFIX.call(value) }.retry_max(1_000)
@@ -143,27 +151,24 @@ module Fixtures
     end
   end
 
-  class CheckpointStoreOperator < Flezha::UnboundedOperator
+  class CheckpointStoreOperator < Flezha::Operator
     factory_id "checkpoint_store"
+    run flow: { exactly: { effectively_once: { ack: :checkpoint } } }
     channels do |c|
-      c.effectively_once
-      c.checkpoint_ack
       c.input("input", codec: :text).into(CheckpointStore).keyed
        .sink("sink")
     end
   end
 
-  # The same tasklet declared `outputs_at_checkpoint`: the interval's outputs
+  # The same tasklet declared `outputs: :at_checkpoint`: the interval's outputs
   # are held with its changes and ship inside its checkpoint record.
-  # `checkpoint_every` is deliberately absent so the test drives the close
+  # `every` is deliberately absent so the test drives the close
   # itself — with `commit:` for the batch case, and with the delay alone for
   # the quiet-Cell case.
-  class CheckpointBatchedOperator < Flezha::UnboundedOperator
+  class CheckpointBatchedOperator < Flezha::Operator
     factory_id "checkpoint_batched_store"
+    run flow: { exactly: { effectively_once: { ack: { checkpoint: { outputs: :at_checkpoint, max_delay_ms: 1_500 } } } } }
     channels do |c|
-      c.effectively_once
-      c.checkpoint_ack
-      c.outputs_at_checkpoint(1_500)
       c.input("input", codec: :text).into(CheckpointStore).keyed
        .sink("sink")
     end
@@ -177,14 +182,15 @@ module Fixtures
   # 500) per Cell. `FLEZHA_BENCH_CHECKPOINT_OUTPUTS=at_checkpoint` (with
   # `FLEZHA_BENCH_CHECKPOINT_DELAY_MS`) additionally holds the interval's
   # outputs until it closes.
-  class BenchCheckpointOperator < Flezha::UnboundedOperator
+  class BenchCheckpointOperator < Flezha::Operator
     factory_id "bench_checkpoint"
+    checkpoint = { every: ENV_INT.call("FLEZHA_BENCH_CHECKPOINT_EVERY", 500) }
+    if ENV["FLEZHA_BENCH_CHECKPOINT_OUTPUTS"] == "at_checkpoint"
+      checkpoint.merge!(outputs: :at_checkpoint,
+                        max_delay_ms: ENV_INT.call("FLEZHA_BENCH_CHECKPOINT_DELAY_MS", 50))
+    end
+    run flow: { exactly: { effectively_once: { ack: { checkpoint: checkpoint } } } }
     channels do |c|
-      c.effectively_once
-      c.checkpoint_every(ENV_INT.call("FLEZHA_BENCH_CHECKPOINT_EVERY", 500))
-      if ENV["FLEZHA_BENCH_CHECKPOINT_OUTPUTS"] == "at_checkpoint"
-        c.outputs_at_checkpoint(ENV_INT.call("FLEZHA_BENCH_CHECKPOINT_DELAY_MS", 50))
-      end
       c.input("input", codec: :text).on_full(:drop_nothing)
        .into(BenchCheckpoint).keyed
        .sink("sink")
@@ -205,7 +211,7 @@ module Fixtures
     end
   end
 
-  class StoreInputOperator < Flezha::UnboundedOperator
+  class StoreInputOperator < Flezha::Operator
     factory_id "store_input"
     channels do |c|
       c.input("input", codec: :text).into(StoreInput)
@@ -231,7 +237,7 @@ module Fixtures
     end
   end
 
-  class StatefulCounterOperator < Flezha::UnboundedOperator
+  class StatefulCounterOperator < Flezha::Operator
     factory_id "stateful_counter"
     channels do |c|
       c.input("input", codec: :text).into(CounterEntry).named("ticks").into(Counter)
@@ -240,9 +246,9 @@ module Fixtures
 
   # The same topology with per-Cell persistence off, under the reference's
   # node names: the toggle is a class property, not a different computation.
-  class PersistenceOffCounterOperator < Flezha::UnboundedOperator
+  class PersistenceOffCounterOperator < Flezha::Operator
     factory_id "persistence_off_counter"
-    persistent false
+    durable false
     channels do |c|
       c.input("input", codec: :text)
        .into(CounterEntry, "persistence_off_entry_tasklet").named("ticks")
@@ -252,7 +258,7 @@ module Fixtures
 
   # -- sleeping_counter ------------------------------------------------------
   #
-  # An unbounded operator that sleeps when idle: `key:delta` inputs fold into one running
+  # A flow operator that sleeps when idle: `key:delta` inputs fold into one running
   # total per key, and every input emits `key=total` on the `totals` sink. The
   # sleep e2e reads the total after a wake to prove the Cell came back with the
   # state it slept with.
@@ -269,9 +275,9 @@ module Fixtures
     end
   end
 
-  class SleepingCounterOperator < Flezha::UnboundedOperator
+  class SleepingCounterOperator < Flezha::Operator
     factory_id "sleeping_counter"
-    sleep_when_idle
+    durable FIXTURE_DURABLE
     channels do |c|
       c.input("input", codec: :text).key_by { |value| PREFIX.call(value) }
        .into(SleepingCounter).sink("totals")
@@ -306,7 +312,7 @@ module Fixtures
     end
   end
 
-  class CoalescingCounterOperator < Flezha::UnboundedOperator
+  class CoalescingCounterOperator < Flezha::Operator
     factory_id "coalescing_counter"
     channels do |c|
       c.input("input", codec: :text).into(TickEntry).named("ticks").into(Tick)
@@ -330,7 +336,7 @@ module Fixtures
     end
   end
 
-  class ResumeProbeOperator < Flezha::UnboundedOperator
+  class ResumeProbeOperator < Flezha::Operator
     factory_id "resume_probe"
     channels do |c|
       c.input("input", codec: :text).into(ResumeProbe)
@@ -393,7 +399,7 @@ module Fixtures
     end
   end
 
-  class SchemaEvolutionV1Operator < Flezha::UnboundedOperator
+  class SchemaEvolutionV1Operator < Flezha::Operator
     factory_id "schema_evolution_v1"
     channels do |c|
       c.input("input", codec: :text).into(EvolvingCartV1)
@@ -401,7 +407,7 @@ module Fixtures
     end
   end
 
-  class SchemaEvolutionV2Operator < Flezha::UnboundedOperator
+  class SchemaEvolutionV2Operator < Flezha::Operator
     factory_id "schema_evolution_v2"
     channels do |c|
       c.input("input", codec: :text).into(EvolvingCartV2)

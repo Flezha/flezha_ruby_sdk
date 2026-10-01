@@ -140,8 +140,8 @@ class TestingTest < Minitest::Test
       tasklet_name "spawner"
 
       define_method(:run) do |input, ctx|
-        handles.replace([ctx.spawn_bounded("stateless_loop_bounded", input),
-                         ctx.spawn_bounded("stateless_loop_bounded", input, id: "w1")])
+        handles.replace([ctx.spawn_steps("stateless_loop_steps", input),
+                         ctx.spawn_steps("stateless_loop_steps", input, id: "w1")])
         ctx.emit(handles.map { |handle| handle.try_result.to_h })
       end
     end

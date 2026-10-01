@@ -137,48 +137,39 @@ class NativeTest < Minitest::Test
     Flezha::Native.context_free
   end
 
-  # The checkpoint options the core will accept together. Asserted against the
-  # core rather than against the builder's fields because the core is what
-  # refuses: a declaration holding outputs at a checkpoint it never
-  # acknowledges at is rejected at registration, so a builder that can express
-  # it hands its author a class that cannot start.
-  def checkpoint_class(factory_id)
+  # The checkpoint acknowledgements the core accepts. Asserted against the
+  # core, which reads the tree and refuses a malformed one.
+  def checkpoint_class(factory_id, ack)
     tasklet = Class.new(Flezha::Tasklet) do
       tasklet_name "#{factory_id}_tasklet"
       def run(input, ctx) = ctx.emit(input)
     end
-    operator = Class.new(Flezha::UnboundedOperator)
+    operator = Class.new(Flezha::Operator)
     operator.factory_id factory_id
-    operator.channels do |c|
-      c.effectively_once
-      yield c
-      c.input("input").into(tasklet).keyed.sink("sink")
-    end
+    operator.run flow: { exactly: { effectively_once: { ack: ack } } }
+    operator.channels { |c| c.input("input").into(tasklet).keyed.sink("sink") }
     Flezha::Graph.to_host_class_decl(operator.spec)
   end
 
-  def test_holding_outputs_at_the_checkpoint_acknowledges_at_the_checkpoint
+  def test_holding_outputs_at_the_checkpoint_registers_with_its_delay
     Flezha::Native.context_new(Flezha::ACTIVATION_SCHEMA_VERSION)
 
-    decl = checkpoint_class("outputs_only") { |c| c.outputs_at_checkpoint(1500) }
+    decl = checkpoint_class("outputs_only", { checkpoint: { outputs: :at_checkpoint, max_delay_ms: 1500 } })
 
-    # The raw flag, and only it: the builder never asks for the granularity,
-    # and the class registers because the core implies it from this key.
-    assert_equal false, decl["checkpoint_ack"]
-    assert_equal "at_checkpoint", decl["checkpoint_outputs"]
+    assert_equal({ "checkpoint" => { "outputs" => "at_checkpoint", "max_delay_ms" => 1500 } },
+                 decl.dig("run", "flow", "exactly", "effectively_once", "ack"))
     Flezha::Native.declare_class(JSON.generate(decl))
     assert_equal "checkpoint", JSON.parse(Flezha::Native.check_class(JSON.generate(decl)))["ack_granularity"]
   ensure
     Flezha::Native.context_free
   end
 
-  def test_the_bare_checkpoint_opt_in_registers_with_no_cadence
+  def test_a_bare_checkpoint_registers_with_no_cadence
     Flezha::Native.context_new(Flezha::ACTIVATION_SCHEMA_VERSION)
 
-    decl = checkpoint_class("ack_only", &:checkpoint_ack)
+    decl = checkpoint_class("ack_only", :checkpoint)
 
-    assert_equal true, decl["checkpoint_ack"]
-    assert_nil decl["checkpoint_every"], "the bare opt-in declares no cadence"
+    assert_equal "checkpoint", decl.dig("run", "flow", "exactly", "effectively_once", "ack")
     Flezha::Native.declare_class(JSON.generate(decl))
     assert_equal "checkpoint", JSON.parse(Flezha::Native.check_class(JSON.generate(decl)))["ack_granularity"]
   ensure
@@ -194,7 +185,7 @@ class NativeTest < Minitest::Test
       tasklet_name "check_keyed"
       def run(input, ctx) = ctx.emit(input)
     end
-    operator = Class.new(Flezha::UnboundedOperator)
+    operator = Class.new(Flezha::Operator)
     operator.factory_id "check_dup_key"
     operator.channels { |c| c.input("input").key_by { "a" }.key_by { "b" }.into(keyed) }
 
@@ -216,7 +207,7 @@ class NativeTest < Minitest::Test
       tasklet_name "native_echo"
       def run(input, ctx) = ctx.emit(input)
     end
-    operator = Class.new(Flezha::UnboundedOperator)
+    operator = Class.new(Flezha::Operator)
     operator.factory_id "native_echo_op"
     operator.channels { |c| c.input("input").into(echo).sink("out") }
 

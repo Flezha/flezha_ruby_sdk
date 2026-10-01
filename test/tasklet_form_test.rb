@@ -8,8 +8,8 @@ require_relative "test_helper"
 class TaskletFormTest < Minitest::Test
   def refusal(&) = assert_raises(Flezha::Error, &)
 
-  def operator(factory, base: Flezha::UnboundedOperator, &channels)
-    Class.new(base).tap do |klass|
+  def operator(factory, &channels)
+    Class.new(Flezha::Operator).tap do |klass|
       klass.factory_id factory
       klass.channels(&channels)
     end
@@ -377,22 +377,23 @@ class TaskletFormTest < Minitest::Test
     assert_equal [["out", "echo: hello"]], work(op, "hello")[:outputs].map { |o| o.values_at(:plugin_channel, :payload) }
   end
 
-  class Place < Flezha::BoundedOperator
+  class Place < Flezha::Operator
     factory_id "place"
+    run :steps
     sink "placed"
     input "order"
     codec :text
     def run(order, ctx) = ctx.emit("placed:#{order}")
   end
 
-  class Upcase < Flezha::UnboundedOperator
+  class Upcase < Flezha::Operator
     factory_id "upcase"
     sink "out"
     codec :text
     def run(value, _ctx) = value.upcase
   end
 
-  class EmittingUpcase < Flezha::UnboundedOperator
+  class EmittingUpcase < Flezha::Operator
     factory_id "emitting_upcase"
     sink "out"
     codec :text
@@ -405,7 +406,7 @@ class TaskletFormTest < Minitest::Test
     assert_equal ["HI"], work(EmittingUpcase, "hi")[:outputs].map { |o| o[:payload] }
   end
 
-  class Ticks < Flezha::UnboundedOperator
+  class Ticks < Flezha::Operator
     factory_id "ticks_counter"
     input "ticks"
     codec :text

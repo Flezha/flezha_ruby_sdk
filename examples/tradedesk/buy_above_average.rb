@@ -9,7 +9,7 @@ require "flezha"
 # nothing because there is nothing to bring back. That is why it writes no
 # `init_state`, beside `TrackPrices`, which keeps the window.
 #
-# It does two things per input, both through the context: it starts a bounded
+# It does two things per input, both through the context: it starts a steps
 # operator and it emits.
 class BuyAboveAverage < Flezha::Tasklet
   tasklet_name "buy_above_average"
@@ -24,7 +24,7 @@ class BuyAboveAverage < Flezha::Tasklet
     quantity = (percent * UNITS_PER_PERCENT).round           # a stronger move buys more
 
     order = { symbol: move[:symbol], quantity: quantity }
-    ctx.spawn_bounded("order_executor", order)               # one bounded operator per order
+    ctx.spawn_steps("order_executor", order)               # one steps operator per order
 
     ctx.emit(format("%<symbol>s %<price>.4f is %<percent>.2f%% above its average of %<average>.4f, buying %<quantity>d",
                     symbol: move[:symbol], price: move[:price], percent: percent,

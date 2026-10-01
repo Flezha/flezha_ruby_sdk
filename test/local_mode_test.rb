@@ -33,7 +33,7 @@ class LocalModeTest < Minitest::Test
     end
   end
 
-  class WordCount < Flezha::UnboundedOperator
+  class WordCount < Flezha::Operator
     factory_id "local_word_count_ruby"
     channels do |c|
       c.input("lines", codec: :text)
@@ -105,14 +105,14 @@ class LocalModeTest < Minitest::Test
     end
   end
 
-  class DefaultCodecs < Flezha::UnboundedOperator
+  class DefaultCodecs < Flezha::Operator
     factory_id "local_default_codecs_ruby"
     channels { |c| c.input("in").into(Defaults).sink("out") }
   end
 
   ECHOLESS_CALLS = Queue.new
 
-  class Echoless < Flezha::UnboundedOperator
+  class Echoless < Flezha::Operator
     factory_id "local_echoless_ruby"
     input "ticks"
     codec :text

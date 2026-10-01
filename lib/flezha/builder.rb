@@ -42,25 +42,39 @@ module Flezha
   )
 
   # Everything the graph knows about one declared class.
+  # `run` and `durable` are the tree's JSON as written, `nil` when unwritten.
   ClassSpec = Struct.new(
-    :factory_id, :kind, :persistent, :sleep_when_idle, :effectively_once, :checkpoint_ack,
-    :checkpoint_every, :checkpoint_outputs, :checkpoint_max_delay_ms,
-    :correction_window_ms, :beyond_window_policy, :compact_after_bytes,
-    :sync_durability, :tasklets, :channels, :bounded,
+    :factory_id, :description, :max_duration_ms, :run, :durable, :compact_after_bytes,
+    :tasklets, :channels,
     keyword_init: true
   ) do
-    # Whether this class's producers release their values untransformed.
+    # Whether this class runs in steps, whose producers release their values
+    # untransformed.
     #
-    # A bounded operator's stage releases ONE value per emit and the driver fans it out
+    # A steps stage releases ONE value per emit and the driver fans it out
     # to every consumer itself, so each consumer edge (its transforms and its
     # key) belongs to the consumer. The producer and the consumer read this one
     # predicate, so they cannot disagree about which side applies the edge.
-    def structured_bounded? = kind == :bounded
+    def runs_in_steps? = ClassSpec.branch(run) == "steps"
+
+    # Whether an instance keeps its work anywhere: `durable` is not `false`.
+    def keeps_work? = ClassSpec.branch(durable) != "false"
 
     # Whether each invocation's output rides one effect record the controller
     # stamps at flush: under the effectively-once tier, and for a durable
-    # bounded operator, whose stage commit names the record.
-    def records_effects? = effectively_once || (kind == :bounded && persistent)
+    # steps operator, whose stage commit names the record.
+    def records_effects?
+      exactly = run.is_a?(Hash) && run["flow"].is_a?(Hash) ? run["flow"]["exactly"] : nil
+      ClassSpec.branch(exactly) == "effectively_once" || (runs_in_steps? && keeps_work?)
+    end
+
+    # The branch a tree setting names: its bare name, or its one key.
+    def self.branch(tree)
+      return "false" if tree == false
+      return tree if tree.is_a?(String)
+
+      tree.keys.first if tree.is_a?(Hash) && tree.size == 1
+    end
   end
 
   # Run an edge's transform chain over one value and answer the values that
@@ -81,10 +95,7 @@ module Flezha
 
   # The fluent channel builder an operator's `channels` block receives.
   class Builder
-    attr_reader :factory_id, :tasklets, :channels, :effectively_once_flag,
-                :checkpoint_ack_flag, :checkpoint_every_value, :checkpoint_outputs_value,
-                :checkpoint_max_delay_ms_value, :correction_window_ms_value,
-                :beyond_window_policy_value, :compact_after_bytes_value
+    attr_reader :factory_id, :tasklets, :channels, :compact_after_bytes_value
 
     def initialize(factory_id)
       @factory_id = factory_id
@@ -94,44 +105,6 @@ module Flezha
       # order. Recorded, never judged: the core reads them and answers.
       @chains = []
       @merge_groups = 0
-      @effectively_once_flag = false
-      @checkpoint_ack_flag = false
-      @checkpoint_outputs_value = :as_produced
-      @beyond_window_policy_value = :process_as_arrival
-    end
-
-    def effectively_once
-      @effectively_once_flag = true
-      self
-    end
-
-    # Each of the three writes its own raw flag and nothing else: the
-    # acknowledgement granularity is DERIVED by the core, which is the one
-    # place any checkpoint key implies it.
-    def checkpoint_ack
-      @checkpoint_ack_flag = true
-      self
-    end
-
-    def checkpoint_every(count)
-      @checkpoint_every_value = count
-      self
-    end
-
-    def outputs_at_checkpoint(max_delay_ms = nil)
-      @checkpoint_outputs_value = :at_checkpoint
-      @checkpoint_max_delay_ms_value = max_delay_ms unless max_delay_ms.nil?
-      self
-    end
-
-    def correction_window(milliseconds)
-      @correction_window_ms_value = milliseconds
-      self
-    end
-
-    def beyond_window_policy(policy)
-      @beyond_window_policy_value = policy.to_sym
-      self
     end
 
     def compact_after_bytes(bytes)

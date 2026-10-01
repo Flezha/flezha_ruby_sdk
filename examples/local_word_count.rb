@@ -39,7 +39,7 @@ class Tally < Flezha::Tasklet
   end
 end
 
-class WordCount < Flezha::UnboundedOperator
+class WordCount < Flezha::Operator
   factory_id "local_word_count_example"
   channels do |c|
     c.input("lines", codec: :text)

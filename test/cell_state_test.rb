@@ -5,7 +5,7 @@ require_relative "test_helper"
 # A cell belongs to one operator.
 #
 # One registered class serves every operator of its factory on a runner, such
-# as each instance of a bounded operator or each partition of a stream, and
+# as each instance of a steps operator or each partition of a stream, and
 # each has cells of its own under the same tasklet and cell key. Every path
 # that reads or writes a cell's state is driven here with two operators side
 # by side.
@@ -19,7 +19,7 @@ class CellStateTest < Minitest::Test
     def compensate(_outputs, ctx) = ctx.emit(ctx.state[:seen].dup)
   end
 
-  class KeptOperator < Flezha::UnboundedOperator
+  class KeptOperator < Flezha::Operator
     factory_id "kept_operator"
     channels { |c| c.input("input", codec: :text).into(Kept).sink("out", codec: :msgpack) }
   end

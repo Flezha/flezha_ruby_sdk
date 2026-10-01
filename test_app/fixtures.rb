@@ -24,7 +24,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class DoNothingOperator < Flezha::UnboundedOperator
+  class DoNothingOperator < Flezha::Operator
     factory_id "do_nothing"
     channels do |c|
       c.input("input", codec: :text).into(DoNothing)
@@ -35,12 +35,52 @@ module Fixtures
   # Echo with a declared DropNothing on its entry mailbox. `do_nothing` is the
   # merge-blocking bench factory and must not change; this keeps the round-trip
   # bench's back-pressure posture independent of it.
-  class BenchEchoOperator < Flezha::UnboundedOperator
+  class BenchEchoOperator < Flezha::Operator
     factory_id "bench_echo"
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
        .into(DoNothing)
        .sink("echo")
+    end
+  end
+
+  # -- complete_flow / chained_steps ----------------------------------------
+
+  # A flow class that echoes each input on `complete_flow_out` and ends its
+  # instance on `bye`, the echo of `bye` included.
+  class CompleteFlow < Flezha::Tasklet
+    tasklet_name "complete_flow_tasklet"
+    def run(input, ctx)
+      ctx.complete(input) if input == "bye"
+      ctx.emit(input)
+    end
+  end
+
+  class CompleteFlowOperator < Flezha::Operator
+    factory_id "complete_flow"
+    channels do |c|
+      c.input("input", codec: :text).into(CompleteFlow).sink("complete_flow_out")
+    end
+  end
+
+  # A durable chained loop: each pass prints `chained_pass <n>` and hands the
+  # next pass `n - 1` on its own channel; the pass at zero hands nothing, and
+  # the empty batch ends the instance.
+  class ChainedCountdown < Flezha::Tasklet
+    tasklet_name "chained_countdown"
+    def run(input, ctx)
+      puts("chained_pass #{input}")
+      $stdout.flush
+      n = Integer(input)
+      ctx.emit((n - 1).to_s) if n.positive?
+    end
+  end
+
+  class ChainedStepsOperator < Flezha::Operator
+    factory_id "chained_steps"
+    run steps: { each: :chained }
+    channels do |c|
+      c.input("in", codec: :text).into(ChainedCountdown).named("carry")
     end
   end
 
@@ -57,7 +97,7 @@ module Fixtures
     end
   end
 
-  class CompareFilterOperator < Flezha::UnboundedOperator
+  class CompareFilterOperator < Flezha::Operator
     factory_id "compare_filter"
     channels do |c|
       c.input("input", codec: :text).into(CompareFilter)
@@ -106,7 +146,7 @@ module Fixtures
     tasklet_name "macro_static_downstream_tasklet"
   end
 
-  class StaticCellOperator < Flezha::UnboundedOperator
+  class StaticCellOperator < Flezha::Operator
     factory_id "static_cell"
     channels do |c|
       c.input("input", codec: :text).into(StaticEntry).named("hop")
@@ -117,7 +157,7 @@ module Fixtures
 
   # The reference pipeline sugar leaves the hop unnamed and lets the sink name
   # the producing channel.
-  class SugarStaticCellOperator < Flezha::UnboundedOperator
+  class SugarStaticCellOperator < Flezha::Operator
     factory_id "sugar_static_cell"
     channels do |c|
       c.input("input", codec: :text).into(MacroStaticEntry)
@@ -134,7 +174,7 @@ module Fixtures
     tasklet_name "mixed_hand_downstream"
   end
 
-  class MixedOperator < Flezha::UnboundedOperator
+  class MixedOperator < Flezha::Operator
     factory_id "mixed_operator"
     channels do |c|
       c.input("input", codec: :text).into(MixedMacroEntry).named("hop")
@@ -149,14 +189,14 @@ module Fixtures
   # of `channels`; `runner.rb` registers the class itself. No tasklet stands
   # beside them.
 
-  class SugarDoNothing < Flezha::UnboundedOperator
+  class SugarDoNothing < Flezha::Operator
     factory_id "sugar_do_nothing"
     sink "sugar_do_nothing_echo"
     codec :text
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class SugarStoreInput < Flezha::UnboundedOperator
+  class SugarStoreInput < Flezha::Operator
     factory_id "sugar_store_input"
     sink "sugar_store_sink"
     codec :text
@@ -169,7 +209,7 @@ module Fixtures
     end
   end
 
-  class SugarNamedInput < Flezha::UnboundedOperator
+  class SugarNamedInput < Flezha::Operator
     factory_id "sugar_named_input"
     sink "sugar_named_input_sink"
     input "prices"
@@ -177,24 +217,27 @@ module Fixtures
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class SugarBounded < Flezha::BoundedOperator
-    factory_id "sugar_bounded"
-    sink "sugar_bounded_placed"
+  class SugarSteps < Flezha::Operator
+    factory_id "sugar_steps"
+    run :steps
+    durable FIXTURE_DURABLE
+    sink "sugar_steps_placed"
     input "order"
     codec :text
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class SugarBoundedPerInput < Flezha::BoundedOperator
-    factory_id "sugar_bounded_per_input"
-    sink "sugar_bounded_per_input_out"
+  class SugarStepsPerInput < Flezha::Operator
+    factory_id "sugar_steps_per_input"
+    sink "sugar_steps_per_input_out"
     codec :text
-    loop_mode :per_input
+    run steps: { each: :per_input }
+    durable FIXTURE_DURABLE
     def run(input, ctx) = ctx.emit(input)
   end
 
   # No sink: what it was sent is proven by its state.
-  class SugarStateOnly < Flezha::UnboundedOperator
+  class SugarStateOnly < Flezha::Operator
     factory_id "sugar_state_only"
     input "ticks"
     codec :text
@@ -246,7 +289,7 @@ module Fixtures
     [value].pack("N")
   end
 
-  class HybridChannelOperator < Flezha::UnboundedOperator
+  class HybridChannelOperator < Flezha::Operator
     factory_id "hybrid_channel"
     channels do |c|
       c.input("input", codec: :text).into(HybridProducer).branch(
@@ -273,7 +316,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit("#{input[:source]}:#{input[:payload]}")
   end
 
-  class MergedInputOperator < Flezha::UnboundedOperator
+  class MergedInputOperator < Flezha::Operator
     factory_id "merged_input"
     channels do |c|
       c.merge
@@ -295,7 +338,7 @@ module Fixtures
     tasklet_name "transform_label_tasklet"
   end
 
-  class TransformChainOperator < Flezha::UnboundedOperator
+  class TransformChainOperator < Flezha::Operator
     factory_id "transform_chain"
     channels do |c|
       c.input("trades", codec: :text)
@@ -337,7 +380,7 @@ module Fixtures
     tasklet_name "stress_d"
   end
 
-  class CellStressOperator < Flezha::UnboundedOperator
+  class CellStressOperator < Flezha::Operator
     factory_id "cell_stress"
     channels do |c|
       c.input("input", codec: :text).into(StressA).named("a_to_b")
@@ -362,7 +405,7 @@ module Fixtures
     end
   end
 
-  class PoisonProbeOperator < Flezha::UnboundedOperator
+  class PoisonProbeOperator < Flezha::Operator
     factory_id "poison_probe"
     channels do |c|
       c.input("input", codec: :text).retry_backoff_ms(25)
@@ -398,7 +441,7 @@ module Fixtures
     end
   end
 
-  class WedgeProbeOperator < Flezha::UnboundedOperator
+  class WedgeProbeOperator < Flezha::Operator
     factory_id "wedge_probe"
     channels do |c|
       c.input("input", codec: :text).into(WedgeProbe)
@@ -433,11 +476,10 @@ module Fixtures
     end
   end
 
-  class CandleOperator < Flezha::UnboundedOperator
+  class CandleOperator < Flezha::Operator
     factory_id "candle"
+    run flow: { exactly: { effectively_once: { correction_ms: 600_000 } } }
     channels do |c|
-      c.effectively_once
-      c.correction_window(600_000)
       c.input("input", codec: :text).into(Candle).keyed
        .sink("sink")
     end
@@ -478,7 +520,7 @@ module Fixtures
     end
   end
 
-  class SessionTimeoutOperator < Flezha::UnboundedOperator
+  class SessionTimeoutOperator < Flezha::Operator
     factory_id "session_timeout"
     channels do |c|
       c.input("input", codec: :text).into(SessionTimeout)
@@ -499,13 +541,13 @@ module Fixtures
     end
   end
 
-  # One operator per overflow policy, over the same bounded tasklet. The
+  # One operator per overflow policy, over the same bounded-mailbox tasklet. The
   # capacity and the fold come from the base class: a subclass inherits every
   # declaration its parent made.
   BOUNDED_MAILBOX = %w[drop_nothing drop_newest drop_oldest].map do |policy|
     tasklet = Class.new(BoundedMailbox) { tasklet_name "#{policy}_test_tasklet" }
 
-    Class.new(Flezha::UnboundedOperator) do
+    Class.new(Flezha::Operator) do
       factory_id "bounded_mailbox_#{policy}"
       channels do |c|
         c.input("#{policy}_input", codec: :text).on_full(policy.to_sym)
@@ -535,7 +577,7 @@ module Fixtures
     end
   end
 
-  class PartitionRelayOperator < Flezha::UnboundedOperator
+  class PartitionRelayOperator < Flezha::Operator
     factory_id "partition_relay"
     channels do |c|
       c.input("in", codec: :text).key_by { |value| PREFIX.call(value) }
@@ -561,7 +603,7 @@ module Fixtures
     end
   end
 
-  class DynamicCellOperator < Flezha::UnboundedOperator
+  class DynamicCellOperator < Flezha::Operator
     factory_id "dynamic_cell"
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
@@ -576,7 +618,7 @@ module Fixtures
 
   # -- spawn_requester -----------------------------------------------------
 
-  # On each input, spawns `stateless_loop_bounded` once under a generated id
+  # On each input, spawns `stateless_loop_steps` once under a generated id
   # and once under the input, and prints both results: a handle's answer is
   # observable nowhere but in the tasklet that read it.
   class SpawnRequester < Flezha::Tasklet
@@ -584,8 +626,8 @@ module Fixtures
 
     def run(input, ctx)
       handles = {
-        "unnamed" => ctx.spawn_bounded("stateless_loop_bounded", input),
-        "named" => ctx.spawn_bounded("stateless_loop_bounded", input, id: input)
+        "unnamed" => ctx.spawn_steps("stateless_loop_steps", input),
+        "named" => ctx.spawn_steps("stateless_loop_steps", input, id: input)
       }
       handles.each { |label, handle| SpawnRequester.report(label, handle) }
       nil
@@ -602,7 +644,7 @@ module Fixtures
     end
   end
 
-  class SpawnRequesterOperator < Flezha::UnboundedOperator
+  class SpawnRequesterOperator < Flezha::Operator
     factory_id "spawn_requester"
     channels do |c|
       c.input("in", codec: :text).into(SpawnRequester)
@@ -612,7 +654,7 @@ module Fixtures
 
   # -- spawn_hold_requester ------------------------------------------------
 
-  # An effectively-once stream whose tasklet spawns `stateless_loop_bounded`
+  # An effectively-once stream whose tasklet spawns `stateless_loop_steps`
   # with no id, prints the answer as `spawn_result hold <id> <outcome>`, then
   # blocks until the release env is set, so a runner killed there dies with
   # the spawn answered and its input not durably consumed.
@@ -620,16 +662,16 @@ module Fixtures
     tasklet_name "spawn_hold_requester"
 
     def run(input, ctx)
-      SpawnRequester.report("hold", ctx.spawn_bounded("stateless_loop_bounded", input))
+      SpawnRequester.report("hold", ctx.spawn_steps("stateless_loop_steps", input))
       Fixtures.block_until_released
       nil
     end
   end
 
-  class SpawnHoldRequesterOperator < Flezha::UnboundedOperator
+  class SpawnHoldRequesterOperator < Flezha::Operator
     factory_id "spawn_hold_requester"
+    run flow: { exactly: :effectively_once }
     channels do |c|
-      c.effectively_once
       c.input("in", codec: :text).on_full(:drop_nothing).into(SpawnHoldRequester).keyed
        .sink("out")
     end
@@ -637,7 +679,7 @@ module Fixtures
 
   # -- spawn_once_requester ------------------------------------------------
 
-  # On each input, spawns `typed_once_bounded` once with no id, carrying the
+  # On each input, spawns `typed_once_steps` once with no id, carrying the
   # input inside a JSON object its `order` entry decodes, and prints the
   # result as `spawn_result once <id> <outcome>`: a spawn's payload is the
   # spawned instance's first message, encoded by the no-codec sink rule.
@@ -645,12 +687,12 @@ module Fixtures
     tasklet_name "spawn_once_requester"
 
     def run(input, ctx)
-      SpawnRequester.report("once", ctx.spawn_bounded("typed_once_bounded", { "text" => input }))
+      SpawnRequester.report("once", ctx.spawn_steps("typed_once_steps", { "text" => input }))
       nil
     end
   end
 
-  class SpawnOnceRequesterOperator < Flezha::UnboundedOperator
+  class SpawnOnceRequesterOperator < Flezha::Operator
     factory_id "spawn_once_requester"
     channels do |c|
       c.input("in", codec: :text).into(SpawnOnceRequester)
@@ -662,13 +704,13 @@ module Fixtures
 
   # Operators an outside caller calls and whose graph answers it through
   # `response`: from the first tasklet, from a downstream one, and from
-  # whichever of two filtered paths the input took. `call_turn` is the bounded
-  # one, in fixtures_bounded.rb.
+  # whichever of two filtered paths the input took. `call_turn` is the steps
+  # one, in fixtures_steps.rb.
   class CallEchoTasklet < PassThrough
     tasklet_name "call_echo"
   end
 
-  class CallEcho < Flezha::UnboundedOperator
+  class CallEcho < Flezha::Operator
     factory_id "call_echo"
     channels { |c| c.input("in", codec: :text).into(CallEchoTasklet).response }
   end
@@ -682,7 +724,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit("re:#{input}")
   end
 
-  class CallDownstream < Flezha::UnboundedOperator
+  class CallDownstream < Flezha::Operator
     factory_id "call_downstream"
     channels { |c| c.input("in", codec: :text).into(CallParse).into(CallAnswer).response }
   end
@@ -702,7 +744,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit("refused:#{input}")
   end
 
-  class CallSplit < Flezha::UnboundedOperator
+  class CallSplit < Flezha::Operator
     factory_id "call_split"
     channels do |c|
       admitted = c.input("in", codec: :text).into(CallAdmit)
@@ -714,6 +756,7 @@ module Fixtures
   # Every operator this app registers, in declaration order.
   ALL = [
     DoNothingOperator, BenchEchoOperator, CompareFilterOperator,
+    CompleteFlowOperator, ChainedStepsOperator,
     StaticCellOperator, SugarStaticCellOperator, MixedOperator,
     HybridChannelOperator,
     MergedInputOperator, TransformChainOperator, CellStressOperator, *STATE,
@@ -725,7 +768,7 @@ module Fixtures
 
   # The §5 short forms this app registers.
   SHORTHAND = [
-    SugarDoNothing, SugarStoreInput, SugarNamedInput, SugarBounded, SugarBoundedPerInput,
+    SugarDoNothing, SugarStoreInput, SugarNamedInput, SugarSteps, SugarStepsPerInput,
     SugarStateOnly
   ].freeze
 end

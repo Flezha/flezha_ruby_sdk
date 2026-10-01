@@ -46,12 +46,11 @@ module Flezha
       @teardown = []
     end
 
-    # Register an operator class of either kind, short form or full. The kind
-    # is read from the class, never named by the call.
+    # Register an operator class, short form or full.
     def register_factory(klass)
       # A tasklet is registered by the operator that wires it.
-      unless klass.is_a?(Class) && (klass < UnboundedOperator || klass < BoundedOperator)
-        raise Error.new("topology.unknown_operator_kind", module: klass.to_s)
+      unless klass.is_a?(Class) && klass < Operator
+        raise Error.new("topology.no_operator_exported", module: klass.to_s)
       end
 
       klass.check_declaration!

@@ -12,7 +12,7 @@ class ConcurrencyTest < Minitest::Test
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class EchoOperator < Flezha::UnboundedOperator
+  class EchoOperator < Flezha::Operator
     factory_id "echo_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
@@ -157,7 +157,7 @@ class ConcurrencyTest < Minitest::Test
     end
   end
 
-  class RecorderOperator < Flezha::UnboundedOperator
+  class RecorderOperator < Flezha::Operator
     factory_id "recorder_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
@@ -190,7 +190,7 @@ class ConcurrencyTest < Minitest::Test
     def run(_input, _ctx) = sleep
   end
 
-  class NeverReturnsOperator < Flezha::UnboundedOperator
+  class NeverReturnsOperator < Flezha::Operator
     factory_id "never_returns_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })

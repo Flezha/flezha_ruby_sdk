@@ -24,7 +24,7 @@ require "json"
 
 require "flezha"
 require_relative "fixtures"
-require_relative "fixtures_bounded"
+require_relative "fixtures_steps"
 
 module Conformance
   # The fixture, relative to the repository root the app is launched from.
@@ -33,15 +33,15 @@ module Conformance
   # The authoring surfaces this builder carries, read from the app's
   # `conformance.json` so the skip and the manifest the gate reads are one
   # statement. A row needing anything else is skipped BY NAME, which is what
-  # makes the skip checkable. The class flag a typed stream builder cannot
-  # spell is a class-body flag here, on either kind.
+  # makes the skip checkable. The settings tree is a class-body declaration
+  # written as data here, so a setting can sit under any parent.
   SURFACES = JSON.parse(File.read(File.join(__dir__, "conformance.json"))).fetch("topology_surfaces").freeze
 
   # The two topologies the fixture cites rather than re-spells: this app's own
   # fixtures, the twins of its seven-column table.
   CITED = {
     "hybrid_channel" => Fixtures::HybridChannelOperator,
-    "commit_block_chain" => Fixtures::TierCommitBlockBounded
+    "commit_block_chain" => Fixtures::TierCommitBlockSteps
   }.freeze
 
   # The palette. One fixture tasklet per role the fixture header names; the
@@ -123,11 +123,11 @@ module Conformance
       end
     end
 
-    # `<handle>.<link>…` — a chain declared off a handle, a channel knob, a
-    # tasklet knob, or a class flag.
+    # `<handle>.<link>…` — a chain declared off a handle, a channel knob or a
+    # tasklet knob. A class setting was read when the row's class was minted.
     def dotted(builder, step)
       head, rest = step.split(".", 2)
-      return class_flag(builder, rest) if head == "class"
+      return if head == "class"
 
       rest.split(".").reduce(handle(head)) { |current, link| apply_link(current, link, head) }
     end
@@ -187,22 +187,6 @@ module Conformance
     def branch(arg)
       target, arms = arg.split(",").map(&:strip)
       handle(target).branch(*Array.new(Integer(arms)) { ->(_arm) {} })
-    end
-
-    # `class.<flag>[(<value>)]` — the facts the class declares on the builder.
-    # `persistent`, `sync_durability`, `sleep_when_idle` and `bounded` are
-    # class-body declarations, read as the row's class was minted.
-    def class_flag(builder, rest)
-      flag, value = Conformance.split_call(rest)
-      case flag
-      when "persistent", "sync_durability", "sleep_when_idle", "bounded" then nil
-      when "effectively_once" then builder.effectively_once
-      when "checkpoint_ack" then builder.checkpoint_ack
-      when "checkpoint_every" then builder.checkpoint_every(Integer(value))
-      when "correction_window" then builder.correction_window(Integer(value))
-      when "outputs_at_checkpoint" then builder.outputs_at_checkpoint(Integer(value))
-      else raise "the fixture spells a class flag this interpreter does not map: #{flag}"
-      end
     end
 
     def handle(name)
@@ -268,20 +252,30 @@ module Conformance
   end
 
   # A row's operator class. Fresh per row: an operator memoises its own spec,
-  # and `persistent`, `sync_durability`, `sleep_when_idle` and the class kind
-  # are class declarations rather than builder calls. A `class.bounded` row is a real
-  # bounded class carrying the row's builder flags, so the core judges what
-  # that kind may carry.
+  # and the class settings are class declarations rather than builder calls,
+  # written as the row wrote them so the core judges the tree.
   def self.operator_for(row)
     interpreter = Interpreter.new(row[:steps])
-    bounded = row[:steps].include?("class.bounded")
-    klass = Class.new(bounded ? Flezha::BoundedOperator : Flezha::UnboundedOperator)
+    klass = Class.new(Flezha::Operator)
     klass.factory_id(row[:topology])
-    klass.persistent(row[:steps].include?("class.persistent"))
-    klass.sync_durability if row[:steps].include?("class.sync_durability")
-    klass.sleep_when_idle if row[:steps].include?("class.sleep_when_idle")
+    class_settings(row[:steps]).each { |setting, tree| klass.public_send(setting, tree) }
     klass.channels { |builder| interpreter.declare(builder) }
     klass
+  end
+
+  # `class.run(<tree>)` and `class.durable(<tree>)`: the tree's JSON, which is
+  # how the class body takes it, a misplaced setting and all.
+  def self.class_settings(steps)
+    steps.split(";").map(&:strip).filter_map do |step|
+      head, rest = step.split(".", 2)
+      next unless head == "class"
+
+      setting, tree = split_call(rest)
+      raise "the fixture spells a class setting this interpreter does not map: #{setting}" unless
+        %w[run durable].include?(setting)
+
+      [setting, JSON.parse(tree)]
+    end
   end
 
   def self.class_for(row)
@@ -311,11 +305,12 @@ module Conformance
   end
 
   # Declare a row's short forms exactly as an author writes them. The second
-  # is a bounded operator, so a collision crosses kinds.
+  # runs in steps, so a collision crosses runs.
   def self.declare_shorthands(declarations)
     declarations.each_with_index.map do |declaration, position|
-      Class.new(position.zero? ? Flezha::UnboundedOperator : Flezha::BoundedOperator) do
+      Class.new(Flezha::Operator) do
         factory_id(declaration[:id]) if declaration[:id]
+        run(:steps) unless position.zero?
         sink(declaration[:sink]) if declaration[:sink]
         input(declaration[:input]) if declaration[:input]
         channels { |c| c.input("input").into(Plain) } if declaration[:topology]

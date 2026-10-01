@@ -4,13 +4,13 @@ require "flezha"
 require_relative "reply"
 require_relative "deliver"
 
-# One conversation: a bounded operator that runs one turn per message it is
+# One conversation: an operator that runs in steps, one turn per message it is
 # sent, for as long as the session lasts. Every session is an instance of its
 # own, with its own state.
-class AgentOperator < Flezha::BoundedOperator
+class AgentOperator < Flezha::Operator
   factory_id "agent"
-  loop_mode :per_input                                       # one turn per message
-  rollback_mode :keep_progress                               # a failed turn fails alone
+  run steps: { each: :per_input, on_failure: :keep_progress }   # one turn per message; a failed turn fails alone
+  durable local: { sleep_after: 10_000 }                       # an idle session sleeps after 10 s
 
   channels do |c|
     c.input("turn", codec: :text)

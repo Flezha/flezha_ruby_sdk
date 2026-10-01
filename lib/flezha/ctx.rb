@@ -158,23 +158,20 @@ module Flezha
       nil
     end
 
-    # End the bounded instance this tasklet runs in, with `result`.
+    # End the instance this tasklet runs in, with `result`.
     #
     # The rest of the iteration still runs and commits; the instance then ends
-    # with status `ok` instead of waiting for its next input. In a `once`
-    # bounded operator it sets the result the pass ends with. `result` is encoded as a
-    # sink naming no codec encodes a value: a String as its bytes and anything
-    # else as JSON; nil carries an empty result. A later call in the same
-    # invocation replaces an earlier one.
-    #
-    # An unbounded operator never completes: an unbounded tasklet calling this fails its
-    # input, without a retry, with an error naming `CompleteOutsideBounded`.
+    # instead of waiting for its next input, a flow instance once every Cell is
+    # idle. In a `once` steps operator it sets the result the pass ends with.
+    # `result` is encoded as a sink naming no codec encodes a value: a String as
+    # its bytes and anything else as JSON; nil carries an empty result. A later
+    # call in the same invocation replaces an earlier one.
     def complete(result = nil)
       @completion = result.nil? ? "".b : Codec.plain_payload(result, "tasklet '#{@node.name}'").b
       nil
     end
 
-    # Spawn a bounded instance of `factory_id` with `payload` as its first
+    # Spawn a steps instance of `factory_id` with `payload` as its first
     # message, answering a `SpawnHandle` at once. The payload is encoded as a
     # sink naming no codec encodes a value, the rule `complete` applies: a
     # String as its bytes and anything else as JSON, so the instance's `text`
@@ -187,10 +184,10 @@ module Flezha
     # instance, so a spawn reissued after a lost or timed-out answer starts a
     # second one, and a replayed invocation answers an empty id. Pass an id to
     # start at most one instance, or to get the id back on replay.
-    def spawn_bounded(factory_id, payload, id: nil, if_running: nil)
+    def spawn_steps(factory_id, payload, id: nil, if_running: nil)
       if if_running && id.to_s.empty?
         raise ArgumentError,
-              "#{@node.name}: spawn_bounded was given if_running without an id; if_running " \
+              "#{@node.name}: spawn_steps was given if_running without an id; if_running " \
               "decides what a running instance named by id gets, and a spawn without an id " \
               "always starts a new one"
       end
@@ -225,12 +222,12 @@ module Flezha
     end
 
     def release(channel, value, key, metadata)
-      # A channel with no consumer releases nothing on the edge path: on a
-      # bounded operator that is the plugin-bound terminal, and seeding the next stage
-      # from it would hand the driver a terminal output.
-      if @spec.structured_bounded?
-        first = channel.consumers.first
-        @outputs << bounded_output(channel, first, value) if first
+      # In steps a value rides the edge path to its first consumer, and an
+      # inter-tasklet terminal's value to the core as the pass's handoff (a
+      # chained loop's carry); a plugin-bound terminal releases nothing there.
+      if @spec.runs_in_steps?
+        consumer = channel.consumers.first&.tasklet || handoff_producer(channel)
+        @outputs << steps_output(channel, consumer, value) if consumer
       else
         channel.consumers.each do |edge|
           @outputs.concat(edge_outputs(channel, edge, value, key, metadata))
@@ -253,10 +250,16 @@ module Flezha
       end
     end
 
-    def bounded_output(channel, edge, value)
+    # The producer of an inter-tasklet channel nothing consumes; the core reads
+    # no consumer for a terminal's handoff.
+    def handoff_producer(channel)
+      channel.producer if channel.kind == :inter_task && channel.sink.nil? && channel.call.nil?
+    end
+
+    def steps_output(channel, consumer, value)
       payload = Codec.encode(value)
       {
-        target: "edge", channel: channel.index, consumer: edge.tasklet,
+        target: "edge", channel: channel.index, consumer: consumer,
         plugin_channel: nil, key: nil, event_time: nil, metadata: [], payload: payload
       }
     end
@@ -302,7 +305,7 @@ module Flezha
 
     # Output identity for one plugin frame, appended after the user's metadata.
     # Written only when the class records no effects: under the tier, and for a
-    # durable bounded operator, the controller derives the identity from the durable
+    # durable steps operator, the controller derives the identity from the durable
     # effect record, and a second answer here would contradict it. The ordinal
     # advances on every plugin output, stamped or not, so hosts of one topology
     # agree on the sequence.

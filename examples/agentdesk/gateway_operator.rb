@@ -6,15 +6,15 @@ require_relative "watch"
 require_relative "budget"
 require_relative "admit"
 
-# The HTTP side of the desk: an unbounded operator that carries the HTTP plugin,
+# The HTTP side of the desk: a flow operator that carries the HTTP plugin,
 # answers every request, and calls the session a message is for.
-class GatewayOperator < Flezha::UnboundedOperator
+class GatewayOperator < Flezha::Operator
   factory_id "gateway"
+  run flow: { exactly: :effectively_once } # each request and answer on disk before it runs
 
   DEADLINE_MS = 60_000
 
   channels do |c|
-    c.effectively_once                                       # each request and answer on disk before it runs
     user = ->(value) { value[:user] }
     http = c.input("http", decode: Request.method(:decode))
     http.filter { |request| !request.sends? }

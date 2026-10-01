@@ -4,7 +4,7 @@
 #
 # The SDK contains no kernel code. Transport, framing, ordering, per-cell
 # exclusivity, durability, retries, the retry-to-park ladder, timers, credit,
-# routing, the bounded driver and reconnect all live in the core; this gem
+# routing, the steps driver and reconnect all live in the core; this gem
 # brings the authoring surface, the codec for user types, the threading host
 # and idiomatic errors.
 #
@@ -13,7 +13,7 @@
 #     def run(input, ctx) = ctx.emit(input)
 #   end
 #
-#   class EchoOperator < Flezha::UnboundedOperator
+#   class EchoOperator < Flezha::Operator
 #     factory_id "echo"
 #     channels { |c| c.input("input", codec: :text).into(Echo).sink("out") }
 #   end

@@ -20,10 +20,10 @@ class CallTest < Minitest::Test
     def run(input, ctx) = ctx.emit(input)
   end
 
-  def operator(factory, base: Flezha::UnboundedOperator, loop_mode: nil, &channels)
-    klass = Class.new(base)
+  def operator(factory, run: nil, &channels)
+    klass = Class.new(Flezha::Operator)
     klass.factory_id factory
-    klass.loop_mode(loop_mode) if loop_mode
+    klass.run(run) if run
     klass.channels(&channels)
     klass
   end
@@ -87,11 +87,11 @@ class CallTest < Minitest::Test
       "topology.call_response_unread" =>
         operator("unread") { |c| c.input("in").into(Ask).call("p", deadline_ms: 5) },
       "topology.call_outside_per_input_loop" =>
-        operator("once", base: Flezha::BoundedOperator) { |c| c.input("in").into(Ask).call("p", deadline_ms: 5).into(Ask) }
+        operator("once", run: :steps) { |c| c.input("in").into(Ask).call("p", deadline_ms: 5).into(Ask) }
     }
 
     refused.each { |code, klass| assert_includes codes(klass), code }
-    per_input = operator("per_input", base: Flezha::BoundedOperator, loop_mode: :per_input) do |c|
+    per_input = operator("per_input", run: { steps: { each: :per_input } }) do |c|
       c.input("in").into(Ask).call("p", deadline_ms: 5).into(Ask)
     end
     assert validate(per_input.spec)
@@ -104,7 +104,7 @@ class CallTest < Minitest::Test
     assert_equal ["topology.sink_on_entry", "in"], [error.code, error.details["channel"]]
   end
 
-  class Gateway < Flezha::UnboundedOperator
+  class Gateway < Flezha::Operator
     factory_id "call_gateway_emit"
     channels do |c|
       asked = c.input("in", codec: :text).into(Ask)
