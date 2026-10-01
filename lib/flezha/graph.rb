@@ -38,16 +38,28 @@ module Flezha
     # the spec, so a caller that skipped it would register a spec whose edges
     # route nowhere. Both the runner and local mode reach the core through
     # here, so there is one such order rather than two that agree.
+    # The steps classes the spec embeds are registered with it, for dispatch
+    # to find.
     def declare(spec, core, registry)
       validate(spec, core)
-      registry.add(spec)
+      [spec, *embedded(spec)].each { |each| registry.add(each) unless registry.get(each.factory_id) }
       core.declare_class(JSON.generate(to_host_class_decl(spec)))
     end
+
+    # The specs of the steps classes `spec` embeds.
+    def embedded(spec) = spec.tasklets.filter_map { |node| node.embeds&.spec }
 
     # The defects this SDK can see that the record cannot carry are refused
     # first, so an author reads "supplies no migration" rather than a topology
     # verdict about a record the class never wrote.
     def validate(spec, core)
+      # The core judges an embedding against the class it names, so every
+      # steps class this one embeds is declared first: registered, never
+      # announced.
+      embedded(spec).each do |inner|
+        validate(inner, core)
+        core.declare_class(JSON.generate(to_host_class_decl(inner, embedded: true)))
+      end
       check_tasklets(spec)
       derived = submit(spec, core)
       bind_edges(spec, derived)
@@ -148,7 +160,9 @@ module Flezha
         # state IS the same statement.
         "change_is_nochange" => !definition.stateful?,
         "schema_version" => definition.schema_version || 1,
-        "min_readable_schema_version" => definition.min_readable_schema_version
+        "min_readable_schema_version" => definition.min_readable_schema_version,
+        "operator" => node.embeds&.factory_id,
+        "input" => node.input
       )
     end
 
@@ -157,7 +171,7 @@ module Flezha
     # name. Every key is pinned by
     # `test/fixtures/host_class_decl_keys.txt`, which this gem's own test
     # reads: a key the core learns that Ruby cannot spell fails that test.
-    def to_host_class_decl(spec)
+    def to_host_class_decl(spec, embedded: false)
       keyed = keyed_nodes(spec)
       compact(
         "factory_id" => spec.factory_id,
@@ -170,7 +184,8 @@ module Flezha
         "change_format_id" => FORMAT_ID_MSGPACK,
         "compact_after_bytes" => spec.compact_after_bytes,
         "channels" => spec.channels.map { |channel| channel_json(channel) },
-        "tasklets" => spec.tasklets.map { |node| tasklet_json(node, keyed) }
+        "tasklets" => spec.tasklets.map { |node| tasklet_json(node, keyed) },
+        "embedded" => (true if embedded)
       )
     end
   end

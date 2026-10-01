@@ -60,6 +60,12 @@ module Flezha
         end
       end
 
+      # Declare this class's graph on +builder+: its own, or another class's
+      # that inlines it.
+      def declare_on(builder)
+        short_form? ? wire_short_form(builder) : channels.call(builder)
+      end
+
       # The refusals a class earns before anything is built, raised by
       # `Runner#register_factory` at the call the author wrote and again when
       # the spec is built.
@@ -94,7 +100,7 @@ module Flezha
       def build_builder
         check_declaration!
         builder = Builder.new(@factory_id)
-        short_form? ? wire_short_form(builder) : channels.call(builder)
+        declare_on(builder)
         builder
       end
 

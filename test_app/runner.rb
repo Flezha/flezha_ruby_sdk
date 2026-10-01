@@ -17,6 +17,7 @@ require_relative "fixtures"
 require_relative "fixtures_steps"
 require_relative "fixtures_parts"
 require_relative "fixtures_call"
+require_relative "fixtures_inner"
 
 # The conformance run answers a file and exits: no namespace, no controller.
 if (report = ENV["FLEZHA_CONFORMANCE_REPORT"])
@@ -38,6 +39,7 @@ else
   Fixtures::STEPS.each { |operator| runner.register_factory(operator) }
   Fixtures::PARTS.each { |operator| runner.register_factory(operator) }
   Fixtures::CALLS.each { |operator| runner.register_factory(operator) }
+  Fixtures::INNER.each { |operator| runner.register_factory(operator) }
 end
 
 # The harness stops a runner by closing its pipes. A write that lands after

@@ -90,6 +90,38 @@ module Conformance
     "eventtime" => [EventTime, "eventtime"]
   }.freeze
 
+  # class role => the operator class the fixture header describes for it.
+  CLASSES = {
+    "inner_session" => [{ steps: { each: :per_input } }, ->(c, t) { c.input("turns").into(t["plain"]) }],
+    "inner_loop" => [{ steps: { each: :chained } }, ->(c, t) { c.input("turns").into(t["plain"]).named("carry") }],
+    "inner_cleanup" => [nil, ->(c, t) { c.input("raw").into(t["plain"]).into(t["second"]) }],
+    "inner_two_entries" => [{ steps: { each: :per_input } }, lambda { |c, t|
+      c.input("a").into(t["plain"])
+      c.input("b").into(t["second"])
+    }],
+    "inner_two_exits" => [{ steps: { each: :per_input } }, lambda { |c, t|
+      turns = c.input("turns")
+      turns.into(t["plain"])
+      turns.into(t["second"])
+    }]
+  }.freeze
+
+  # The operator class bound to a class role, minted once per process, over
+  # palette tasklets of its own.
+  def self.operator_class(role)
+    (@operator_classes ||= {})[role] ||= begin
+      run, declaration = CLASSES.fetch(role) { raise "the fixture names a class role that is not one: #{role}" }
+      tasklets = Hash.new do |minted, name|
+        minted[name] = Class.new(PALETTE.fetch(name).first).tap { |klass| klass.tasklet_name(name) }
+      end
+      klass = Class.new(Flezha::Operator)
+      klass.factory_id(role)
+      klass.run(run) if run
+      klass.channels { |builder| declaration.call(builder, tasklets) }
+      klass
+    end
+  end
+
   # `verb(arg)` -> ["verb", "arg"]; a bare word -> ["word", ""].
   def self.split_call(text)
     verb, arg = text.split("(", 2)
@@ -147,6 +179,8 @@ module Conformance
       when "response" then edge.response
       when /\Acall/ then call_step(edge, verb, arg, role)
       when "into" then wire(edge, arg)
+      # The result is the class's exit, addressed by the class's role.
+      when "into_class" then @handles[arg] = edge.into(Conformance.operator_class(arg))
       # Declared on the tasklet in this SDK, and read as its class was
       # minted — one step earlier than the step that names it.
       when "mailbox" then edge
