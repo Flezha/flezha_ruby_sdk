@@ -27,7 +27,7 @@ require_relative "record_order"
 # desk's book is left alone.
 class OrderExecutorOperator < Flezha::Operator
   factory_id "order_executor"
-  run :steps
+  run steps: { each: :once, on_failure: :undo_all }
 
   # Two steps in order, then a fan-out: confirming the fill and booking the
   # order are two independent consequences of the placement, and neither waits
