@@ -60,28 +60,12 @@ class DeclKeysTest < Minitest::Test
     end
   end
 
-  # A steps class embedded by name on an edge, and the class embedding it.
-  class Embedded < Flezha::Operator
-    factory_id "decl_keys_embedded"
-    run steps: { each: :per_input }
-    channels { |c| c.input("in").into(Downstream) }
-  end
-
-  class Embedding < Flezha::Operator
-    factory_id "decl_keys_embedding"
-    channels { |c| c.input("in").into(Embedded, input: "in").sink("out") }
-  end
-
   def spelled
-    [
-      Flezha::Graph.to_host_class_decl(FullFlow.spec),
-      Flezha::Graph.to_host_class_decl(Embedding.spec),
-      Flezha::Graph.to_host_class_decl(Embedded.spec, embedded: true)
-    ].reduce([]) do |keys, stream|
-      keys | stream.keys.map { |key| "class.#{key}" } |
-        stream["channels"].flat_map { |c| c.keys.map { |key| "channel.#{key}" } } |
-        stream["tasklets"].flat_map { |p| p.keys.map { |key| "tasklet.#{key}" } }
-    end.sort
+    stream = Flezha::Graph.to_host_class_decl(FullFlow.spec)
+    keys = stream.keys.map { |key| "class.#{key}" }
+    keys |= stream["channels"].flat_map { |c| c.keys.map { |key| "channel.#{key}" } }
+    keys |= stream["tasklets"].flat_map { |p| p.keys.map { |key| "tasklet.#{key}" } }
+    keys.sort
   end
 
   def declared

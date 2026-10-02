@@ -267,9 +267,7 @@ module Flezha
     # One consumer's frames, with its own transforms, key and clock: none when
     # a filter dropped the value, one per value when a flat_map fanned it.
     def edge_outputs(channel, edge, value, key, metadata)
-      node = @spec.tasklets[edge.tasklet]
-      definition = node.definition
-      encode = node.encode || Codec.method(:encode)
+      definition = @spec.tasklets[edge.tasklet].definition
       # Producer-side, in declaration order: the core routes on `(edge, key)`
       # and never evaluates a host closure.
       Flezha.apply_transforms(edge.transforms, value).map do |transformed|
@@ -281,7 +279,7 @@ module Flezha
           key: key || (edge.key_by && edge.key_by.call(transformed)) || @cell_key,
           event_time: definition.event_time? ? definition.event_time_of(transformed) : nil,
           metadata: meta_list(metadata),
-          payload: encode.call(transformed)
+          payload: Codec.encode(transformed)
         }
       end
     end

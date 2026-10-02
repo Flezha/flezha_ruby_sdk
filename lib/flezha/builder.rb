@@ -5,16 +5,7 @@ require_relative "errors"
 module Flezha
   # A tasklet as the graph holds it, with its position in the declaration.
   # `output` is the one channel it produces on, created on first wiring.
-  # `embeds` is the steps operator class the node runs one stepped instance of
-  # per edge key, holding no cells of its own, and `input` that class's entry
-  # channel the edge feeds when it declares several; both nil for a tasklet.
-  # `encode` writes a value on an edge into the node: the embedded class's
-  # entry reads it, so its codec; nil for a tasklet, which reads the class codec.
-  TaskNode = Struct.new(:index, :name, :klass, :definition, :output, :embeds, :input, :encode)
-
-  # A flow class whose declaration runs on the embedding builder: its entry is
-  # `feed` and every node it names carries `prefix`.
-  Inline = Struct.new(:prefix, :feed, :entries)
+  TaskNode = Struct.new(:index, :name, :klass, :definition, :output)
 
   # One consumer of a channel, with the transforms and key of its own edge.
   ConsumerEdge = Struct.new(:tasklet, :transforms, :key_by, keyword_init: true)
@@ -40,15 +31,13 @@ module Flezha
   # plugin frame alone: an inter-tasklet frame is decoded with the class codec,
   # so encoding one with it hands the consuming tasklet bytes it cannot read.
   # `call` is the channel's call end, when a chain closes on one.
-  # `entry_encode` is an entry channel's writer, its codec's, JSON when it
-  # names none: what a tasklet of a class embedding this one writes with.
   #
   # `chain_edges` runs parallel to `chains`: the closures each sequence closed
   # on, at the position the core reads that sequence at. `consumers` is filled
   # from the derived declaration — the core says which chains became edges.
   ChannelSpec = Struct.new(
     :index, :name, :kind, :producer, :consumers, :chains, :chain_edges, :overflow,
-    :retry_max, :retry_backoff_ms, :keyed, :sink, :decode, :sink_encode, :call, :entry_encode,
+    :retry_max, :retry_backoff_ms, :keyed, :sink, :decode, :sink_encode, :call,
     keyword_init: true
   )
 
@@ -116,10 +105,6 @@ module Flezha
       # order. Recorded, never judged: the core reads them and answers.
       @chains = []
       @merge_groups = 0
-      # The flow classes being inlined, the innermost last.
-      @inlining = []
-      # One node per embedded steps class and name, so two unnamed mentions unify.
-      @embedding_tasks = {}
     end
 
     def compact_after_bytes(bytes)
@@ -130,21 +115,13 @@ module Flezha
     # Declare a controller-fed entry channel. `decode` turns the wire bytes
     # into the value a handler sees, `codec` names a format from
     # `Codec::CHANNEL_CODECS` instead, and with neither the bytes are JSON.
-    #
-    # Inside a flow class being inlined, it answers the edge that feeds it.
     def input(name, decode: nil, codec: nil)
-      if (inline = @inlining.last)
-        inline.entries << name.to_s
-        return inline.feed
-      end
-
       channel = ChannelSpec.new(
         index: @channels.size, name: name.to_s, kind: :entry, consumers: [],
         chains: [], chain_edges: [], overflow: :drop_nothing, keyed: false
       )
       named = channel_codec(channel, codec, decode)
       channel.decode = decode || Codec.channel_decoder(named, channel)
-      channel.entry_encode = Codec.channel_encoder(named || :json, channel)
       @channels << channel
       Edge.new(self, [:entry, channel], {})
     end
@@ -200,7 +177,7 @@ module Flezha
     # out and back in has one instance, not two.
     def node_for(klass, name = nil)
       definition = klass.definition
-      identity = prefixed((name || definition.name).to_s)
+      identity = (name || definition.name).to_s
       existing = @tasklets.find { |node| node.name == identity && node.klass == klass }
       return existing if existing
 
@@ -214,53 +191,6 @@ module Flezha
       node = TaskNode.new(@tasklets.size, identity, klass, definition, nil)
       @tasklets << node
       node
-    end
-
-    # `feed` into an operator class: a steps class becomes a node that runs
-    # one stepped instance of it per key of the edge, its exit output
-    # continuing on the edge answered; a flow class is inlined.
-    def embed(feed, operator, name, input, max_cells)
-      return inline(feed, operator, name, input) unless operator.spec.runs_in_steps?
-
-      tasklet = @embedding_tasks[[operator, name]] ||= Class.new(Tasklet) do
-        tasklet_name(operator.factory_id)
-        max_cells(max_cells) if max_cells
-        define_method(:run) { |_value, _ctx| nil }
-      end
-      node = node_for(tasklet, name)
-      node.embeds = operator
-      node.input = input&.to_s
-      entries = operator.spec.channels.select { |channel| channel.kind == :entry }
-      node.encode = (entries.find { |channel| channel.name == node.input } || entries.first)&.entry_encode
-      feed.close_on(node, { "link" => "into", "tasklet" => node.index })
-    end
-
-    # Run a flow class's declaration on this builder: its entry is `feed` and
-    # every node it names carries its prefix. The edge answered is its exit's,
-    # the one node it added that nothing consumes (its last when every node
-    # feeds another or a sink).
-    def inline(feed, operator, name, input)
-      first = @tasklets.size
-      frame = Inline.new(prefixed((name || operator.factory_id).to_s), feed, [])
-      @inlining << frame
-      begin
-        operator.declare_on(self)
-      ensure
-        @inlining.pop
-      end
-      entries = frame.entries.uniq.sort
-      unless input.nil? ? entries.size == 1 : entries == [input.to_s]
-        raise Error.new("topology.embedded_entry_ambiguous", inner: operator.factory_id,
-                                                              channels: entries.join(", "))
-      end
-      added = @tasklets[first..]
-      exits = added.select { |node| node.output.nil? }
-      if exits.size > 1
-        raise Error.new("topology.embedded_exit_ambiguous", inner: operator.factory_id,
-                                                             channels: exits.map(&:name).sort.join(", "))
-      end
-      exit_node = exits.first || added.last
-      exit_node ? Edge.new(self, [:tasklet, exit_node], {}) : feed
     end
 
     # The channel this node produces on, created on first use.
@@ -282,9 +212,6 @@ module Flezha
       node.output = channel
       channel
     end
-
-    # A node's identity inside the class being inlined: `<prefix>.<name>`.
-    def prefixed(name) = @inlining.empty? ? name : "#{@inlining.last.prefix}.#{name}"
 
     # Record one more link on the sequence at `base`, or open one on `source`,
     # and answer the new sequence's id.
@@ -380,19 +307,8 @@ module Flezha
       self
     end
 
-    # Wire this edge into a tasklet, or into an operator class.
-    #
-    # A class that runs in steps becomes a node, named by its factory id, that
-    # runs one stepped instance of it per key of this edge (one on an unkeyed
-    # edge) with its own state and journal; the edge answered carries its exit
-    # tasklet's output, and `max_cells` caps the instances a keyed edge keeps
-    # at once. A class that runs in flow is inlined: its graph joins this one,
-    # fed by this edge, its nodes named `<factory_id>.<node>`, and the edge
-    # answered is its exit's. `input` names the class's entry channel when it
-    # declares several.
-    def into(klass, node_name = nil, input: nil, max_cells: nil)
-      return @builder.embed(self, klass, node_name, input, max_cells) if klass < Operator
-
+    # Wire this edge into a tasklet.
+    def into(klass, node_name = nil)
       node = @builder.node_for(klass, node_name)
       close_on(node, { "link" => "into", "tasklet" => node.index })
     end
