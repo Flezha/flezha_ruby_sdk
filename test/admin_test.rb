@@ -32,6 +32,33 @@ class AdminTest < Minitest::Test
     assert_equal Flezha::StartResult.new(id: "my_echo", outcome: :already_running), result
   end
 
+  def test_a_plugin_is_enabled_by_name_and_bound_and_unbound_by_operator
+    calls = []
+    core = Flezha::TestSupport::FakeCore.new
+    core.stub(:admin_call, ->(verb, json) { calls << [verb, JSON.parse(json)] && "null" }) do
+      admin = Flezha::Admin.new(core)
+      admin.enable_plugin("writer", "operator_file_sink", opts: { "path" => "out.txt" })
+      admin.enable_plugin("feed", "operator_websocket", single: true, operator_id: "my_echo",
+                                                        hooks: [["on_output", {}]])
+      admin.bind_plugin("writer", "my_echo")
+      admin.bind_plugin("writer", "my_other", hooks: ["on_output"], channel: "in")
+      admin.unbind_plugin("writer", "my_echo")
+      admin.disable_plugin("writer")
+      admin.list_plugins
+    end
+
+    assert_equal [
+      ["PluginManager.enable", ["writer", { "provider" => "operator_file_sink", "opts" => { "path" => "out.txt" } }]],
+      ["PluginManager.enable", ["feed", { "provider" => "operator_websocket", "opts" => {}, "single" => true,
+                                          "operator_id" => "my_echo", "hooks" => [["on_output", {}]] }]],
+      ["PluginManager.bind", ["writer", { "operator_id" => "my_echo" }]],
+      ["PluginManager.bind", ["writer", { "operator_id" => "my_other", "hooks" => ["on_output"], "channel" => "in" }]],
+      ["PluginManager.unbind", ["writer", { "operator_id" => "my_echo" }]],
+      ["PluginManager.disable", ["writer", {}]],
+      ["PluginManager.list", []]
+    ], calls
+  end
+
   def test_a_refused_start_raises_as_every_refused_admin_call_does
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 

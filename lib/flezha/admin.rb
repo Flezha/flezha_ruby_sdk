@@ -33,11 +33,7 @@ module Flezha
     # is stopped. With an `id`, a start of a running one leaves it untouched
     # and answers `:already_running`.
     def start_operator(factory_id, id: nil, init_values: nil, opts: nil)
-      fields = { "factory_id" => factory_id }
-      fields["id"] = id if id
-      fields["init_values"] = init_values if init_values
-      fields["opts"] = opts if opts
-      answer = call("Operator.start", fields)
+      answer = call("Operator.start", given(factory_id:, id:, init_values:, opts:))
       StartResult.new(id: answer.fetch("id"), outcome: answer.fetch("outcome").to_sym)
     end
 
@@ -49,16 +45,30 @@ module Flezha
       call("Operator.send", operator_id, message, channel)
     end
 
-    # Enable a plugin, built from the fields `flz plugin enable` takes.
-    def enable_plugin(plugin_id, fields) = call("PluginManager.enable", plugin_id, fields)
+    # Enable the plugin `name` in this namespace, of the provider `provider`
+    # (for example `"operator_websocket"`), on its `opts`. `single: true` runs
+    # one copy in the whole cluster; `operator_id` with `hooks` binds that
+    # operator in the same call.
+    def enable_plugin(name, provider, opts: {}, single: nil, operator_id: nil, hooks: nil)
+      call("PluginManager.enable", name, given(provider:, opts:, single:, operator_id:, hooks:))
+    end
 
-    # Disable a plugin, or every partitioned instance of it.
-    def disable_plugin(plugin_id) = call("PluginManager.disable", plugin_id)
+    # Bind the operator `operator_id` to the enabled plugin `name`, with the
+    # optional `hooks` and `channel`.
+    def bind_plugin(name, operator_id, hooks: nil, channel: nil)
+      call("PluginManager.bind", name, given(operator_id:, hooks:, channel:))
+    end
+
+    # Unbind the operator `operator_id` from the plugin `name`, which stays enabled.
+    def unbind_plugin(name, operator_id) = call("PluginManager.unbind", name, { "operator_id" => operator_id })
+
+    # Disable the plugin `name`, stopping it wherever it runs.
+    def disable_plugin(name) = call("PluginManager.disable", name, {})
 
     # The operator ids running in this namespace.
     def list_operators = call("Operator.list_operators")
 
-    # The plugins enabled on the controller node answering this call.
+    # The plugins enabled in this namespace: name, provider, single, bound operators.
     def list_plugins = call("PluginManager.list")
 
     # One cell's live state, and the change sequence it was read at.
@@ -73,5 +83,10 @@ module Flezha
     def call(verb, *args)
       JSON.parse(@core.admin_call(verb, JSON.generate(args)))
     end
+
+    private
+
+    # The named parameters a call was given, leaving out every one it was not.
+    def given(**fields) = fields.compact.transform_keys(&:to_s)
   end
 end
