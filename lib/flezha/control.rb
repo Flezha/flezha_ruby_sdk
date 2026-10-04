@@ -8,7 +8,7 @@ module Flezha
   StartResult = Struct.new(:id, :outcome, keyword_init: true)
 
   # Administering the namespace this runner's connection proved, from ordinary
-  # application code.
+  # application code. Sending is the runner's own, `Runner#send_to`.
   #
   # No tasklet has to be running and the application holds no credential of
   # its own: the controller judges every call as the identity the connection
@@ -20,7 +20,7 @@ module Flezha
   #
   # Every method here is one line over a single native entry point, because the
   # verb travels as data. Adding a verb costs a method and no native work.
-  class Admin
+  class Control
     def initialize(core)
       @core = core
     end
@@ -39,11 +39,6 @@ module Flezha
 
     # Stop an operator, or the whole partition group it names.
     def stop_operator(operator_id) = call("Operator.stop", operator_id)
-
-    # Inject a message into an operator's input stream, blocking for the verdict.
-    def send_to(operator_id, message, channel: "")
-      call("Operator.send", operator_id, message, channel)
-    end
 
     # Enable the plugin `name` in this namespace, of the provider `provider`
     # (for example `"operator_websocket"`), on its `opts`. `single: true` runs

@@ -8,6 +8,11 @@
 # node_runner / elixir_runner. The executor is an axis of the run rather than a
 # property of this file: FLEZHA_RUBY_EXECUTOR selects the thread pool (the
 # default) or the fiber scheduler, and the fixtures are identical under both.
+#
+# FLEZHA_LOCAL_SEND_SCRIPT is the local-send drill: a JSON array of
+# `{operator, channel, message, when}` sends this app's own code makes with
+# `local`, each once the file `when` names exists, printing
+# `local_send <operator> ok` or `local_send <operator> err <code>` per send.
 
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 
@@ -51,6 +56,20 @@ warn(
   "[ruby_runner] namespace=#{namespace} transport=#{ENV.fetch('FLEZHA_TRANSPORT', 'uds')} " \
   "executor=#{ENV.fetch('FLEZHA_RUBY_EXECUTOR', 'threads')}"
 )
+
+if (script = ENV["FLEZHA_LOCAL_SEND_SCRIPT"])
+  Thread.new do
+    JSON.parse(script).each do |send|
+      sleep(0.05) until File.exist?(send["when"])
+      begin
+        runner.send_to(send["operator"], send["message"], send["channel"], local: true)
+        puts("local_send #{send['operator']} ok")
+      rescue Flezha::Error => e
+        puts("local_send #{send['operator']} err #{e.code}")
+      end
+    end
+  end
+end
 
 begin
   runner.run

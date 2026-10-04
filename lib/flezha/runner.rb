@@ -84,15 +84,35 @@ module Flezha
       self
     end
 
-    # Administer this namespace from ordinary application code: start, stop and
-    # feed operators, enable and disable plugins, read what is running.
+    # Administer this namespace from ordinary application code: start and stop
+    # operators, enable and disable plugins, read what is running.
     #
     # The controller judges every call as the identity this connection proved,
     # so no credential is held here and nothing expires. A user grants a
     # namespace's applications the authority once, with
     # `flz role bind runner@<namespace> app <namespace>`; until then every call
     # is refused.
-    def admin = Admin.new(@core || Core.context_free)
+    def control = Control.new(@core || Core.context_free)
+
+    # Send `message` to the entry channel `channel` of `operator_id`, through
+    # the controller under the same role check as `control`, answering its
+    # verdict: `{"to" => operator, "verdict" => "delivered" | "absorbed" |
+    # "suspended"}`. `msg_id:` is stamped as `flz.msg_id`, so an operator whose
+    # input log still holds that id absorbs the repeat; `key:` reaches the
+    # partition group member whose range owns it.
+    #
+    # `local: true`: in process, without the controller: the message is on no
+    # disk, is lost if the runner stops before handling it, and an operator's
+    # input log does not cover it. It answers `nil`.
+    #
+    # Named `send_to` because `send` is every Ruby object's own.
+    def send_to(operator_id, message, channel, msg_id: nil, key: nil, local: false)
+      JSON.parse((@core || Core.context_free).send_message(operator_id, channel, message.b, msg_id, key, local))
+    end
+
+    # The ids of the operator instances bound on this runner now, read without
+    # the controller. Refused with `runtime.runner_not_started` before `boot`.
+    def operators = (@core || raise(Error.new("runtime.runner_not_started"))).operators
 
     # Override the YJIT decision. `nil` (the default) means "decide", `false`
     # means "leave it off".
@@ -148,7 +168,7 @@ module Flezha
     end
 
     # Wait for shutdown, then drain. A host that called `boot` can work between
-    # the two, making admin calls for one, and still stop the way `run` does.
+    # the two, making control calls for one, and still stop the way `run` does.
     def await_termination
       # Blocks here: the queue is pushed by `stop`, from a signal handler, the
       # stdin watcher, or the core's own shutdown.
