@@ -34,13 +34,13 @@ class TradeWatcherOperator < Flezha::Operator
   # single-cell, which is right for the second stage, since it keeps nothing
   # per symbol.
   channels do |c|
-    c.input("trades")
+    c.input("trades")                                        # JSON from the exchange
      .filter { |message| message[:channel] == "trade" }      # trade messages only
      .flat_map { |message| message[:data] }                  # a message into its trades
      .filter { |trade| trade[:ord_type] == "market" }        # market orders only
      .key_by { |trade| trade[:symbol] }                      # one cell per symbol
      .into(TrackPrices)
-     .into(BuyAboveAverage)
-     .sink("signals")
+     .into(BuyAboveAverage)                                  # fed by the tasklet above
+     .sink("signals")                                        # out to the file plugin
   end
 end

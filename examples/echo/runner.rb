@@ -11,11 +11,12 @@ require_relative "echo_operator"
 
 namespace = ARGV[0] || "default"
 
+# the operators this runner serves
 runner = Flezha.create_runner(namespace).register_factory(EchoOperator)
 
 # `run` is `boot` followed by `await_termination`. Splitting them leaves room
 # for the admin calls below, and still blocks until shutdown.
-runner.boot
+runner.boot # connects to the controller
 
 # Everything `flz operator` and `flz plugin` do is also a method here.
 # Uncomment to drive this namespace from the application instead of from a

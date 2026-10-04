@@ -16,22 +16,29 @@ class GatewayOperator < Flezha::Operator
 
   channels do |c|
     user = ->(value) { value[:user] }
+    # every request arrives on "http"; kept as a handle to split it
     http = c.input("http", decode: Request.method(:decode))
+    # route 1: GET .../events gets the session's stream
     http.filter { |request| !request.sends? }
         .into(Watch)
-        .response                                            # a stream, or 404
+        .response # a stream, or 404
+    # route 2: POST .../messages is checked against the user's budget
     verdicts = http.filter(&:sends?)
                    .map(&:message)
-                   .key_by(&user)                            # one cell per user
+                   .key_by(&user) # one cell per user
                    .into(Budget)
+    # a verdict: the message plus its user's tokens today; used twice
+    # use 1: answer the POST
     verdicts.into(Admit)
-            .response                                        # 202, or 429 over the budget
+            .response # 202, or 429 over the budget
+    # use 2: pass an admitted message on to the user's session
     verdicts.filter { |verdict| Budget.admitted?(verdict) }
             .map { |verdict| verdict[:message] }
-            .key_by(&user)                                   # the user's session
+            .key_by(&user) # the user's session
+            # call the "agent" operator; its answer comes back here
             .call(factory: "agent", channel: "message", deadline_ms: DEADLINE_MS)
-            .map { |response| Budget.used(response) }
+            .map { |response| Budget.used(response) } # the session's answer, as tokens used
             .key_by(&user)
-            .into(Budget)                                    # the tokens the answer used
+            .into(Budget) # back into the same budget
   end
 end

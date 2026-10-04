@@ -13,11 +13,11 @@ require_relative "echo_tasklet"
 # leaves as its own bytes.
 class EchoOperator < Flezha::Operator
   # The operator's stable identity, and the name `flz operator start` takes.
-  factory_id "echo"
+  factory_id "echo" # the name `flz operator start` takes
 
   channels do |c|
-    c.input("in", codec: :text)
-     .into(EchoTasklet)
-     .sink("out")
+    c.input("in", codec: :text) # messages arrive on the entry channel "in"
+     .into(EchoTasklet)          # each one runs through the echo tasklet
+     .sink("out")                # the result leaves on "out", for a plugin to pick up
   end
 end

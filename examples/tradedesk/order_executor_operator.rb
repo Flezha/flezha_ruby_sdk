@@ -27,6 +27,8 @@ require_relative "record_order"
 # desk's book is left alone.
 class OrderExecutorOperator < Flezha::Operator
   factory_id "order_executor"
+  # one instance per order; each step runs once
+  # a failed step undoes the finished ones
   run steps: { each: :once, on_failure: :undo_all }
 
   # Two steps in order, then a fan-out: confirming the fill and booking the
@@ -39,7 +41,7 @@ class OrderExecutorOperator < Flezha::Operator
   # which `flz operator info` shows. Nothing names a channel either, so each one
   # carries the name of the step that produces it.
   channels do |c|
-    c.input("order")
+    c.input("order")                                         # the order to carry out
      .into(ReserveFunds)                                     # step one
      .into(PlaceOrder)                                       # step two, once step one is done
      .branch(

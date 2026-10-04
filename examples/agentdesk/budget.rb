@@ -28,9 +28,9 @@ class Budget < Flezha::Tasklet
 
   def run(event, ctx)
     today = Time.at(ctx.now / 1000, in: "UTC").strftime("%F")
-    if event.key?(:tokens)                                   # the tokens an answer used
+    if event.key?(:tokens)                                   # the tokens an answer used: count them
       ctx.change({ day: today, tokens: event[:tokens] })
-    else                                                     # a message to admit
+    else                                                     # a message to admit: hand on its verdict
       ctx.emit({ message: event, spent: on(ctx.state, today) })
     end
   end

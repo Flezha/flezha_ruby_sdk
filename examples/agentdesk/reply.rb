@@ -18,6 +18,7 @@ class Reply < Flezha::Tasklet
   end
 
   def run(message, ctx)
+    # Each piece streams out as it is made; then the whole answer.
     ctx.emit(DemoModel.answer(ctx.state[:messages], message) { |part| ctx.part(part) })
     ctx.change({ kind: "said", message: message })
   end

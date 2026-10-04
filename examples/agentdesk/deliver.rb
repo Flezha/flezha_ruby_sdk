@@ -7,7 +7,7 @@ require "flezha"
 class Deliver < Flezha::Tasklet
   tasklet_name "deliver"
 
-  def run(answer, ctx) = ctx.emit(answer)
+  def run(answer, ctx) = ctx.emit(answer) # the whole answer, to whoever called
 
   # The undo, when a turn is taken back: an answer already given has nothing to take back.
   def compensate(_answers, _ctx); end

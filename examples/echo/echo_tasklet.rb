@@ -12,7 +12,7 @@ require "flezha"
 # nothing is journaled. Where the result goes is not decided here: the operator
 # decides that, so the graph can be rewired without touching this class.
 class EchoTasklet < Flezha::Tasklet
-  tasklet_name "echo" # the durable identity: state is filed under it
+  tasklet_name "echo" # state is saved under this name, so choose it once
 
-  def run(input, ctx) = ctx.emit("echo: #{input}")
+  def run(input, ctx) = ctx.emit("echo: #{input}") # where it goes is the operator's business
 end
