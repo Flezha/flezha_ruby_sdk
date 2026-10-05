@@ -937,8 +937,8 @@ module Fixtures
     channels { |c| c.input("in", codec: :text).into(StaticCellStep).sink("out") }
   end
 
-  # call_turn: a durable per-input loop whose turn answers the outside call
-  # through `response`.
+  # call_turn: a durable per-input loop whose turn's sink output answers the
+  # outside call.
   class CallTurnStep < Flezha::Tasklet
     tasklet_name "call_turn"
     def run(input, ctx) = ctx.emit(input)
@@ -946,7 +946,7 @@ module Fixtures
 
   class CallTurn < LoopSteps
     factory_id "call_turn"
-    channels { |c| c.input("in", codec: :text).into(CallTurnStep).response }
+    channels { |c| c.input("in", codec: :text).into(CallTurnStep).sink }
   end
 
   # Every steps relay this app registers, in the reference's order.

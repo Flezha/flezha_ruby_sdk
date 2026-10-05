@@ -8,6 +8,8 @@ class Watch < Flezha::Tasklet
   tasklet_name "watch"
 
   def run(request, ctx)
-    ctx.emit(request.listens? ? { stream: request.user } : { status: 404, body: "no such route" })
+    # keyed by the user: a sink of an effectively-once relay needs a key
+    ctx.emit(request.listens? ? { stream: request.user } : { status: 404, body: "no such route" },
+             key: request.user)
   end
 end

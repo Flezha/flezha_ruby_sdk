@@ -111,7 +111,7 @@ module Flezha
     # run, a stream that would block, a frame over the size limit) is dropped,
     # and a replayed input sends none. Raises a `Flezha::Error` coded
     # `part.no_sink` when the output channel does not end in a sink (it only
-    # feeds another tasklet, or ends in `response` or `call`), and `part.outside_invocation`
+    # feeds another tasklet, or ends in `call`), and `part.outside_invocation`
     # through a context whose invocation has returned.
     def part(value)
       channel = @outgoing.first

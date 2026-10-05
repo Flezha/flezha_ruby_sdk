@@ -25,9 +25,9 @@ module Flezha
   Chain = Struct.new(:source, :links, :superseded, :edge, keyword_init: true)
 
   # A channel as the graph holds it. Its position in the list IS its id.
-  # `sink` is the channel's name once a plugin end, a sink or a response, is
-  # attached; nil means none, and the core's answer names no sink for a
-  # response. `sink_encode` is that end's payload encoder and belongs to the
+  # `sink` is the channel's name once a plugin end, a sink or a call, is
+  # attached; nil means none, and the core's answer names no sink for a call.
+  # `sink_encode` is that end's payload encoder and belongs to the
   # plugin frame alone: an inter-tasklet frame is decoded with the class codec,
   # so encoding one with it hands the consuming tasklet bytes it cannot read.
   # `call` is the channel's call end, when a chain closes on one.
@@ -349,21 +349,7 @@ module Flezha
     # `encode` turns a value into the plugin frame's bytes, and `codec` names a
     # format instead. With neither, a String is sent as its bytes and any other
     # value as JSON, so a sink needs neither for a string, bytes or a JSON value.
-    def sink(name = nil, encode: nil, codec: nil)
-      link = { "link" => "sink" }
-      link["name"] = name.to_s unless name.nil?
-      plug_end(link, name&.to_s, encode, codec)
-    end
-
-    # Terminate this edge's channel on the answer to the outside call its input
-    # carried, and answer the edge. Each value emitted on it answers that
-    # caller and reaches no plugin. It takes no name, so the channel keeps the
-    # one it would have without it, and consumers may follow it exactly as
-    # after `sink`. A channel ends in one sink or one response. `encode` and
-    # `codec` are `sink`'s.
-    def response(encode: nil, codec: nil)
-      plug_end({ "link" => "response" }, nil, encode, codec)
-    end
+    def sink(name = nil, encode: nil, codec: nil) = attach_sink(name&.to_s, encode, codec)
 
     # End this edge's chain in a call to another relay, and answer the edge
     # of its Response channel: the entry channel `<channel>.response`, whose
@@ -371,15 +357,20 @@ module Flezha
     # chain's transforms and key, is one request. `target` names an instance,
     # or a partition group whose member the key chooses; `factory:` instead
     # names a factory whose instance the key names, started when absent unless
-    # `create: false`. `channel:` names the callee's entry channel. `codec`
-    # names the format of both the request and the answer, JSON by default. A
-    # call is not an edge, so the Response channel may feed this tasklet.
-    def call(target = nil, factory: nil, deadline_ms:, create: true, channel: nil, codec: nil)
+    # `create: false`. `channel:` names the callee's entry channel, and
+    # `answer_channel:` the callee's channel whose output answers (its first
+    # output for the request when unset). `codec` names the format of both the
+    # request and the answer, JSON by default. A call is not an edge, so the
+    # Response channel may feed this tasklet. A channel ends in one sink or one
+    # call.
+    def call(target = nil, factory: nil, deadline_ms:, create: true, channel: nil,
+             answer_channel: nil, codec: nil)
       raise Error.new("topology.sink_on_entry", channel: @from[1].name) unless @from[0] == :tasklet
 
       source = self.channel
       named = @builder.channel_codec(source, codec || :json, nil)
-      @builder.link_chain(@from, @pending[:chain], call_link(target, factory, deadline_ms, create, channel, source))
+      link = call_link(target, factory, deadline_ms, create, channel, answer_channel, source)
+      @builder.link_chain(@from, @pending[:chain], link)
       # First call wins, as for a sink; a second end is the core's to refuse.
       source.call ||= CallEnd.new(transforms: transforms, key_by: @pending[:key_by],
                                   encode: Codec.channel_encoder(named, source))
@@ -389,9 +380,9 @@ module Flezha
 
     protected
 
-    # Attach a plugin end, a sink or a response: both leave as a plugin output
-    # encoded the same way, and the core refuses a second end on a channel.
-    def plug_end(link, name, encode, codec)
+    # Attach a sink, which leaves as a plugin output; the core refuses a second
+    # end on a channel.
+    def attach_sink(name, encode, codec)
       unless @from[0] == :tasklet
         raise Error.new("topology.sink_on_entry", channel: name || "<derived>")
       end
@@ -401,6 +392,8 @@ module Flezha
       # derived as it would be without a sink at all.
       target.name = name unless name.nil?
       named = @builder.channel_codec(target, codec, encode)
+      link = { "link" => "sink" }
+      link["name"] = name unless name.nil?
       @builder.link_chain(@from, @pending[:chain], link)
       # First call wins on the builder's own side, as the reference does; a
       # second end is what the core refuses the class for.
@@ -438,12 +431,13 @@ module Flezha
 
     # The `call` link as the record carries it; which of `target` and `factory`
     # is named, and whether exactly one is, is the core's to judge.
-    def call_link(target, factory, deadline_ms, create, channel, source)
+    def call_link(target, factory, deadline_ms, create, channel, answer_channel, source)
       link = { "link" => "call" }
       link["target"] = target.to_s unless target.nil?
       link["factory"] = factory.to_s unless factory.nil?
       link.merge!("deadline_ms" => deadline_ms, "create" => create)
       link["channel"] = channel.to_s unless channel.nil?
+      link["answer_channel"] = answer_channel.to_s unless answer_channel.nil?
       link.merge("response" => "#{source.name}.response")
     end
 

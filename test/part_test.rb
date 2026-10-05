@@ -94,24 +94,13 @@ class PartTest < Minitest::Test
     channels { |c| c.input("in", codec: :text).into(Feeder).into(Forward).sink("answer") }
   end
 
-  class Answerer < Feeder
-    tasklet_name "part_answerer"
-  end
-
-  class AnswererRelay < Flezha::Relay
-    factory_id "part_answerer_op"
-    channels { |c| c.input("in", codec: :text).into(Answerer).response }
-  end
-
   def test_a_channel_without_a_sink_refuses_the_part
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
     assert_equal %w[x], released(FeederRelay, %w[x])
-    assert_equal %w[y], released(AnswererRelay, %w[y], sink: "part_answerer")
     refusals = Array.new(Feeder::REFUSALS.size) { Feeder::REFUSALS.pop }
 
-    assert_equal %w[part.no_sink part.no_sink], refusals,
-                 "a channel feeding another tasklet and a response end preview nothing"
+    assert_equal %w[part.no_sink], refusals, "a channel feeding another tasklet previews nothing"
   end
 
   private

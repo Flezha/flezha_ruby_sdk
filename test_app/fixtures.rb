@@ -702,9 +702,9 @@ module Fixtures
 
   # -- call_response -------------------------------------------------------
 
-  # Relays an outside caller calls and whose graph answers it through
-  # `response`: from the first tasklet, from a downstream one, and from
-  # whichever of two filtered paths the input took. `call_turn` is the steps
+  # Relays an outside caller calls and whose sink output answers it: from the
+  # first tasklet, from a downstream one, and from whichever of two filtered
+  # paths the input took. `call_turn` is the steps
   # one, in fixtures_steps.rb.
   class CallEchoTasklet < PassThrough
     tasklet_name "call_echo"
@@ -712,7 +712,7 @@ module Fixtures
 
   class CallEcho < Flezha::Relay
     factory_id "call_echo"
-    channels { |c| c.input("in", codec: :text).into(CallEchoTasklet).response }
+    channels { |c| c.input("in", codec: :text).into(CallEchoTasklet).sink }
   end
 
   class CallParse < PassThrough
@@ -726,7 +726,7 @@ module Fixtures
 
   class CallDownstream < Flezha::Relay
     factory_id "call_downstream"
-    channels { |c| c.input("in", codec: :text).into(CallParse).into(CallAnswer).response }
+    channels { |c| c.input("in", codec: :text).into(CallParse).into(CallAnswer).sink }
   end
 
   # An input starting `no` takes the refused path, every other the accepted one.
@@ -748,8 +748,8 @@ module Fixtures
     factory_id "call_split"
     channels do |c|
       admitted = c.input("in", codec: :text).into(CallAdmit)
-      admitted.filter { |input| !input.start_with?("no") }.into(CallAccept).response
-      admitted.filter { |input| input.start_with?("no") }.into(CallRefuse).response
+      admitted.filter { |input| !input.start_with?("no") }.into(CallAccept).sink
+      admitted.filter { |input| input.start_with?("no") }.into(CallRefuse).sink
     end
   end
 

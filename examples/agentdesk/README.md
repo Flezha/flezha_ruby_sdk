@@ -19,7 +19,6 @@ the session's answer as it is written, and each user has a daily token budget.
 | `runner.rb` | the runner: this process joins the `agents` namespace and registers the `agent` and `gateway` factories |
 | `agent_relay.rb` | a session, a steps relay: one turn per message, and a failed turn fails alone |
 | `reply.rb` | answers a message with the demo model, sends the answer as it grows, and keeps the conversation |
-| `deliver.rb` | hands the finished answer to whoever called |
 | `demo_model.rb` | the demo model |
 | `gateway_relay.rb` | the HTTP side, a flow relay: it carries the HTTP plugin, answers every request, and calls the session a message is for |
 | `request.rb` | one HTTP request, as the plugin hands it to the gateway, and the two routes the gateway knows |

@@ -144,7 +144,6 @@ module Conformance
       when "retry_max" then edge.retry_max(Integer(arg))
       when "on_full" then edge.on_full(arg.to_sym)
       when "sink" then arg.empty? ? edge.sink : edge.sink(arg)
-      when "response" then edge.response
       when /\Acall/ then call_step(edge, verb, arg, role)
       when "into" then wire(edge, arg)
       # Declared on the tasklet in this SDK, and read as its class was

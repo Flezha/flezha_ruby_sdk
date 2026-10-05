@@ -15,7 +15,8 @@ class Admit < Flezha::Tasklet
         { status: 202, body: "sent to #{user}" }
       else
         { status: 429, body: "#{user} has used #{verdict[:spent]} of today's #{Budget::DAILY_TOKENS} tokens" }
-      end
+      end,
+      key: user
     )
   end
 end

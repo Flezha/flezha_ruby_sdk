@@ -58,12 +58,13 @@ class CallTest < Minitest::Test
   def test_a_factory_call_records_create_channel_and_its_key
     klass = relay("call_factory") do |c|
       c.input("in").into(Ask).key_by(&:to_s)
-       .call(factory: "agent", deadline_ms: 60_000, create: false, channel: "turn").into(Ask)
+       .call(factory: "agent", deadline_ms: 60_000, create: false, channel: "turn",
+             answer_channel: "reply").into(Ask)
     end
 
     assert_equal [{ "link" => "key" },
                   { "link" => "call", "factory" => "agent", "deadline_ms" => 60_000, "create" => false,
-                    "channel" => "turn", "response" => "ask.response" }],
+                    "channel" => "turn", "answer_channel" => "reply", "response" => "ask.response" }],
                  decl(klass)["channels"][1]["chains"][0]
   end
 

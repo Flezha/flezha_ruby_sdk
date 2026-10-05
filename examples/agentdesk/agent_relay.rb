@@ -2,7 +2,6 @@
 
 require "flezha"
 require_relative "reply"
-require_relative "deliver"
 
 # One conversation: a relay that runs in steps, one turn per message it is
 # sent, for as long as the session lasts. Every session is an instance of its
@@ -15,9 +14,7 @@ class AgentRelay < Flezha::Relay
   channels do |c|
     c.input("turn", codec: :text)                            # entry 1: `flz relay call`
      .into(Reply)
-     .sink("answer")                                         # to whoever listens; the chain goes on
-     .into(Deliver)
-     .response                                               # to whoever called
+     .sink("answer")                                         # to whoever called, and whoever listens
     c.input("message")                                       # entry 2: the gateway, into the same Reply
      .map { |message| message[:text] }
      .into(Reply)
