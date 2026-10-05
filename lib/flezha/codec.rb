@@ -89,6 +89,15 @@ module Flezha
       value.is_a?(String) ? value : json_payload(owner, value)
     end
 
+    # What `plain_payload` wrote, read back: JSON, else UTF-8 text, else the
+    # bytes. A String that reads as JSON comes back as that JSON value.
+    def plain_value(bytes)
+      JSON.parse(bytes)
+    rescue JSON::ParserError, EncodingError
+      text = bytes.dup.force_encoding(Encoding::UTF_8)
+      text.valid_encoding? ? text : bytes.b
+    end
+
     def utf8_text(bytes, channel)
       text = bytes.dup.force_encoding(Encoding::UTF_8)
       return text if text.valid_encoding?

@@ -31,11 +31,37 @@ module Flezha
       end
     end
 
+    # A replayed input made an outside call its live run kept through
+    # `ctx.effect` some other way: its block ran again, or the kept result was
+    # never asked for.
+    class EffectReplayMismatch < StandardError
+      attr_reader :name
+
+      def initialize(tasklet, name, what)
+        @name = name
+        super(
+          "#{tasklet}: on the replay, effect '#{name}' #{what}. A re-run reads an outside " \
+          "call's result only through ctx.effect, with the same name in the same order."
+        )
+      end
+    end
+
+    # The longest effect name, in bytes, as the core refuses it.
+    MAX_EFFECT_NAME = 255
+
+    # One input's effect results, by `[name, ordinal]`, and the invocation's
+    # count of each name and the call whose block is running.
+    Effects = Struct.new(:kept, :replaying, :ordinals, :running)
+
     # What one invocation produced.
     Outcome = Struct.new(:outputs, :changes, :timers, keyword_init: true)
 
     BASE32 = [*"a".."z", *"2".."7"].freeze
 
+    # A `ctx.effect` keeps its result on a live `feed`; the n-th
+    # `feed(..., replay: true)` replays the n-th live input and is served what
+    # it kept, and raises `EffectReplayMismatch` when a block runs there or a
+    # kept result is never asked for.
     class Harness
       attr_reader :log
 
@@ -64,13 +90,31 @@ module Flezha
         # core releases them.
         @spawns = {}
         @spawn_count = 0
+        # Each live input's effect results, in order, and how many replays ran.
+        @kept_effects = []
+        @replays = 0
+        @effects = Effects.new({}, false, {}, nil)
       end
 
       # The cell's live state, as the dispatcher left it.
       def state = @registered.state_of(@node, @address)
 
-      # Run the tasklet against one input.
-      def feed(input, now: 0, replay: false) = run(now, replay) { |ctx| invoke(input, ctx) }
+      # Run the tasklet against one input; `replay` replays the next live
+      # input, in order.
+      def feed(input, now: 0, replay: false)
+        if replay
+          @effects = Effects.new(@kept_effects[@replays] || {}, true, {}, nil)
+          @replays += 1
+        else
+          @effects = Effects.new({}, false, {}, nil)
+          @kept_effects << @effects.kept
+        end
+        outcome = run(now, replay) { |ctx| invoke(input, ctx) }
+        unasked = @effects.kept.each_key.find { |name, ordinal| ordinal >= @effects.ordinals.fetch(name, 0) }
+        raise EffectReplayMismatch.new(@definition.name, unasked.first, "was never asked for") if replay && unasked
+
+        outcome
+      end
 
       # Fire a per-cell timer. `now` IS the scheduled time, as it is live.
       def fire_timer(kind, scheduled_at)
@@ -132,6 +176,38 @@ module Flezha
       # The part bridge a `Ctx` asks. A harness has no controller and no
       # listener, so the part, already encoded, goes nowhere.
       def part(_token, _item, _payload) = nil
+
+      # The core's answer to a begun `ctx.effect`, over this input's results:
+      # the kept one, or run the block (on a live input only).
+      def effect_begin(_token, _item, name)
+        raise Error.new("effect.bad_name", name: name.inspect) if name.empty? || name.bytesize > MAX_EFFECT_NAME
+
+        effects = @effects
+        raise Error.new("effect.nested", name: name) if effects.running
+
+        ordinal = effects.ordinals.fetch(name, 0)
+        effects.ordinals[name] = ordinal + 1
+        key = [name, ordinal]
+        return [:kept, effects.kept[key]] if effects.kept.key?(key)
+        raise EffectReplayMismatch.new(@definition.name, name, "ran its block") if effects.replaying
+
+        effects.running = key
+        [:run, nil]
+      end
+
+      # Keep a live input's result, as the controller does.
+      def effect_end(_token, _item, payload)
+        effects = @effects
+        raise "an end follows a begin that runs" unless effects.running
+
+        effects.kept[effects.running] = payload.b
+        effects.running = nil
+        nil
+      end
+
+      def effect_release(_token, _item)
+        @effects.running = nil
+      end
 
       private
 

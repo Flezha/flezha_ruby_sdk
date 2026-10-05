@@ -198,8 +198,48 @@ module Flezha
       SpawnHandle.new(@bridge, handle)
     end
 
+    # Run the block, a call to anything outside the instance (a model, a tool,
+    # a service), and keep its result: when this invocation runs again (a
+    # crash re-run, a replay, a wake, a move), the call answers the kept result
+    # and the block does not run.
+    #
+    # The result is kept, synced on the controller, before this answers. A
+    # crash between the block finishing and that point runs it again, so give
+    # the outside service `stable_id` as an idempotency key where it takes
+    # one. `name` names the call: a non-empty String of at most 255 bytes,
+    # counted per invocation, so a call of another name added before this one
+    # leaves its kept result where it was. One call runs at a time; a
+    # concurrent one is refused.
+    #
+    # The result is encoded as an output naming no codec encodes a value (a
+    # String as its bytes, anything else as JSON) and read back as JSON, else
+    # text, else bytes; `codec` (an object answering `encode` and `decode`, as
+    # a change codec does) encodes and decodes it instead. The call answers the
+    # result as it reads back, on a first run and a re-run alike.
+    #
+    # An invocation that took no input-log offset (local mode, a relay with no
+    # input log) runs the block each time and keeps nothing. The block's own
+    # error propagates and nothing is kept. Raises a `Flezha::Error` coded
+    # `effect.bad_name`, `effect.nested`, `effect.outside_invocation`,
+    # `effect.too_large` or `effect.not_recorded` (the only one retried).
+    def effect(name, codec: nil)
+      item = @item || 0
+      status, kept = effect_refusals { @bridge.effect_begin(@token, item, name) }
+      return effect_decode(kept, codec) if status == :kept
+
+      begin
+        value = yield
+        encoded = (codec ? codec.encode(value) : Codec.plain_payload(value, "effect '#{name}'")).b
+        first = effect_refusals { @bridge.effect_end(@token, item, encoded) } if status == :run
+        effect_decode(first || encoded, codec)
+      ensure
+        # A no-op once the end has kept the result.
+        @bridge.effect_release(@token, item)
+      end
+    end
+
     # The effect record for this item, as the core folds it.
-    def effect(consumed_offset)
+    def effect_record(consumed_offset)
       {
         verdict: "ok",
         changes: @changes,
@@ -213,6 +253,17 @@ module Flezha
     end
 
     private
+
+    # An `effect.*` refusal is non-retryable, but for `effect.not_recorded`: a
+    # call that could not be kept is the one worth running again.
+    def effect_refusals
+      yield
+    rescue Error => e
+      e.define_singleton_method(:non_retryable?) { true } if e.code.start_with?("effect.") && e.code != "effect.not_recorded"
+      raise
+    end
+
+    def effect_decode(body, codec) = codec ? codec.decode(body) : Codec.plain_value(body)
 
     def timer(operation)
       # A rollback is no place to arm a deadline.

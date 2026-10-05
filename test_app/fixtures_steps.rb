@@ -173,6 +173,48 @@ module Fixtures
     channels(&COMMIT_BLOCK_CHAIN)
   end
 
+  # -- effect_block_steps ---------------------------------------------------
+  #
+  # The one tasklet calls an outside function through `ctx.effect`, then
+  # blocks until released. The input names a file the function appends one
+  # line to per run, so a SIGKILL after the effect and a resume on a released
+  # runner shows whether the function ran again.
+
+  def self.count_run(path)
+    File.open(path, "a") { |runs| runs.write("ran\n") }
+    "answer"
+  end
+
+  class EffectBlock < Flezha::Tasklet
+    tasklet_name "effect_block"
+    def run(input, ctx)
+      ctx.effect("model") { Fixtures.count_run(input) }
+      Fixtures.block_until_released
+    end
+  end
+
+  class EffectBlockSteps < Flezha::Relay
+    factory_id "effect_block_steps"
+    run :steps
+    durable FIXTURE_DURABLE
+    channels { |c| c.input("in", codec: :text).into(EffectBlock) }
+  end
+
+  # `effect_flow`: the same call in a flow relay at the default tier, which
+  # keeps no input log, so nothing re-runs an input and nothing is kept.
+  class EffectOnce < Flezha::Tasklet
+    tasklet_name "effect_once"
+    def run(input, ctx)
+      ctx.effect("model") { Fixtures.count_run(input) }
+      nil
+    end
+  end
+
+  class EffectFlow < Flezha::Relay
+    factory_id "effect_flow"
+    channels { |c| c.input("in", codec: :text).into(EffectOnce) }
+  end
+
   # -- optout_commit_block --------------------------------------------------
   #
   # The opt-out twin with a live mid-chain signal: task A's output also reaches
@@ -951,7 +993,8 @@ module Fixtures
 
   # Every steps relay this app registers, in the reference's order.
   STEPS = [
-    EchoSteps, TypedOnceSteps, CommitBlockSteps, SyncDurableSteps, OptoutCommitBlock,
+    EchoSteps, TypedOnceSteps, CommitBlockSteps, SyncDurableSteps, EffectBlockSteps, EffectFlow,
+    OptoutCommitBlock,
     TierCommitBlockSteps, SagaBlockSteps, KeyedBlockSteps, KeyedSagaSteps,
     OutboxBlockSteps, UndoOutboxSteps, FailedStageSteps,
     ChatLoopSteps, StatelessLoopSteps, KeyedLoopSteps, ChatRewindSteps,

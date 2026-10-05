@@ -197,7 +197,7 @@ module Flezha
                        item[:consumed_offset], item: index) do |c|
             run_item(registered, node, item, now, c)
           end
-          effects << ctx.effect(item[:consumed_offset])
+          effects << ctx.effect_record(item[:consumed_offset])
         rescue StandardError => e
           # The backtrace is a host diagnostic, not a record: the verdict below
           # travels to the dead-letter entry and the controller's log.
@@ -354,7 +354,7 @@ module Flezha
       ctx = invoke(activation, registered, node, deps, 0, false) do |c|
         definition.instance.compensate(outputs, c)
       end
-      { token: activation[:token], outcome: "work", effects: [ctx.effect(nil)] }
+      { token: activation[:token], outcome: "work", effects: [ctx.effect_record(nil)] }
     end
 
     # Dispatch one activation and answer it exactly once.
