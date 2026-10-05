@@ -182,7 +182,7 @@ class TestingTest < Minitest::Test
     end
   end
 
-  # The harness reads its sink back as MessagePack, so a string output is
+  # The harness reads its output back as MessagePack, so a string output is
   # reported as the string rather than as the bytes a plugin would receive.
   def test_the_harness_reports_a_string_and_a_map_exactly_as_emitted
     assert_equal [{ said: "hi" }, "echo: hi"], Flezha::Testing::Harness.new(Emitter).feed("hi").outputs

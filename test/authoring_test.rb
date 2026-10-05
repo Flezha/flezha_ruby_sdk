@@ -8,7 +8,7 @@ require_relative "test_helper"
 # the reference refusals are pinned by `test/fixtures/reference_topologies.txt`
 # — not here. What is left here is the ergonomics: which shapes the fluent
 # builder BUILDS, the two defects a record cannot carry (a Ruby class that does
-# not define the method its declaration promises, a plugin sink on a channel no
+# not define the method its declaration promises, a plugin output on a channel no
 # tasklet produces on), and that the core's verdict reaches an author as this
 # SDK's own refusal.
 class AuthoringTest < Minitest::Test
@@ -92,13 +92,13 @@ class AuthoringTest < Minitest::Test
   end
 
   # The other refusal the builder keeps: a channel with no producer has no
-  # value to serialize, and the core reads a sink as the terminal of the
+  # value to serialize, and the core reads an output as the terminal of the
   # channel it sits on — it cannot see that this one is fed by the controller.
-  def test_a_plugin_sink_on_an_entry_channel_is_refused_here
-    klass = relay("entry_sink") { |c| c.input("in").sink }
+  def test_an_output_on_an_entry_channel_is_refused_here
+    klass = relay("entry_sink") { |c| c.input("in").output }
 
     error = refusal { klass.spec }
-    assert_equal ["topology.sink_on_entry", { "channel" => "<derived>" }], [error.code, error.details]
+    assert_equal ["topology.output_on_entry", { "channel" => "<derived>" }], [error.code, error.details]
   end
 
   # `validate` IS the submission: the record crosses the ABI and the core's
@@ -121,7 +121,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_an_ack_at_checkpoint_with_its_members_reaches_the_declaration_as_the_tree
-    klass = relay("compose") { |c| c.input("in").into(pass_through("p")).keyed.sink }
+    klass = relay("compose") { |c| c.input("in").into(pass_through("p")).keyed.output }
     klass.run flow: { exactly: { effectively_once: { ack: { checkpoint: { every: 4, outputs: :at_checkpoint,
                                                                           max_delay_ms: 250 } } } } }
     decl = Flezha::Graph.to_host_class_decl(klass.spec)
@@ -195,23 +195,23 @@ class AuthoringTest < Minitest::Test
   end
 
   # `named` is honoured on the inter-task path and was dropped on the plugin
-  # path, so `named("input").sink("pass_out")` produced a channel called
+  # path, so `named("input").output("pass_out")` produced a channel called
   # `pass_out` — and the channel name is what a forwarded frame carries and
   # what selects the receiving relay's entry channel.
-  def test_a_named_edge_terminating_on_a_sink_names_the_channel_too
+  def test_a_named_edge_terminating_on_an_output_names_the_channel_too
     klass = relay("named_sink") do |c|
-      c.input("input").into(pass_through("forward")).sink("in")
+      c.input("input").into(pass_through("forward")).output("in")
     end
 
     assert_equal %w[input in], klass.spec.channels.map(&:name)
   end
 
-  # `sdk-graph-authoring`: the no-argument `sink` names nothing, so the channel
-  # keeps the PRODUCER NODE's name — the derivation a channel with no sink at
+  # `sdk-graph-authoring`: the no-argument `output` names nothing, so the channel
+  # keeps the PRODUCER NODE's name — the derivation a channel with no output at
   # all would take.
-  def test_an_unnamed_edge_terminating_on_a_sink_takes_the_producing_nodes_name
+  def test_an_unnamed_edge_terminating_on_an_output_takes_the_producing_nodes_name
     klass = relay("unnamed_sink") do |c|
-      c.input("input").into(pass_through("plain")).sink
+      c.input("input").into(pass_through("plain")).output
     end
 
     assert_equal %w[input plain], klass.spec.channels.map(&:name)
@@ -263,10 +263,10 @@ class AuthoringTest < Minitest::Test
     assert_equal channels_of(separate), channels_of(branched)
   end
 
-  def test_sink_returns_the_edge_so_a_consumer_wires_behind_it
+  def test_output_returns_the_edge_so_a_consumer_wires_behind_it
     klass = relay("hybrid") do |c|
       c.input("in").into(pass_through("producer"))
-       .sink("hybrid_indicator").into(pass_through("consumer"))
+       .output("hybrid_indicator").into(pass_through("consumer"))
     end
 
     assert_equal [["in", "entry", nil, [0], nil],
@@ -274,12 +274,12 @@ class AuthoringTest < Minitest::Test
                  channels_of(klass)
   end
 
-  def test_the_sink_names_the_channel_and_the_no_argument_form_does_not
-    named = relay("sink_named") do |c|
-      c.input("in").into(pass_through("producer")).sink("items_output")
+  def test_the_output_names_the_channel_and_the_no_argument_form_does_not
+    named = relay("output_named") do |c|
+      c.input("in").into(pass_through("producer")).output("items_output")
     end
     derived = relay("sink_derived") do |c|
-      c.input("in").into(pass_through("producer")).sink
+      c.input("in").into(pass_through("producer")).output
     end
 
     assert_equal %w[in items_output], channels_of(named).map(&:first)
@@ -288,12 +288,12 @@ class AuthoringTest < Minitest::Test
 
   def test_a_channel_named_twice_is_refused_naming_both
     klass = relay("named_twice") do |c|
-      c.input("in").into(pass_through("producer")).named("a").sink("b")
+      c.input("in").into(pass_through("producer")).named("a").output("b")
     end
 
     error = refusal { validate(klass.spec) }
     assert_equal ["topology.channel_named_twice"], codes(error)
-    assert_equal %w[a b], [error.details["named"], error.details["sink"]]
+    assert_equal %w[a b], [error.details["named"], error.details["output"]]
   end
 
   def test_a_channel_option_with_nothing_wired_after_it_still_reaches_the_channel
@@ -304,9 +304,9 @@ class AuthoringTest < Minitest::Test
     assert_equal ["topology.keyed_channel_without_plugin_wire"], codes(refusal { validate(keyed.spec) })
   end
 
-  def test_a_sink_beside_a_call_on_one_channel_is_refused
+  def test_an_output_beside_a_call_on_one_channel_is_refused
     klass = relay("ends_twice") do |c|
-      c.input("in").into(pass_through("producer")).sink("out").call("pricing", deadline_ms: 500)
+      c.input("in").into(pass_through("producer")).output("out").call("pricing", deadline_ms: 500)
        .into(pass_through("reader"))
     end
 
@@ -315,13 +315,13 @@ class AuthoringTest < Minitest::Test
     assert_equal "out", error.details["channel"]
   end
 
-  def test_two_channels_naming_one_sink_is_refused
+  def test_two_channels_naming_one_output_is_refused
     klass = relay("one_sink_two_channels") do |c|
-      c.input("in").into(pass_through("a")).sink("shared")
-       .into(pass_through("b")).sink("shared")
+      c.input("in").into(pass_through("a")).output("shared")
+       .into(pass_through("b")).output("shared")
     end
 
-    assert_equal ["topology.duplicate_sink_name"], codes(refusal { validate(klass.spec) })
+    assert_equal ["topology.duplicate_output_name"], codes(refusal { validate(klass.spec) })
   end
 
   def test_a_transform_before_one_into_reaches_that_consumer_only
@@ -474,9 +474,9 @@ class AuthoringTest < Minitest::Test
   def test_the_latest_document_router_is_a_route_latest_node_and_the_named_form_names_it
     klass = relay("routers") do |c|
       trades = c.input("trades")
-      c.route_latest(c.input("config"), trades) { |trade| trade[:symbol] }.sink("routed")
+      c.route_latest(c.input("config"), trades) { |trade| trade[:symbol] }.output("routed")
       c.route_latest_named(c.input("limits"), trades, "limits_router") { |trade| trade[:symbol] }
-       .sink("limited")
+       .output("limited")
     end
     validate(klass.spec)
 
@@ -497,7 +497,7 @@ class AuthoringTest < Minitest::Test
   CODEC_CASES = Flezha::TestSupport.contract_file("test/fixtures/channel_codecs.txt")
 
   def codec_slots(input = {}, sink = {})
-    klass = relay("codecs") { |c| c.input("in", **input).into(pass_through("echo")).sink("out", **sink) }
+    klass = relay("codecs") { |c| c.input("in", **input).into(pass_through("echo")).output("out", **sink) }
     entry, out = klass.spec.channels
     [entry.decode, out.sink_encode]
   end
@@ -546,9 +546,9 @@ class AuthoringTest < Minitest::Test
     assert_equal Flezha::Codec.encode({ a: 1 }), encode.call({ a: 1 })
   end
 
-  # A Ruby String is its bytes, so a `bytes` sink takes one, where Python and
+  # A Ruby String is its bytes, so a `bytes` output takes one, where Python and
   # Node refuse a string there.
-  def test_a_refusal_names_the_channel_and_a_bytes_sink_takes_a_string
+  def test_a_refusal_names_the_channel_and_a_bytes_output_takes_a_string
     decode, text = codec_slots({ codec: :text }, { codec: :text })
     assert_includes assert_raises(EncodingError) { decode.call("\xFF".b) }.message, "`in`"
     assert_equal({ "channel" => "out", "codec" => "text", "type" => "Integer" }, refusal { text.call(42) }.details)

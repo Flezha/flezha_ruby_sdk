@@ -5,7 +5,7 @@ require_relative "test_helper"
 Flezha::TestSupport.require_test_app("fixtures_parts")
 
 # A tasklet's part: the runtime hands the core the activation's token, the
-# index of the item the handler runs and the value encoded as the sink would
+# index of the item the handler runs and the value encoded as the output would
 # encode it, and a refusal raises inside the handler like any raise. The core
 # numbers, stamps and drops parts; its own tests and the fake controller cover
 # that side.
@@ -23,7 +23,7 @@ class PartTest < Minitest::Test
   class PreviewRelay < Flezha::Relay
     factory_id "preview_op"
     channels do |c|
-      c.input("in", codec: :text).into(Previewer).sink("answer", encode: ->(v) { "<#{v.to_json}>".b })
+      c.input("in", codec: :text).into(Previewer).output("answer", encode: ->(v) { "<#{v.to_json}>".b })
     end
   end
 
@@ -37,7 +37,7 @@ class PartTest < Minitest::Test
 
   def input_item(payload) = Flezha::TestSupport.input_item(payload)
 
-  def test_each_part_names_its_token_and_item_and_is_encoded_as_the_sink_encodes
+  def test_each_part_names_its_token_and_item_and_is_encoded_as_the_output_encodes
     core = Flezha::TestSupport::FakeCore.new
     result = answer(core, [input_item("a"), input_item("b")])
 
@@ -49,11 +49,11 @@ class PartTest < Minitest::Test
   end
 
   def test_a_refused_part_fails_the_item_like_any_raise
-    refusal = Flezha::Error.new("part.no_sink", tasklet: "previewer", channel: "answer")
+    refusal = Flezha::Error.new("part.no_output", tasklet: "previewer", channel: "answer")
     result = answer(Flezha::TestSupport::FakeCore.new(part_refusal: refusal), [input_item("a")])
 
     assert_equal "retryable", result[:effects][0][:verdict]
-    assert_includes result[:effects][0][:message], "part.no_sink"
+    assert_includes result[:effects][0][:message], "part.no_output"
   end
 
   def test_the_testing_harness_sends_a_part_nowhere
@@ -91,25 +91,25 @@ class PartTest < Minitest::Test
 
   class FeederRelay < Flezha::Relay
     factory_id "part_feeder_op"
-    channels { |c| c.input("in", codec: :text).into(Feeder).into(Forward).sink("answer") }
+    channels { |c| c.input("in", codec: :text).into(Feeder).into(Forward).output("answer") }
   end
 
-  def test_a_channel_without_a_sink_refuses_the_part
+  def test_a_channel_without_an_output_refuses_the_part
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
     assert_equal %w[x], released(FeederRelay, %w[x])
     refusals = Array.new(Feeder::REFUSALS.size) { Feeder::REFUSALS.pop }
 
-    assert_equal %w[part.no_sink], refusals, "a channel feeding another tasklet previews nothing"
+    assert_equal %w[part.no_output], refusals, "a channel feeding another tasklet previews nothing"
   end
 
   private
 
-  def released(relay, inputs, sink: "answer")
+  def released(relay, inputs, channel: "answer")
     outputs = []
     run = Flezha::LocalRelay.start(relay)
     begin
-      run.on_sink(sink) { |output| outputs << output.payload.dup.force_encoding("UTF-8") }
+      run.on_output(channel) { |output| outputs << output.payload.dup.force_encoding("UTF-8") }
       inputs.each { |input| run.feed("in", input) }
       run.run_until_idle(20_000)
     ensure

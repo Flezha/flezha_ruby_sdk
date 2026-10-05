@@ -22,7 +22,7 @@ class GatewayRelay < Flezha::Relay
     http.filter { |request| !request.sends? }
         .into(Watch)
         .keyed
-        .sink # a stream, or 404
+        .output # a stream, or 404
     # route 2: POST .../messages is checked against the user's budget
     verdicts = http.filter(&:sends?)
                    .map(&:message)
@@ -32,7 +32,7 @@ class GatewayRelay < Flezha::Relay
     # use 1: answer the POST
     verdicts.into(Admit)
             .keyed
-            .sink # 202, or 429 over the budget
+            .output # 202, or 429 over the budget
     # use 2: pass an admitted message on to the user's session
     verdicts.filter { |verdict| Budget.admitted?(verdict) }
             .map { |verdict| verdict[:message] }

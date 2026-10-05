@@ -24,7 +24,7 @@ runner.boot # connects to the controller
 #
 # control = runner.control
 # control.start_relay("echo", id: "my_echo")
-# control.enable_plugin("writer", "relay_file_sink", opts: { "path" => "echo-out.txt" })
+# control.enable_plugin("writer", "relay_file_output", opts: { "path" => "echo-out.txt" })
 # control.bind_plugin("writer", "my_echo", hooks: [["on_output", {}]])
 # runner.send_to("my_echo", "hello world", "in", msg_id: "hello-1")
 #

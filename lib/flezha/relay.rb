@@ -18,8 +18,8 @@ module Flezha
     # The channels graph. The block receives the builder.
     block_setting :channels
     # The short form's entry channel name, its codec and its optional plugin
-    # sink. A full form names its channels in `channels` instead.
-    SHORT_FORM_KEYS = %i[input codec sink].freeze
+    # output. A full form names its channels in `channels` instead.
+    SHORT_FORM_KEYS = %i[input codec output].freeze
     setting(*SHORT_FORM_KEYS)
     # The declarations only a short form reads.
     SHORT_FORM_ONLY = (SHORT_FORM_KEYS + TaskletSettings::NAMES).freeze
@@ -98,10 +98,10 @@ module Flezha
         builder
       end
 
-      # `input -> tasklet`, and on to the plugin sink when one is declared.
+      # `input -> tasklet`, and on to the plugin output when one is declared.
       def wire_short_form(builder)
         edge = builder.input(input || "input", codec: codec).into(tasklet)
-        edge.sink(sink) if sink
+        edge.output(output) if output
       end
 
       # The graph and the settings tree as written: the core judges the tree

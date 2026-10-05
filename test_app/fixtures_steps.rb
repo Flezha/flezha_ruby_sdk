@@ -5,7 +5,7 @@
 # factory ids, tasklet names, channel names and output bytes.
 #
 # Entry payloads and plugin frames are UTF-8 text on the wire, as in the
-# reference: every entry names the text codec, and a bare `.sink(name)` sends a
+# reference: every entry names the text codec, and a bare `.output(name)` sends a
 # String as UTF-8 here as it does there. An inter-tasklet hop between two Ruby
 # tasklets carries MessagePack, and the core derives that channel's journal
 # codec from the channel's kind, so no fixture declares one.
@@ -110,14 +110,14 @@ module Fixtures
     factory_id "echo_steps"
     run :steps
     durable FIXTURE_DURABLE
-    channels { |c| c.input("in", codec: :text).into(Echo).sink("out") }
+    channels { |c| c.input("in", codec: :text).into(Echo).output("out") }
   end
 
   # -- typed_once_steps --------------------------------------------------
   #
   # A `once` steps relay whose entry decodes JSON: its one pass runs over the
   # message it was spawned or sent with, prints what it read, emits it to the
-  # `placed` sink and completes with it.
+  # `placed` output and completes with it.
 
   class OncePlaced < Flezha::Tasklet
     tasklet_name "once_placed"
@@ -135,7 +135,7 @@ module Fixtures
     factory_id "typed_once_steps"
     run :steps
     durable FIXTURE_DURABLE
-    channels { |c| c.input("order", codec: :json).into(OncePlaced).sink("placed") }
+    channels { |c| c.input("order", codec: :json).into(OncePlaced).output("placed") }
   end
 
   # -- commit_block_steps / sync_durable_steps ------------------------
@@ -176,8 +176,8 @@ module Fixtures
   # -- optout_commit_block --------------------------------------------------
   #
   # The opt-out twin with a live mid-chain signal: task A's output also reaches
-  # a plugin sink, so the crash-resume drill can observe the mid-run point
-  # without durable state. A crash re-runs the chain from the top, so the sink
+  # a plugin output, so the crash-resume drill can observe the mid-run point
+  # without durable state. A crash re-runs the chain from the top, so the output
   # sees A's marker once per run and no journal file exists.
 
   class OptoutCommitBlock < Flezha::Relay
@@ -186,7 +186,7 @@ module Fixtures
     durable false
     channels do |c|
       c.input("in", codec: :text).into(CommitA)
-       .sink("mid", encode: ->(value) { "a-ran:#{value}" })
+       .output("mid", encode: ->(value) { "a-ran:#{value}" })
        .into(BlockB)
     end
   end
@@ -209,7 +209,7 @@ module Fixtures
     durable FIXTURE_DURABLE
     channels do |c|
       c.input("in", codec: :text).into(TierCommitA).keyed
-       .sink("mid")
+       .output("mid")
        .into(BlockB)
     end
   end
@@ -298,7 +298,7 @@ module Fixtures
   #
   # A steps output's identity. Task A commits durable state AND emits once,
   # keyed `k` with one metadata pair, on a keyed hybrid channel; the output
-  # rides A's Cell record and reaches the sink once A's stage commits. Task B
+  # rides A's Cell record and reaches the output once A's stage commits. Task B
   # blocks, so a SIGKILL lands with A committed and B unfinished.
 
   class OutboxA < DurableStep
@@ -312,7 +312,7 @@ module Fixtures
     durable FIXTURE_DURABLE
     channels do |c|
       c.input("in", codec: :text).into(OutboxA).keyed
-       .sink("mid", encode: ->(value) { "a-out:#{value}" })
+       .output("mid", encode: ->(value) { "a-out:#{value}" })
        .into(BlockB)
     end
   end
@@ -347,7 +347,7 @@ module Fixtures
     durable FIXTURE_DURABLE
     channels do |c|
       c.input("in", codec: :text).into(UndoOutboxA)
-       .sink("mid", encode: ->(value) { "out:#{value}" })
+       .output("mid", encode: ->(value) { "out:#{value}" })
        .into(UndoOutboxC)
     end
   end
@@ -375,7 +375,7 @@ module Fixtures
     durable FIXTURE_DURABLE
     channels do |c|
       c.input("in", codec: :text).into(KeySplit).into(FailedStage)
-       .sink("mid", encode: ->(value) { "lost:#{value}" })
+       .output("mid", encode: ->(value) { "lost:#{value}" })
     end
   end
 
@@ -386,7 +386,7 @@ module Fixtures
   #
   # The tasklet TREE (steps.rs:352). Every tasklet commits durable state
   # and compensates by emitting an undo record, so both tree behaviours are
-  # observable at one sink:
+  # observable at one output:
   #
   #   * crash-resume — BranchD BLOCKS, so the SIGKILL lands with A, B and C
   #     committed and only D's subtree outstanding. The respawn re-runs D
@@ -397,7 +397,7 @@ module Fixtures
   #     two branches before the root they share: `undo-c`, `undo-b`, `undo-a`.
   #
   # The inter-task channels are hybrid, which is what makes a non-leaf
-  # tasklet's forward and undo output visible at the sink.
+  # tasklet's forward and undo output visible at the output.
 
   BRANCH_FAIL_ENV = "FLEZHA_BRANCH_FAIL"
 
@@ -411,7 +411,7 @@ module Fixtures
     def undo_record = "undo-b"
   end
 
-  # The sibling leaf: emits straight to the sink, and its undo does too.
+  # The sibling leaf: emits straight to the output, and its undo does too.
   class BranchC < UndoingStep
     tasklet_name "branch_c"
     def undo_record = "undo-c"
@@ -438,14 +438,14 @@ module Fixtures
       # One channel, two consumers: THE fan-out. Both branches read exactly
       # what BranchA released on it (held handle, wired twice).
       mid = c.input("in", codec: :text).into(BranchA)
-             .sink("mid", encode: ->(value) { "a:#{value}" })
+             .output("mid", encode: ->(value) { "a:#{value}" })
       # Fail fast into the one tasklet that fails: the compensation scenario
       # is about the rollback order, not the ladder that precedes it.
       mid.into(BranchB)
-         .sink("bmid", encode: ->(value) { "b:#{value}" })
+         .output("bmid", encode: ->(value) { "b:#{value}" })
          .retry_max(1)
-         .into(BranchD).sink("d_out")
-      mid.into(BranchC).sink("c_out")
+         .into(BranchD).output("d_out")
+      mid.into(BranchC).output("c_out")
     end
   end
 
@@ -497,12 +497,12 @@ module Fixtures
       # Held handle wired twice = the fan-out; two arms naming DiamJoin with no
       # node name = the fan-in, since two unnamed mentions are one node.
       fan = c.input("in", codec: :text).into(DiamA)
-             .sink("dfan", encode: ->(value) { "a:#{value}" })
+             .output("dfan", encode: ->(value) { "a:#{value}" })
       fan.into(DiamB1).named("db1")
-         .into(DiamB2).sink("db2")
+         .into(DiamB2).output("db2")
          .into(DiamJoin)
-      fan.into(DiamC).sink("dc")
-         .into(DiamJoin).sink("j_out")
+      fan.into(DiamC).output("dc")
+         .into(DiamJoin).output("j_out")
     end
   end
 
@@ -513,7 +513,7 @@ module Fixtures
   # record; `retry_flaky` fails its first FLEZHA_STEPS_RETRY_FAILS attempts
   # (none by default — each scenario arms it) and then emits
   # `attempt:<n>:<input>`. One armed failure is absorbed by the ladder, so the
-  # run completes and the sink sees attempt 2; arming more failures than the
+  # run completes and the output sees attempt 2; arming more failures than the
   # ladder has attempts exhausts it, RA rolls back and the run reports an error.
 
   RETRY_FAILS_ENV = "FLEZHA_STEPS_RETRY_FAILS"
@@ -544,8 +544,8 @@ module Fixtures
     durable FIXTURE_DURABLE
     channels do |c|
       c.input("in", codec: :text).into(RetryA)
-       .sink("mid", encode: ->(value) { "res:#{value}" })
-       .into(RetryFlaky).sink("out")
+       .output("mid", encode: ->(value) { "res:#{value}" })
+       .into(RetryFlaky).output("out")
     end
   end
 
@@ -554,7 +554,7 @@ module Fixtures
   # chat_loop_steps is the durable-loop + suspension shape
   # (steps_loop.rs:8). One iteration per inbox item: TURN commits the turn
   # to Cell state, so a resumed iteration is visible in the WAL, and REPLY
-  # emits the answer to the sink. Between turns the loop finds an empty inbox
+  # emits the answer to the output. Between turns the loop finds an empty inbox
   # at a committed boundary and PARKS — the instance is evicted and rehydrated
   # by the next message. The turn whose payload is the crash turn BLOCKS while
   # the release variable is unset, so a SIGKILL lands with the earlier
@@ -631,7 +631,7 @@ module Fixtures
     factory_id "chat_loop_steps"
     channels do |c|
       c.input("in", codec: :text).into(ChatTurn).named("mid")
-       .into(ChatReply).sink("out")
+       .into(ChatReply).output("out")
     end
   end
 
@@ -639,7 +639,7 @@ module Fixtures
     factory_id "stateless_loop_steps"
     channels do |c|
       c.input("in", codec: :text).into(ChatReply)
-       .sink("out")
+       .output("out")
     end
   end
 
@@ -665,7 +665,7 @@ module Fixtures
     channels do |c|
       c.input("trades", codec: :text).key_by { |value| PREFIX.call(value) }
        .into(KeyedLoopCount)
-       .sink("keyed_loop_steps_out")
+       .output("keyed_loop_steps_out")
     end
   end
 
@@ -673,13 +673,13 @@ module Fixtures
     factory_id "chat_rewind_steps"
     channels do |c|
       c.input("in", codec: :text).into(ChatTurn).named("mid")
-       .into(ChatReplyUndoable).sink("out")
+       .into(ChatReplyUndoable).output("out")
     end
   end
 
   # failing_turn_loop_steps: a session whose turn can fail after `note`
   # committed. `note` records each message and its undo moves the latest one to
-  # `undone`; `answer` replies `re:<message>` on the sink `answer`, and fails on
+  # `undone`; `answer` replies `re:<message>` on the output `answer`, and fails on
   # `boom` always, on `boom-once` while the release env is unset (the first
   # runner of a crash drill), and on `boom-until-healed` until a `heal` turn set
   # its state. failing_turn_undo_all_steps is the same under
@@ -730,7 +730,7 @@ module Fixtures
     run steps: { each: :per_input, on_failure: :keep_progress }
     channels do |c|
       c.input("in", codec: :text).into(Note).named("noted")
-       .into(Answer).sink("answer")
+       .into(Answer).output("answer")
     end
   end
 
@@ -739,7 +739,7 @@ module Fixtures
     run steps: { each: :per_input, on_failure: :undo_all }
     channels do |c|
       c.input("in", codec: :text).into(Note).named("noted")
-       .into(Answer).sink("answer")
+       .into(Answer).output("answer")
     end
   end
 
@@ -762,14 +762,14 @@ module Fixtures
     factory_id "reply_block_loop_steps"
     channels do |c|
       c.input("in", codec: :text).into(ChatTurn).named("mid")
-       .into(BlockingReply).sink("out")
+       .into(BlockingReply).output("out")
     end
   end
 
   # -- the bench chains -----------------------------------------------------
   #
   # What `mix bench.steps --scenario chain` drives (steps_loop.rs:232): K
-  # durable pass-through steps in a line, the payload unchanged, so the sink
+  # durable pass-through steps in a line, the payload unchanged, so the output
   # receives the seed input and the bench reads its own seq and send timestamp
   # back. Each chain position needs its own tasklet, so the sixteen are
   # generated rather than written out; the edge names follow the reference,
@@ -787,7 +787,7 @@ module Fixtures
       channels do |c|
         edge = c.input("in", codec: :text).into(BENCH_STEPS[0])
         (1...steps).each { |at| edge = edge.named("edge_BenchS#{at}").into(BENCH_STEPS[at]) }
-        edge.sink("out")
+        edge.output("out")
       end
     end
   end
@@ -834,7 +834,7 @@ module Fixtures
     max_duration_ms 24 * 3_600_000
     channels do |c|
       c.input("in", codec: :text).into(BenchTurn).named("mid")
-       .into(ChatReply).sink("out")
+       .into(ChatReply).output("out")
     end
   end
 
@@ -884,7 +884,7 @@ module Fixtures
   class TimerLoopSteps < LoopSteps
     factory_id "timer_loop_steps"
     channels do |c|
-      c.input("in", codec: :text).into(TimerTick).named("ticked").into(TimerTock).sink("out")
+      c.input("in", codec: :text).into(TimerTick).named("ticked").into(TimerTock).output("out")
     end
   end
 
@@ -911,7 +911,7 @@ module Fixtures
 
   class EventTimerSteps < LoopSteps
     factory_id "event_timer_steps"
-    channels { |c| c.input("in", codec: :text).into(EventTick).sink("out") }
+    channels { |c| c.input("in", codec: :text).into(EventTick).output("out") }
   end
 
   # -- static_cell_steps -------------------------------------------------
@@ -934,10 +934,10 @@ module Fixtures
 
   class StaticCellSteps < LoopSteps
     factory_id "static_cell_steps"
-    channels { |c| c.input("in", codec: :text).into(StaticCellStep).sink("out") }
+    channels { |c| c.input("in", codec: :text).into(StaticCellStep).output("out") }
   end
 
-  # call_turn: a durable per-input loop whose turn's sink output answers the
+  # call_turn: a durable per-input loop whose turn's output answers the
   # outside call.
   class CallTurnStep < Flezha::Tasklet
     tasklet_name "call_turn"
@@ -946,7 +946,7 @@ module Fixtures
 
   class CallTurn < LoopSteps
     factory_id "call_turn"
-    channels { |c| c.input("in", codec: :text).into(CallTurnStep).sink }
+    channels { |c| c.input("in", codec: :text).into(CallTurnStep).output }
   end
 
   # Every steps relay this app registers, in the reference's order.

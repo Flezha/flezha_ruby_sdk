@@ -147,7 +147,7 @@ class NativeTest < Minitest::Test
     relay = Class.new(Flezha::Relay)
     relay.factory_id factory_id
     relay.run flow: { exactly: { effectively_once: { ack: ack } } }
-    relay.channels { |c| c.input("input").into(tasklet).keyed.sink("sink") }
+    relay.channels { |c| c.input("input").into(tasklet).keyed.output("sink") }
     Flezha::Graph.to_host_class_decl(relay.spec)
   end
 
@@ -209,7 +209,7 @@ class NativeTest < Minitest::Test
     end
     relay = Class.new(Flezha::Relay)
     relay.factory_id "native_echo_op"
-    relay.channels { |c| c.input("input").into(echo).sink("out") }
+    relay.channels { |c| c.input("input").into(echo).output("out") }
 
     decl = Flezha::Graph.to_host_class_decl(relay.spec)
     assert_equal 5, decl["sdk_lang"]

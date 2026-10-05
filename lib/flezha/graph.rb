@@ -29,7 +29,7 @@ module Flezha
     module_function
 
     # Judge one declaration and answer what the core derived from it: the
-    # channel names, kinds, consumers, sink names and acknowledgement
+    # channel names, kinds, consumers, output names and acknowledgement
     # granularity it read off the record.
     #
     # Judge, register and declare one class, in the one order that works.
@@ -95,7 +95,7 @@ module Flezha
 
     # The channel as the record carries it: the kind the author declared and
     # the sequences declared off its handle. The consumers, the plugin kind and
-    # the sink name are the core's to DERIVE from those chains.
+    # the output name are the core's to DERIVE from those chains.
     def channel_json(channel)
       compact(
         "name" => channel.name,

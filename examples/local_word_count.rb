@@ -7,7 +7,7 @@
 #
 # `Split` and `Tally` are ordinary tasklets with nothing local-mode about
 # them: the same classes deploy against a controller unchanged. What local mode
-# supplies is the sink — the values `Tally` releases arrive here instead of on
+# supplies is the output — the values `Tally` releases arrive here instead of on
 # a socket.
 #
 # State is held in memory and nothing is durable; the run says so on stderr.
@@ -48,13 +48,13 @@ class WordCount < Flezha::Relay
      # not this file's.
      .key_by { |word| word }
      .into(Tally).keyed
-     .sink("totals")
+     .output("totals")
   end
 end
 
 run = Flezha::LocalRelay.start(WordCount)
 begin
-  run.on_sink("totals") { |output| puts output.payload }
+  run.on_output("totals") { |output| puts output.payload }
   run.feed("lines", "the quick brown fox")
   run.feed("lines", "the lazy dog")
   run.run_until_idle(10_000)

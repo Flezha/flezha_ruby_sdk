@@ -27,7 +27,7 @@ class DispatchTest < Minitest::Test
     factory_id "counter_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
-       .into(Counter).sink("out", encode: ->(v) { v.to_s.b })
+       .into(Counter).output("out", encode: ->(v) { v.to_s.b })
     end
   end
 
@@ -63,7 +63,7 @@ class DispatchTest < Minitest::Test
     assert_equal 2, result[:effects].size
     assert_equal %w[ok ok], result[:effects].map { |e| e[:verdict] }
     assert_equal 1, result[:effects][0][:outputs].size
-    # The sink declares a text encoder, so the frame is the bytes it made.
+    # The output declares a text encoder, so the frame is the bytes it made.
     assert_equal "total=5", result[:effects][1][:outputs][0][:payload]
   end
 
@@ -190,12 +190,12 @@ class DispatchTest < Minitest::Test
   class FinishingSteps < Flezha::Relay
     factory_id "finishing_steps"
     run :steps
-    channels { |c| c.input("in", codec: :text).into(Finisher).sink }
+    channels { |c| c.input("in", codec: :text).into(Finisher).output }
   end
 
   class FinishingFlow < Flezha::Relay
     factory_id "finishing_flow"
-    channels { |c| c.input("in", codec: :text).into(Finisher).sink }
+    channels { |c| c.input("in", codec: :text).into(Finisher).output }
   end
 
   def completion_of(relay, input)
@@ -251,7 +251,7 @@ class DispatchTest < Minitest::Test
   class FailingSteps < Flezha::Relay
     factory_id "failing_steps"
     run :steps
-    channels { |c| c.input("in", codec: :text).into(FailsAfterCompleting).sink }
+    channels { |c| c.input("in", codec: :text).into(FailsAfterCompleting).output }
   end
 
   def test_a_failed_item_carries_no_completion
@@ -421,7 +421,7 @@ class DispatchTest < Minitest::Test
        .key_by { |_v| "ek" }
        .into(StampEmitter)
        .keyed
-       .sink("keyed_out", encode: ->(v) { v.to_s.b })
+       .output("keyed_out", encode: ->(v) { v.to_s.b })
     end
   end
 
@@ -442,10 +442,10 @@ class DispatchTest < Minitest::Test
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
        .key_by { |_v| "ek" }
        .branch(
-         ->(edge) { edge.into(PlainEmitter).sink("plain_out", encode: ->(v) { v.to_s.b }) },
+         ->(edge) { edge.into(PlainEmitter).output("plain_out", encode: ->(v) { v.to_s.b }) },
          lambda { |edge|
            edge.into(StampEmitter).keyed
-               .sink("keyed_out", encode: ->(v) { v.to_s.b })
+               .output("keyed_out", encode: ->(v) { v.to_s.b })
          }
        )
     end
@@ -533,7 +533,7 @@ class DispatchTest < Minitest::Test
     edge = c.input("in").into(StepsProducer).named("handoff")
     edge.map { |value| value + 1 }.into(StepsB)
     edge.into(StepsC)
-    edge.sink
+    edge.output
   end
 
   class StepsEmitRelay < Flezha::Relay
@@ -547,7 +547,7 @@ class DispatchTest < Minitest::Test
     channels(&STEPS_GRAPH)
   end
 
-  # An edge payload is the class codec's MessagePack; the `handoff` sink names
+  # An edge payload is the class codec's MessagePack; the `handoff` output names
   # no codec, so its frame for a number is JSON.
   def payload_of(output)
     output[:target] == "plugin" ? JSON.parse(output[:payload]) : Flezha::Codec.decode(output[:payload])
@@ -696,7 +696,7 @@ class DispatchTest < Minitest::Test
       ticks = c.input("ticks", codec: :text)
       quotes = c.input("quotes", codec: :text).into(PassThrough, "merge_upstream")
       c.merge.from(ticks, &MERGE_TAG.call("ticks")).from(quotes, &MERGE_TAG.call("quotes"))
-       .key_by { |value| value[:symbol] }.into(MergeLabel).sink("merged")
+       .key_by { |value| value[:symbol] }.into(MergeLabel).output("merged")
     end
   end
 
@@ -732,7 +732,7 @@ class DispatchTest < Minitest::Test
   class FanRelay < Flezha::Relay
     factory_id "fan_op"
     channels do |c|
-      c.input("lines", codec: :text).flat_map { |line| line.split(",") }.into(PassThrough).sink("fanned")
+      c.input("lines", codec: :text).flat_map { |line| line.split(",") }.into(PassThrough).output("fanned")
     end
   end
 
@@ -740,7 +740,7 @@ class DispatchTest < Minitest::Test
     factory_id "keyed_fan_op"
     channels do |c|
       c.input("lines", codec: :text).flat_map { |line| line.split(",") }
-       .key_by { |value| value.split(":").first }.into(PassThrough).sink("fanned")
+       .key_by { |value| value.split(":").first }.into(PassThrough).output("fanned")
     end
   end
 
@@ -777,9 +777,9 @@ class DispatchTest < Minitest::Test
     factory_id "split_keyed_op"
     channels do |c|
       entry = c.input("in", codec: :text)
-      entry.filter { |value| value == "drop" }.into(PassThrough, "watch").sink("dropped")
+      entry.filter { |value| value == "drop" }.into(PassThrough, "watch").output("dropped")
       entry.filter { |value| value != "drop" }.key_by { |value| value.split(":").first }
-           .into(PassThrough, "keyed").sink("out")
+           .into(PassThrough, "keyed").output("out")
     end
   end
 
@@ -812,7 +812,7 @@ class DispatchTest < Minitest::Test
   class StaticFanRelay < Flezha::Relay
     factory_id "static_fan_op"
     channels do |c|
-      c.input("lines", codec: :text).flat_map { |line| line.split(",") }.into(StaticFanLabel).sink("fanned")
+      c.input("lines", codec: :text).flat_map { |line| line.split(",") }.into(StaticFanLabel).output("fanned")
     end
   end
 
@@ -839,7 +839,7 @@ class DispatchTest < Minitest::Test
     factory_id "router_op"
     channels do |c|
       c.route_latest(c.input("config"), c.input("trades")) { |trade| trade[:symbol] }
-       .sink("routed", codec: :msgpack)
+       .output("routed", codec: :msgpack)
     end
   end
 

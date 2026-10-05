@@ -103,14 +103,14 @@ module Flezha
     # producing, which leaves the runner now rather than when the handler
     # returns. It previews the tasklet's own output channel and is encoded as
     # an emit of the same value there would be. The relay's listeners
-    # receive it before the output; a sink never does, and it is never durable
+    # receive it before the output; an output never does, and it is never durable
     # or replayed. Parts are numbered from 0 within each attempt, so a retry
     # starts its preview again.
     #
     # It never waits: a part that cannot leave at once (no connection, a local
     # run, a stream that would block, a frame over the size limit) is dropped,
     # and a replayed input sends none. Raises a `Flezha::Error` coded
-    # `part.no_sink` when the output channel does not end in a sink (it only
+    # `part.no_output` when the output channel does not end in an output (it only
     # feeds another tasklet, or ends in `call`), and `part.outside_invocation`
     # through a context whose invocation has returned.
     def part(value)
@@ -163,7 +163,7 @@ module Flezha
     # The rest of the iteration still runs and commits; the instance then ends
     # instead of waiting for its next input, a flow instance once every Cell is
     # idle. In a `once` steps relay it sets the result the pass ends with.
-    # `result` is encoded as a sink naming no codec encodes a value: a String as
+    # `result` is encoded as an output naming no codec encodes a value: a String as
     # its bytes and anything else as JSON; nil carries an empty result. A later
     # call in the same invocation replaces an earlier one.
     def complete(result = nil)
@@ -172,8 +172,8 @@ module Flezha
     end
 
     # Spawn a steps instance of `factory_id` with `payload` as its first
-    # message, answering a `SpawnHandle` at once. The payload is encoded as a
-    # sink naming no codec encodes a value, the rule `complete` applies: a
+    # message, answering a `SpawnHandle` at once. The payload is encoded as an
+    # output naming no codec encodes a value, the rule `complete` applies: a
     # String as its bytes and anything else as JSON, so the instance's `text`
     # or `json` entry channel reads it as it reads a send. With an `id` already
     # running, `if_running: "deliver"` (the default) hands it `payload` instead,
@@ -285,7 +285,7 @@ module Flezha
     end
 
     # The plugin frame, serialized once from the value as emitted: an edge's
-    # transforms belong to that edge, so they never reach the sink.
+    # transforms belong to that edge, so they never reach the output.
     def plugin_output(channel, value, key, metadata)
       resolved = key || @cell_key
       if channel.keyed && resolved.nil?

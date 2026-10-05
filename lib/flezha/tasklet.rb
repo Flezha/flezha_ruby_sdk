@@ -212,11 +212,11 @@ module Flezha
       # from.
       def body = self
 
-      # A tasklet has no sink: the one-tasklet short form is a relay,
-      # and its sink is written there.
-      def sink(*, **)
+      # A tasklet has no output: the one-tasklet short form is a relay,
+      # and its output is written there.
+      def output(*, **)
         raise Error.new("topology.relay_field_on_tasklet",
-                        tasklet: to_s, fields: ["`sink`"],
+                        tasklet: to_s, fields: ["`output`"],
                         instead: "a Flezha::Relay subclass with a `run` body")
       end
 

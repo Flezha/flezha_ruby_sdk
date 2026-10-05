@@ -56,7 +56,7 @@ class DeclKeysTest < Minitest::Test
       edge.named("hop").key_by { |value| value.to_s }.retry_max(5).retry_backoff_ms(50)
           .into(Downstream)
       edge.named("fan").into(Fanned)
-      c.input("second").into(Entry).keyed.sink("sink")
+      c.input("second").into(Entry).keyed.output("sink")
     end
   end
 
@@ -137,7 +137,7 @@ class ReferenceTopologiesTest < Minitest::Test
     factory_id "hybrid_channel"
     channels do |c|
       c.input("input").into(HybridProducer)
-       .sink("hybrid_indicator", encode: BYTES).into(HybridConsumer)
+       .output("hybrid_indicator", encode: BYTES).into(HybridConsumer)
     end
   end
 
@@ -156,7 +156,7 @@ class ReferenceTopologiesTest < Minitest::Test
     run :steps
     channels do |c|
       c.input("in").into(TierCommitA).keyed
-       .sink("mid", encode: BYTES).into(BlockB)
+       .output("mid", encode: BYTES).into(BlockB)
     end
   end
 
@@ -168,7 +168,7 @@ class ReferenceTopologiesTest < Minitest::Test
 
   # The DERIVED declaration rendered in the golden's columns, one line per
   # channel. Every column but the index is the core's answer now — the record
-  # carries chains, and the consumers, the plugin kind and the sink name are
+  # carries chains, and the consumers, the plugin kind and the output name are
   # read off them.
   def emitted(topology, spec)
     Flezha::TestSupport.validate(spec)["channels"].each_with_index.map do |channel, index|

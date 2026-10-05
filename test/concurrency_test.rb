@@ -16,7 +16,7 @@ class ConcurrencyTest < Minitest::Test
     factory_id "echo_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
-       .into(Echo).sink("out", encode: ->(v) { v.to_s.b })
+       .into(Echo).output("out", encode: ->(v) { v.to_s.b })
     end
   end
 
@@ -161,7 +161,7 @@ class ConcurrencyTest < Minitest::Test
     factory_id "recorder_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
-       .into(Recorder).sink("out", encode: ->(v) { v.to_s.b })
+       .into(Recorder).output("out", encode: ->(v) { v.to_s.b })
     end
   end
 
@@ -194,7 +194,7 @@ class ConcurrencyTest < Minitest::Test
     factory_id "never_returns_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
-       .into(NeverReturns).sink("out", encode: ->(v) { v.to_s.b })
+       .into(NeverReturns).output("out", encode: ->(v) { v.to_s.b })
     end
   end
 

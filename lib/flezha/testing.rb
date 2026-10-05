@@ -45,12 +45,12 @@ module Flezha
         # What every invocation's activation names: the cell this harness drives.
         @target = { relay: relay, cell_key: cell_key }.freeze
         # The real channel builder, not a hand-written spec: one entry channel
-        # into the tasklet, and one plugin sink so `ctx.emit` has somewhere
+        # into the tasklet, and one plugin output so `ctx.emit` has somewhere
         # to go. A tasklet under test emits to be observed, not to be routed,
-        # and the sink names MessagePack so `outputs` reports exactly the value
+        # and the output names MessagePack so `outputs` reports exactly the value
         # a handler emitted.
         builder = Builder.new("<harness>")
-        builder.input("in").into(tasklet_class).sink("out", codec: :msgpack)
+        builder.input("in").into(tasklet_class).output("out", codec: :msgpack)
         @node = builder.tasklets.first
         @spec = ClassSpec.new(factory_id: "<harness>", tasklets: builder.tasklets, channels: builder.channels)
         # The dispatcher's own cell store, so the state this harness reports

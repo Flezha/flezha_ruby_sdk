@@ -40,7 +40,7 @@ class SpawnTest < Minitest::Test
                  core.spawn_requests.map { |request| [request[2], request[3]] }
   end
 
-  # The payload takes the no-codec sink rule `complete` applies: a String is
+  # The payload takes the no-codec output rule `complete` applies: a String is
   # its bytes and anything else its JSON, so the spawned steps relay's `text` or
   # `json` entry decodes it as it decodes a send's payload.
   def test_a_spawn_payload_is_what_a_text_or_json_entry_reads
@@ -148,7 +148,7 @@ class SpawnTest < Minitest::Test
 
   class WaiterRelay < Flezha::Relay
     factory_id "waiter_op"
-    channels { |c| c.input("in", codec: :text).into(Waiter).sink("out") }
+    channels { |c| c.input("in", codec: :text).into(Waiter).output("out") }
   end
 
   # -- against the core -----------------------------------------------------
@@ -177,7 +177,7 @@ class SpawnTest < Minitest::Test
 
   class SpawnerRelay < Flezha::Relay
     factory_id "spawner_op"
-    channels { |c| c.input("in", codec: :text).into(Spawner).sink("out") }
+    channels { |c| c.input("in", codec: :text).into(Spawner).output("out") }
   end
 
   # One input polled from a local run and dispatched the way a worker does,

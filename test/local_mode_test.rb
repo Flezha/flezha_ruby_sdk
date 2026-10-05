@@ -5,7 +5,7 @@ require_relative "test_helper"
 # The Ruby SDK's local mode: a user's own relay class, its declared
 # two-tasklet graph, and no controller anywhere.
 #
-# The graph and its expected sink output are read from
+# The graph and its expected output are read from
 # `test/fixtures/local_mode_word_count.txt`, which the Rust, Java, Node,
 # Python and Elixir local-mode suites read too — so every core is compared
 # against one recorded expectation instead of by inspection.
@@ -40,7 +40,7 @@ class LocalModeTest < Minitest::Test
        .into(Split)
        .key_by { |word| word }
        .into(Tally).keyed
-       .sink("totals")
+       .output("totals")
     end
   end
 
@@ -48,7 +48,7 @@ class LocalModeTest < Minitest::Test
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
   end
 
-  # The scenario every core runs: the lines to feed, and the sink values.
+  # The scenario every core runs: the lines to feed, and the output values.
   def scenario
     path = Flezha::TestSupport.contract_file("test/fixtures/local_mode_word_count.txt")
     lines = []
@@ -65,7 +65,7 @@ class LocalModeTest < Minitest::Test
     released = []
     run = Flezha::LocalRelay.start(WordCount)
     begin
-      run.on_sink("totals") { |output| released << output }
+      run.on_output("totals") { |output| released << output }
       lines.each { |line| run.feed("lines", line) }
       run.run_until_idle(20_000)
     ensure
@@ -107,7 +107,7 @@ class LocalModeTest < Minitest::Test
 
   class DefaultCodecs < Flezha::Relay
     factory_id "local_default_codecs_ruby"
-    channels { |c| c.input("in").into(Defaults).sink("out") }
+    channels { |c| c.input("in").into(Defaults).output("out") }
   end
 
   ECHOLESS_CALLS = Queue.new
@@ -123,7 +123,7 @@ class LocalModeTest < Minitest::Test
     end
   end
 
-  def test_a_sinkless_short_form_whose_run_returns_a_value_runs_it_once
+  def test_a_short_form_with_no_output_whose_run_returns_a_value_runs_it_once
     run = Flezha::LocalRelay.start(Echoless)
     begin
       run.feed("ticks", "a")
@@ -135,11 +135,11 @@ class LocalModeTest < Minitest::Test
     assert_equal 1, ECHOLESS_CALLS.size, "a returned value is not output, and nothing is retried"
   end
 
-  def test_an_undeclared_entry_reads_json_and_an_undeclared_sink_follows_the_value
+  def test_an_undeclared_entry_reads_json_and_an_undeclared_output_follows_the_value
     released = []
     run = Flezha::LocalRelay.start(DefaultCodecs)
     begin
-      run.on_sink("out") { |output| released << output.payload }
+      run.on_output("out") { |output| released << output.payload }
       run.feed("in", '{"a":1}')
       run.run_until_idle(5_000)
     ensure

@@ -14,7 +14,7 @@ class RunnerTest < Minitest::Test
 
   class EchoRelay < Flezha::Relay
     factory_id "runner_echo_op"
-    channels { |c| c.input("input").into(Echo).sink("out") }
+    channels { |c| c.input("input").into(Echo).output("out") }
   end
 
   def boot_recording
@@ -49,7 +49,7 @@ class RunnerTest < Minitest::Test
     events = core.events
     second = Class.new(Flezha::Relay)
     second.factory_id "runner_second_op"
-    second.channels { |c| c.input("in").into(Echo, "second_node").sink("o") }
+    second.channels { |c| c.input("in").into(Echo, "second_node").output("o") }
 
     runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay).register_factory(second)
     Flezha::TestSupport.without_a_terminal do
@@ -197,7 +197,7 @@ class RunnerTest < Minitest::Test
 
   class DoNothingTwin < Flezha::Relay
     factory_id "sugar_do_nothing"
-    channels { |c| c.input("input", codec: :text).into(DoNothingTasklet).sink("sugar_do_nothing_echo") }
+    channels { |c| c.input("input", codec: :text).into(DoNothingTasklet).output("sugar_do_nothing_echo") }
   end
 
   class StepsTasklet < Fixtures::PassThrough
@@ -208,7 +208,7 @@ class RunnerTest < Minitest::Test
     factory_id "sugar_steps"
     run :steps
     durable Fixtures::FIXTURE_DURABLE
-    channels { |c| c.input("order", codec: :text).into(StepsTasklet).sink("sugar_steps_placed") }
+    channels { |c| c.input("order", codec: :text).into(StepsTasklet).output("sugar_steps_placed") }
   end
 
   class PerInputTasklet < Fixtures::PassThrough
@@ -219,7 +219,7 @@ class RunnerTest < Minitest::Test
     factory_id "sugar_steps_per_input"
     run steps: { each: :per_input }
     durable Fixtures::FIXTURE_DURABLE
-    channels { |c| c.input("input", codec: :text).into(PerInputTasklet).sink("sugar_steps_per_input_out") }
+    channels { |c| c.input("input", codec: :text).into(PerInputTasklet).output("sugar_steps_per_input_out") }
   end
 
   class StateOnlyTasklet < Flezha::Tasklet
@@ -263,7 +263,7 @@ class RunnerTest < Minitest::Test
                  declared(Flezha::Runner.new("test-ns").register_factory(short))
   end
 
-  def test_a_short_form_with_no_sink_declares_its_entry_and_its_tasklet_only
+  def test_a_short_form_with_no_output_declares_its_entry_and_its_tasklet_only
     short = Fixtures::SugarStateOnly
 
     assert_equal decl(StateOnlyTwin), decl(short)
@@ -274,7 +274,7 @@ class RunnerTest < Minitest::Test
                  "an entry name and a codec need no sink"
   end
 
-  def test_the_core_accepts_a_sinkless_short_form
+  def test_the_core_accepts_a_short_form_with_no_output
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
     derived = Flezha::TestSupport.validate(Fixtures::SugarStateOnly.spec)
@@ -344,7 +344,7 @@ class RunnerTest < Minitest::Test
 
   def test_a_short_form_with_no_factory_id_is_refused_rather_than_derived
     derived = Class.new(Flezha::Relay) do
-      sink "out"
+      output "out"
       def run(input, ctx) = ctx.emit(input)
     end
 
@@ -355,7 +355,7 @@ class RunnerTest < Minitest::Test
 
   def test_a_malformed_short_form_is_refused_before_its_tasklet_is_generated
     derived = Class.new(Flezha::Relay) do
-      sink "out"
+      output "out"
       def run(input, ctx) = ctx.emit(input)
     end
     both = Class.new(Flezha::Relay) do
@@ -397,7 +397,7 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_short_form_key_or_a_tasklet_setting_on_a_full_form_is_refused_naming_it
-    { sink: "out", input: "ticks", codec: :text, idle_ttl_seconds: 60 }.each do |key, value|
+    { output: "out", input: "ticks", codec: :text, idle_ttl_seconds: 60 }.each do |key, value|
       full = Class.new(Flezha::Relay) do
         factory_id "full"
         channels { |c| c.input("input").into(DoNothingTasklet) }
@@ -431,7 +431,7 @@ class RunnerTest < Minitest::Test
     twin = Class.new(Flezha::Relay) do
       factory_id "sugar_do_nothing"
       run :steps
-      sink "twin_sink"
+      output "twin_sink"
       def run(input, ctx) = ctx.emit(input)
     end
     registry = Flezha::Registry.new
@@ -443,12 +443,12 @@ class RunnerTest < Minitest::Test
     assert_includes error.message, "sugar_do_nothing"
   end
 
-  def test_a_sink_on_a_tasklet_is_refused_naming_the_relay_bases
+  def test_an_output_on_a_tasklet_is_refused_naming_the_relay_bases
     error = assert_raises(Flezha::Error) do
-      Class.new(Flezha::Tasklet) { sink "out" }
+      Class.new(Flezha::Tasklet) { output "out" }
     end
 
-    assert_equal ["topology.relay_field_on_tasklet", ["`sink`"]], [error.code, error.details["fields"]]
+    assert_equal ["topology.relay_field_on_tasklet", ["`output`"]], [error.code, error.details["fields"]]
     assert_includes error.message, "Flezha::Relay"
   end
 

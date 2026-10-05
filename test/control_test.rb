@@ -37,7 +37,7 @@ class ControlTest < Minitest::Test
     core = Flezha::TestSupport::FakeCore.new
     core.stub(:admin_call, ->(verb, json) { calls << [verb, JSON.parse(json)] && "null" }) do
       control = Flezha::Control.new(core)
-      control.enable_plugin("writer", "relay_file_sink", opts: { "path" => "out.txt" })
+      control.enable_plugin("writer", "relay_file_output", opts: { "path" => "out.txt" })
       control.enable_plugin("feed", "relay_websocket", single: true, relay_id: "my_echo",
                                                        hooks: [["on_output", {}]])
       control.bind_plugin("writer", "my_echo")
@@ -48,7 +48,7 @@ class ControlTest < Minitest::Test
     end
 
     assert_equal [
-      ["PluginManager.enable", ["writer", { "provider" => "relay_file_sink", "opts" => { "path" => "out.txt" } }]],
+      ["PluginManager.enable", ["writer", { "provider" => "relay_file_output", "opts" => { "path" => "out.txt" } }]],
       ["PluginManager.enable", ["feed", { "provider" => "relay_websocket", "opts" => {}, "single" => true,
                                           "relay_id" => "my_echo", "hooks" => [["on_output", {}]] }]],
       ["PluginManager.bind", ["writer", { "relay_id" => "my_echo" }]],

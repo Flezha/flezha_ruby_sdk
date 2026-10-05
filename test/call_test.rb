@@ -80,7 +80,7 @@ class CallTest < Minitest::Test
   def test_the_refusals_are_the_cores
     refused = {
       "topology.channel_ends_twice" =>
-        relay("twice") { |c| c.input("in").into(Ask).sink("out").call("p", deadline_ms: 5).into(Ask) },
+        relay("twice") { |c| c.input("in").into(Ask).output("out").call("p", deadline_ms: 5).into(Ask) },
       "topology.call_deadline_zero" =>
         relay("zero") { |c| c.input("in").into(Ask).call("p", deadline_ms: 0).into(Ask) },
       "topology.call_without_key" =>
@@ -98,11 +98,11 @@ class CallTest < Minitest::Test
     assert validate(per_input.spec)
   end
 
-  def test_a_call_on_an_entry_channel_is_refused_as_a_sink_there_is
+  def test_a_call_on_an_entry_channel_is_refused_as_an_output_there_is
     klass = relay("on_entry") { |c| c.input("in").call("p", deadline_ms: 5) }
 
     error = assert_raises(Flezha::Error) { klass.spec }
-    assert_equal ["topology.sink_on_entry", "in"], [error.code, error.details["channel"]]
+    assert_equal ["topology.output_on_entry", "in"], [error.code, error.details["channel"]]
   end
 
   class Gateway < Flezha::Relay

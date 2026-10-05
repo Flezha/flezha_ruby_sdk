@@ -3,7 +3,7 @@
 # Twins of the reference's part fixtures (test/apps/rust_runner/src/part.rs)
 # under the same factory ids, tasklet names, channel names and payloads: for an
 # input `n` the tasklet sends the parts "1" .. "n" and then emits "done:<n>" on
-# its sink `answer`. `retry:<n>` sends its parts and then fails retryably the
+# its output `answer`. `retry:<n>` sends its parts and then fails retryably the
 # first time this process sees it, so the retry's parts number from 0 again
 # under the next attempt.
 
@@ -42,7 +42,7 @@ module Fixtures
   class PartEcho < Flezha::Relay
     factory_id "part_echo"
     channels do |c|
-      c.input("in", codec: :text).retry_backoff_ms(25).into(PartEchoStep).sink("answer")
+      c.input("in", codec: :text).retry_backoff_ms(25).into(PartEchoStep).output("answer")
     end
   end
 
@@ -56,7 +56,7 @@ module Fixtures
     durable FIXTURE_DURABLE
     max_duration_ms 600_000
     channels do |c|
-      c.input("in", codec: :text).retry_backoff_ms(25).into(PartEchoTurn).sink("answer")
+      c.input("in", codec: :text).retry_backoff_ms(25).into(PartEchoTurn).output("answer")
     end
   end
 

@@ -4,7 +4,7 @@
 # under the same factory ids, tasklet names, channel names and output bytes.
 #
 # Entry payloads and plugin frames are UTF-8 text on the wire, the same as the
-# reference: every entry names the text codec, and a sink naming none sends a
+# reference: every entry names the text codec, and an output naming none sends a
 # String as its own bytes, as the reference's does. An inter-tasklet hop
 # between two Ruby tasklets carries MessagePack, which no one else reads.
 
@@ -28,7 +28,7 @@ module Fixtures
     factory_id "do_nothing"
     channels do |c|
       c.input("input", codec: :text).into(DoNothing)
-       .sink("echo")
+       .output("echo")
     end
   end
 
@@ -40,7 +40,7 @@ module Fixtures
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
        .into(DoNothing)
-       .sink("echo")
+       .output("echo")
     end
   end
 
@@ -59,7 +59,7 @@ module Fixtures
   class CompleteFlowRelay < Flezha::Relay
     factory_id "complete_flow"
     channels do |c|
-      c.input("input", codec: :text).into(CompleteFlow).sink("complete_flow_out")
+      c.input("input", codec: :text).into(CompleteFlow).output("complete_flow_out")
     end
   end
 
@@ -101,7 +101,7 @@ module Fixtures
     factory_id "compare_filter"
     channels do |c|
       c.input("input", codec: :text).into(CompareFilter)
-       .sink("sink")
+       .output("sink")
     end
   end
 
@@ -151,18 +151,18 @@ module Fixtures
     channels do |c|
       c.input("input", codec: :text).into(StaticEntry).named("hop")
        .into(StaticDownstream)
-       .sink("kafka")
+       .output("kafka")
     end
   end
 
-  # The reference pipeline sugar leaves the hop unnamed and lets the sink name
+  # The reference pipeline sugar leaves the hop unnamed and lets the output name
   # the producing channel.
   class SugarStaticCellRelay < Flezha::Relay
     factory_id "sugar_static_cell"
     channels do |c|
       c.input("input", codec: :text).into(MacroStaticEntry)
        .into(MacroStaticDownstream)
-       .sink("test_kafka")
+       .output("test_kafka")
     end
   end
 
@@ -179,7 +179,7 @@ module Fixtures
     channels do |c|
       c.input("input", codec: :text).into(MixedMacroEntry).named("hop")
        .into(MixedHandDownstream)
-       .sink("kafka")
+       .output("kafka")
     end
   end
 
@@ -191,14 +191,14 @@ module Fixtures
 
   class SugarDoNothing < Flezha::Relay
     factory_id "sugar_do_nothing"
-    sink "sugar_do_nothing_echo"
+    output "sugar_do_nothing_echo"
     codec :text
     def run(input, ctx) = ctx.emit(input)
   end
 
   class SugarStoreInput < Flezha::Relay
     factory_id "sugar_store_input"
-    sink "sugar_store_sink"
+    output "sugar_store_sink"
     codec :text
     def init_state(_cell_key) = { text_inputs: [] }
     def apply_change(state, change) = state[:text_inputs] << change[:push]
@@ -211,7 +211,7 @@ module Fixtures
 
   class SugarNamedInput < Flezha::Relay
     factory_id "sugar_named_input"
-    sink "sugar_named_input_sink"
+    output "sugar_named_input_sink"
     input "prices"
     codec :text
     def run(input, ctx) = ctx.emit(input)
@@ -221,7 +221,7 @@ module Fixtures
     factory_id "sugar_steps"
     run :steps
     durable FIXTURE_DURABLE
-    sink "sugar_steps_placed"
+    output "sugar_steps_placed"
     input "order"
     codec :text
     def run(input, ctx) = ctx.emit(input)
@@ -229,14 +229,14 @@ module Fixtures
 
   class SugarStepsPerInput < Flezha::Relay
     factory_id "sugar_steps_per_input"
-    sink "sugar_steps_per_input_out"
+    output "sugar_steps_per_input_out"
     codec :text
     run steps: { each: :per_input }
     durable FIXTURE_DURABLE
     def run(input, ctx) = ctx.emit(input)
   end
 
-  # No sink: what it was sent is proven by its state.
+  # No output: what it was sent is proven by its state.
   class SugarStateOnly < Flezha::Relay
     factory_id "sugar_state_only"
     input "ticks"
@@ -296,7 +296,7 @@ module Fixtures
         # The consumer edge first, so a refused plugin serialization leaves the
         # in-process fan-out already recorded — the reference's isolation.
         ->(edge) { edge.named("hybrid_indicator").into(HybridConsumer) },
-        ->(edge) { edge.sink(encode: HYBRID_ENCODE) }
+        ->(edge) { edge.output(encode: HYBRID_ENCODE) }
       )
     end
   end
@@ -324,7 +324,7 @@ module Fixtures
        .from(c.input("quotes", codec: :text), &MERGE_TAG.call("quotes"))
        .key_by { |value| value[:symbol] }
        .into(MergeLabel).keyed
-       .sink("merged")
+       .output("merged")
     end
   end
 
@@ -347,7 +347,7 @@ module Fixtures
        .map(&:upcase)
        .key_by { |trade| PREFIX.call(trade) }
        .into(TransformLabel).keyed
-       .sink("transformed")
+       .output("transformed")
     end
   end
 
@@ -387,7 +387,7 @@ module Fixtures
        .into(StressB).named("b_to_c")
        .into(StressC).named("c_to_d")
        .into(StressD)
-       .sink("echo")
+       .output("echo")
     end
   end
 
@@ -410,7 +410,7 @@ module Fixtures
     channels do |c|
       c.input("input", codec: :text).retry_backoff_ms(25)
        .into(PoisonProbe)
-       .sink("out")
+       .output("out")
     end
   end
 
@@ -445,7 +445,7 @@ module Fixtures
     factory_id "wedge_probe"
     channels do |c|
       c.input("input", codec: :text).into(WedgeProbe)
-       .sink("out")
+       .output("out")
     end
   end
 
@@ -481,7 +481,7 @@ module Fixtures
     run flow: { exactly: { effectively_once: { correction_ms: 600_000 } } }
     channels do |c|
       c.input("input", codec: :text).into(Candle).keyed
-       .sink("sink")
+       .output("sink")
     end
   end
 
@@ -524,7 +524,7 @@ module Fixtures
     factory_id "session_timeout"
     channels do |c|
       c.input("input", codec: :text).into(SessionTimeout)
-       .sink("kafka")
+       .output("kafka")
     end
   end
 
@@ -552,7 +552,7 @@ module Fixtures
       channels do |c|
         c.input("#{policy}_input", codec: :text).on_full(policy.to_sym)
          .into(tasklet)
-         .sink("#{policy}_echo")
+         .output("#{policy}_echo")
       end
     end
   end.freeze
@@ -582,7 +582,7 @@ module Fixtures
     channels do |c|
       c.input("in", codec: :text).key_by { |value| PREFIX.call(value) }
        .into(PartitionPass).keyed
-       .sink("input")
+       .output("input")
     end
   end
 
@@ -612,7 +612,7 @@ module Fixtures
        .filter { |input| input != "drop" }
        .key_by { |value| PREFIX.call(value) }
        .into(DynamicCell)
-       .sink("kafka")
+       .output("kafka")
     end
   end
 
@@ -648,7 +648,7 @@ module Fixtures
     factory_id "spawn_requester"
     channels do |c|
       c.input("in", codec: :text).into(SpawnRequester)
-       .sink("out")
+       .output("out")
     end
   end
 
@@ -673,7 +673,7 @@ module Fixtures
     run flow: { exactly: :effectively_once }
     channels do |c|
       c.input("in", codec: :text).on_full(:drop_nothing).into(SpawnHoldRequester).keyed
-       .sink("out")
+       .output("out")
     end
   end
 
@@ -682,7 +682,7 @@ module Fixtures
   # On each input, spawns `typed_once_steps` once with no id, carrying the
   # input inside a JSON object its `order` entry decodes, and prints the
   # result as `spawn_result once <id> <outcome>`: a spawn's payload is the
-  # spawned instance's first message, encoded by the no-codec sink rule.
+  # spawned instance's first message, encoded by the no-codec output rule.
   class SpawnOnceRequester < Flezha::Tasklet
     tasklet_name "spawn_once_requester"
 
@@ -696,13 +696,13 @@ module Fixtures
     factory_id "spawn_once_requester"
     channels do |c|
       c.input("in", codec: :text).into(SpawnOnceRequester)
-       .sink("out")
+       .output("out")
     end
   end
 
   # -- call_response -------------------------------------------------------
 
-  # Relays an outside caller calls and whose sink output answers it: from the
+  # Relays an outside caller calls and whose output answers it: from the
   # first tasklet, from a downstream one, and from whichever of two filtered
   # paths the input took. `call_turn` is the steps
   # one, in fixtures_steps.rb.
@@ -712,7 +712,7 @@ module Fixtures
 
   class CallEcho < Flezha::Relay
     factory_id "call_echo"
-    channels { |c| c.input("in", codec: :text).into(CallEchoTasklet).sink }
+    channels { |c| c.input("in", codec: :text).into(CallEchoTasklet).output }
   end
 
   class CallParse < PassThrough
@@ -726,7 +726,7 @@ module Fixtures
 
   class CallDownstream < Flezha::Relay
     factory_id "call_downstream"
-    channels { |c| c.input("in", codec: :text).into(CallParse).into(CallAnswer).sink }
+    channels { |c| c.input("in", codec: :text).into(CallParse).into(CallAnswer).output }
   end
 
   # An input starting `no` takes the refused path, every other the accepted one.
@@ -748,8 +748,8 @@ module Fixtures
     factory_id "call_split"
     channels do |c|
       admitted = c.input("in", codec: :text).into(CallAdmit)
-      admitted.filter { |input| !input.start_with?("no") }.into(CallAccept).sink
-      admitted.filter { |input| input.start_with?("no") }.into(CallRefuse).sink
+      admitted.filter { |input| !input.start_with?("no") }.into(CallAccept).output
+      admitted.filter { |input| input.start_with?("no") }.into(CallRefuse).output
     end
   end
 

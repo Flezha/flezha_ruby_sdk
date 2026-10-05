@@ -21,7 +21,7 @@ class CellStateTest < Minitest::Test
 
   class KeptRelay < Flezha::Relay
     factory_id "kept_relay"
-    channels { |c| c.input("input", codec: :text).into(Kept).sink("out", codec: :msgpack) }
+    channels { |c| c.input("input", codec: :text).into(Kept).output("out", codec: :msgpack) }
   end
 
   def setup

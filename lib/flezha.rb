@@ -15,7 +15,7 @@
 #
 #   class EchoRelay < Flezha::Relay
 #     factory_id "echo"
-#     channels { |c| c.input("input", codec: :text).into(Echo).sink("out") }
+#     channels { |c| c.input("input", codec: :text).into(Echo).output("out") }
 #   end
 #
 #   Flezha.create_runner("default").register_factory(EchoRelay).run

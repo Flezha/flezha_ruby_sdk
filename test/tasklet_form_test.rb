@@ -54,8 +54,8 @@ class TaskletFormTest < Minitest::Test
   end
 
   def test_a_tasklet_without_a_name_is_refused_where_it_is_wired
-    named = refusal { relay("nameless") { |c| c.input("in").into(Nameless).sink("out") }.spec }
-    anonymous = refusal { relay("anonymous") { |c| c.input("in").into(tasklet).sink("out") }.spec }
+    named = refusal { relay("nameless") { |c| c.input("in").into(Nameless).output("out") }.spec }
+    anonymous = refusal { relay("anonymous") { |c| c.input("in").into(tasklet).output("out") }.spec }
 
     assert_equal %w[topology.tasklet_name_missing TaskletFormTest::Nameless], [named.code, named.details["tasklet"]]
     assert_equal ["topology.tasklet_name_missing", "an anonymous tasklet class"],
@@ -117,10 +117,10 @@ class TaskletFormTest < Minitest::Test
       idle_ttl_seconds 3_600
       max_cells 100
     end
-    klass = relay("sessions_op") { |c| c.input("in").key_by { |v| v }.into(sessions).sink("out") }
+    klass = relay("sessions_op") { |c| c.input("in").key_by { |v| v }.into(sessions).output("out") }
 
     assert_equal [3_600_000, 100], tasklet_record(klass, "sessions").values_at("idle_ttl_ms", "max_cells")
-    assert_nil tasklet_record(relay("forever") { |c| c.input("in").into(tasklet("forever")).sink("out") },
+    assert_nil tasklet_record(relay("forever") { |c| c.input("in").into(tasklet("forever")).output("out") },
                               "forever")["idle_ttl_ms"], "unset means no eviction"
   end
 
@@ -134,7 +134,7 @@ class TaskletFormTest < Minitest::Test
 
   # -- the clock ---------------------------------------------------------------
 
-  def clock_of(klass) = tasklet_record(relay("clock_op") { |c| c.input("in").into(klass).sink("out") },
+  def clock_of(klass) = tasklet_record(relay("clock_op") { |c| c.input("in").into(klass).output("out") },
                                        klass.tasklet_name)["clock"]
 
   def test_the_clock_follows_from_what_the_class_writes
@@ -157,7 +157,7 @@ class TaskletFormTest < Minitest::Test
   # The core reads the event time a Ruby tasklet extracts at the prepare
   # crossing, and hands it back as the item's `now`.
   def test_an_event_time_method_is_what_the_core_reads_for_the_clock
-    klass = relay("event_timed_op") { |c| c.input("in", codec: :text).into(EventTimed).sink("out") }
+    klass = relay("event_timed_op") { |c| c.input("in", codec: :text).into(EventTimed).output("out") }
 
     assert_equal [1_700], prepared(klass, ["1700:x"], want_event_time: true).map { |a| a[:event_time] }
   end
@@ -175,7 +175,7 @@ class TaskletFormTest < Minitest::Test
   def test_a_logical_clock_on_a_stateless_tasklet_keeps_the_cores_refusal
     native!
     stateless = tasklet("stateless_logical") { logical_clock }
-    klass = relay("stateless_logical_op") { |c| c.input("in").into(stateless).sink("out") }
+    klass = relay("stateless_logical_op") { |c| c.input("in").into(stateless).output("out") }
 
     assert_includes Flezha::TestSupport.codes(refusal { Flezha::TestSupport.validate(klass.spec) }),
                     "topology.unservable_clock"
@@ -204,7 +204,7 @@ class TaskletFormTest < Minitest::Test
 
     assert_equal Cart.new, Flezha::Testing::Harness.new(typed).state
     assert_equal Cart.new(items: ["first"]), Flezha::Testing::Harness.new(both).state
-    refute record(relay("typed_op") { |c| c.input("in").into(typed).sink("out") })["tasklets"]
+    refute record(relay("typed_op") { |c| c.input("in").into(typed).output("out") })["tasklets"]
       .first["change_is_nochange"], "a state_type is a state"
   end
 
@@ -263,7 +263,7 @@ class TaskletFormTest < Minitest::Test
       schema_version 2
       min_readable_schema_version 1
     end
-    klass = relay("floor_op") { |c| c.input("in").into(floor).sink("out") }
+    klass = relay("floor_op") { |c| c.input("in").into(floor).output("out") }
 
     assert_equal ["topology.schema_floor_without_migration", { "tasklet" => "floor", "floor" => 1 }],
                  refusal { Flezha::Graph.validate(klass.spec, nil) }.then { |e| [e.code, e.details] }
@@ -298,7 +298,7 @@ class TaskletFormTest < Minitest::Test
 
   def test_key_by_alone_makes_a_tasklet_dynamic_with_a_cell_per_key
     counter = tasklet("counter")
-    klass = relay("orders_op") { |c| c.input("orders").key_by { |o| o[:customer] }.into(counter).sink("out") }
+    klass = relay("orders_op") { |c| c.input("orders").key_by { |o| o[:customer] }.into(counter).output("out") }
     keys = prepared(klass, ['{"customer":"ann"}', '{"customer":"bo"}'], want_keys: true).map { |a| a[:keys] }
 
     assert_equal "dynamic", tasklet_record(klass, "counter")["cell_mode"]
@@ -309,7 +309,7 @@ class TaskletFormTest < Minitest::Test
     detector = tasklet("detector")
     klass = relay("merge_op") do |c|
       c.merge.from(c.input("ticks")) { |t| t }.from(c.input("quotes")) { |q| q }
-       .key_by { |v| v[:symbol] }.into(detector).sink("out")
+       .key_by { |v| v[:symbol] }.into(detector).output("out")
     end
 
     assert_equal "dynamic", tasklet_record(klass, "detector")["cell_mode"]
@@ -317,8 +317,8 @@ class TaskletFormTest < Minitest::Test
 
   def test_one_class_takes_its_mode_from_each_wiring
     shared = tasklet("shared")
-    keyed = relay("keyed_op") { |c| c.input("in").key_by(&:to_s).into(shared).sink("out") }
-    single = relay("single_op") { |c| c.input("in").into(shared).sink("out") }
+    keyed = relay("keyed_op") { |c| c.input("in").key_by(&:to_s).into(shared).output("out") }
+    single = relay("single_op") { |c| c.input("in").into(shared).output("out") }
 
     assert_equal %w[dynamic single], [keyed, single].map { |klass| tasklet_record(klass, "shared")["cell_mode"] }
   end
@@ -329,7 +329,7 @@ class TaskletFormTest < Minitest::Test
       cell_keys "a", "b"
       def cells_for(_input) = ["a"]
     end
-    klass = relay("routed_op") { |c| c.input("in").key_by(&:to_s).into(routed).sink("out") }
+    klass = relay("routed_op") { |c| c.input("in").key_by(&:to_s).into(routed).output("out") }
 
     error = refusal { Flezha::TestSupport.validate(klass.spec) }
     assert_includes Flezha::TestSupport.codes(error), "topology.key_by_on_unkeyable_target"
@@ -347,7 +347,7 @@ class TaskletFormTest < Minitest::Test
     end
 
     [answers, folds].each do |klass|
-      op = relay("#{klass.tasklet_name}_op") { |c| c.input("in", codec: :text).into(klass).sink("out") }
+      op = relay("#{klass.tasklet_name}_op") { |c| c.input("in", codec: :text).into(klass).output("out") }
       effect = work(op, "hi")
       assert_equal ["ok", []], [effect[:verdict], effect[:outputs]], klass.tasklet_name
       assert_empty Flezha::Testing::Harness.new(klass).feed("hi").outputs, klass.tasklet_name
@@ -362,7 +362,7 @@ class TaskletFormTest < Minitest::Test
         "c"
       end
     end
-    op = relay("both_ways_op") { |c| c.input("in", codec: :text).into(both).sink("out") }
+    op = relay("both_ways_op") { |c| c.input("in", codec: :text).into(both).output("out") }
 
     assert_equal [["a", nil], ["b", "k"]], work(op, "x")[:outputs].map { |o| [o[:payload], o[:key]] }
     assert_equal %w[a b], Flezha::Testing::Harness.new(both).feed("x").outputs
@@ -372,7 +372,7 @@ class TaskletFormTest < Minitest::Test
   # frame carries are the string the tasklet emitted.
   def test_a_text_channel_hands_a_string_and_sends_what_was_emitted
     echo = tasklet("echo") { def run(input, ctx) = ctx.emit("echo: #{input}") }
-    op = relay("text_echo_op") { |c| c.input("in", codec: :text).into(echo).sink("out") }
+    op = relay("text_echo_op") { |c| c.input("in", codec: :text).into(echo).output("out") }
 
     assert_equal [["out", "echo: hello"]], work(op, "hello")[:outputs].map { |o| o.values_at(:plugin_channel, :payload) }
   end
@@ -380,7 +380,7 @@ class TaskletFormTest < Minitest::Test
   class Place < Flezha::Relay
     factory_id "place"
     run :steps
-    sink "placed"
+    output "placed"
     input "order"
     codec :text
     def run(order, ctx) = ctx.emit("placed:#{order}")
@@ -388,14 +388,14 @@ class TaskletFormTest < Minitest::Test
 
   class Upcase < Flezha::Relay
     factory_id "upcase"
-    sink "out"
+    output "out"
     codec :text
     def run(value, _ctx) = value.upcase
   end
 
   class EmittingUpcase < Flezha::Relay
     factory_id "emitting_upcase"
-    sink "out"
+    output "out"
     codec :text
     def run(value, ctx) = ctx.emit(value.upcase)
   end
@@ -415,7 +415,7 @@ class TaskletFormTest < Minitest::Test
     def run(_tick, ctx) = ctx.change(1)
   end
 
-  def test_a_short_form_with_init_state_and_no_sink_keeps_its_state
+  def test_a_short_form_with_init_state_and_no_output_keeps_its_state
     harness = Flezha::Testing::Harness.new(Ticks.tasklet)
     2.times { harness.feed("t") }
 

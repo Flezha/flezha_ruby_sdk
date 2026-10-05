@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 module Flezha
-  # One value a graph released on a declared sink. `metadata` is what a
+  # One value a graph released on a declared output. `metadata` is what a
   # deployed run would have put on the wire, `flz.*` stamps included.
-  SinkOutput = Struct.new(:channel, :payload, :metadata, keyword_init: true)
+  LocalOutput = Struct.new(:channel, :payload, :metadata, keyword_init: true)
 
   # Running a declared relay graph in this process, with no controller.
   #
@@ -15,7 +15,7 @@ module Flezha
   # runtime.
   #
   #   run = Flezha::LocalRelay.start(WordCount)
-  #   run.on_sink("totals") { |output| puts output.payload }
+  #   run.on_output("totals") { |output| puts output.payload }
   #   run.feed("lines", "the quick brown fox")
   #   run.run_until_idle(5_000)
   #   run.close
@@ -54,13 +54,13 @@ module Flezha
       @sinks = {}
       @closed = false
       @drain = Thread.new { drain_outputs }
-      @drain.name = "flz-local-sink"
+      @drain.name = "flz-local-output"
     end
 
-    # Deliver every value released on the sink +channel+ to the block, in
-    # release order. A sink channel takes the producing tasklet's name
+    # Deliver every value released on the output +channel+ to the block, in
+    # release order. An output channel takes the producing tasklet's name
     # unless the declaration named it.
-    def on_sink(channel, &callback)
+    def on_output(channel, &callback)
       # Registered with the core first: a channel the declaration does not
       # carry is refused there, naming it, rather than silently accepted.
       @core.local_on_sink(channel)
@@ -128,7 +128,7 @@ module Flezha
 
     def deliver(output)
       unless output[:target] == :plugin
-        # The core queues what a sink released and nothing else; an edge
+        # The core queues what an output released and nothing else; an edge
         # output is an in-process mailbox push that never leaves.
         raise "local mode released a #{output[:target]} output"
       end
@@ -137,7 +137,7 @@ module Flezha
       callback = @sinks[channel]
       return if callback.nil?
 
-      callback.call(SinkOutput.new(channel: channel, payload: output[:payload],
+      callback.call(LocalOutput.new(channel: channel, payload: output[:payload],
                                    metadata: (output[:metadata] || []).to_h))
     end
   end

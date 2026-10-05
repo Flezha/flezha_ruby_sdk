@@ -74,7 +74,7 @@ module Fixtures
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
        .into(TierStore).keyed
-       .sink("sink")
+       .output("sink")
     end
   end
 
@@ -100,7 +100,7 @@ module Fixtures
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing).retry_backoff_ms(300)
        .into(TierStore).keyed
-       .sink("sink")
+       .output("sink")
     end
   end
 
@@ -154,7 +154,7 @@ module Fixtures
        .into(TierPass)
        .key_by { |value| PREFIX.call(value) }.retry_max(1_000)
        .into(TierTally).keyed
-       .sink("sink")
+       .output("sink")
     end
   end
 
@@ -163,7 +163,7 @@ module Fixtures
     run flow: { exactly: { effectively_once: { ack: :checkpoint } } }
     channels do |c|
       c.input("input", codec: :text).into(CheckpointStore).keyed
-       .sink("sink")
+       .output("sink")
     end
   end
 
@@ -177,7 +177,7 @@ module Fixtures
     run flow: { exactly: { effectively_once: { ack: { checkpoint: { outputs: :at_checkpoint, max_delay_ms: 1_500 } } } } }
     channels do |c|
       c.input("input", codec: :text).into(CheckpointStore).keyed
-       .sink("sink")
+       .output("sink")
     end
   end
 
@@ -200,7 +200,7 @@ module Fixtures
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
        .into(BenchCheckpoint).keyed
-       .sink("sink")
+       .output("sink")
     end
   end
 
@@ -222,7 +222,7 @@ module Fixtures
     factory_id "store_input"
     channels do |c|
       c.input("input", codec: :text).into(StoreInput)
-       .sink("sink")
+       .output("sink")
     end
   end
 
@@ -266,7 +266,7 @@ module Fixtures
   # -- sleeping_counter ------------------------------------------------------
   #
   # A flow relay that sleeps when idle: `key:delta` inputs fold into one running
-  # total per key, and every input emits `key=total` on the `totals` sink. The
+  # total per key, and every input emits `key=total` on the `totals` output. The
   # sleep e2e reads the total after a wake to prove the Cell came back with the
   # state it slept with.
 
@@ -287,7 +287,7 @@ module Fixtures
     durable FIXTURE_DURABLE
     channels do |c|
       c.input("input", codec: :text).key_by { |value| PREFIX.call(value) }
-       .into(SleepingCounter).sink("totals")
+       .into(SleepingCounter).output("totals")
     end
   end
 
@@ -347,7 +347,7 @@ module Fixtures
     factory_id "resume_probe"
     channels do |c|
       c.input("input", codec: :text).into(ResumeProbe)
-       .sink("total")
+       .output("total")
     end
   end
 
@@ -410,7 +410,7 @@ module Fixtures
     factory_id "schema_evolution_v1"
     channels do |c|
       c.input("input", codec: :text).into(EvolvingCartV1)
-       .sink("total")
+       .output("total")
     end
   end
 
@@ -418,7 +418,7 @@ module Fixtures
     factory_id "schema_evolution_v2"
     channels do |c|
       c.input("input", codec: :text).into(EvolvingCartV2)
-       .sink("total")
+       .output("total")
     end
   end
 

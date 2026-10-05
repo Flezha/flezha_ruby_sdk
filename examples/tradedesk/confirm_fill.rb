@@ -17,7 +17,7 @@ require "flezha"
 # It remembers nothing and has nothing to undo, so it writes only `run`. It
 # ends the instance with a result rather than emitting one: the order's outcome
 # is the instance's own answer, which `flz relay info` reads back, so the
-# desk needs no sink here.
+# desk needs no output here.
 #
 # A failure here is retried first, and once the retries are spent the instance
 # ends abnormally. Everything that finished is then undone in reverse, across

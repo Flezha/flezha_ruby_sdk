@@ -143,7 +143,7 @@ module Conformance
       when "keyed" then edge.keyed
       when "retry_max" then edge.retry_max(Integer(arg))
       when "on_full" then edge.on_full(arg.to_sym)
-      when "sink" then arg.empty? ? edge.sink : edge.sink(arg)
+      when "output" then arg.empty? ? edge.output : edge.output(arg)
       when /\Acall/ then call_step(edge, verb, arg, role)
       when "into" then wire(edge, arg)
       # Declared on the tasklet in this SDK, and read as its class was
@@ -310,7 +310,7 @@ module Conformance
       Class.new(Flezha::Relay) do
         factory_id(declaration[:id]) if declaration[:id]
         run(:steps) unless position.zero?
-        sink(declaration[:sink]) if declaration[:sink]
+        output(declaration[:sink]) if declaration[:sink]
         input(declaration[:input]) if declaration[:input]
         channels { |c| c.input("input").into(Plain) } if declaration[:topology]
         def run(input, ctx) = ctx.emit(input)

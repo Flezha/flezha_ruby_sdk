@@ -41,6 +41,6 @@ class TradeWatcherRelay < Flezha::Relay
      .key_by { |trade| trade[:symbol] }                      # one cell per symbol
      .into(TrackPrices)
      .into(BuyAboveAverage)                                  # fed by the tasklet above
-     .sink("signals")                                        # out to the file plugin
+     .output("signals")                                      # out to the file plugin
   end
 end

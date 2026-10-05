@@ -7,7 +7,7 @@ require "set"
 module Flezha
   # The MessagePack codec for durable `State` and `Change` bodies, and the Ruby
   # type mapping that goes with it. The payload formats a channel names on
-  # `input` and `sink` are here too, as `CHANNEL_CODECS`.
+  # `input` and `output` are here too, as `CHANNEL_CODECS`.
   #
   # The mapping is specified here rather than inherited from a library default,
   # because the defaults are wrong for a format that has to survive a restart:
@@ -54,7 +54,7 @@ module Flezha
       FACTORY.load(bytes.b, symbolize_keys: true)
     end
 
-    # The payload formats a channel names on `input` and `sink`. A payload
+    # The payload formats a channel names on `input` and `output`. A payload
     # between two tasklets names none: it stays in the MessagePack above.
     CHANNEL_CODECS = %i[bytes text json msgpack].freeze
 
@@ -70,7 +70,7 @@ module Flezha
       end
     end
 
-    # How `sink` writes a channel's payload: the named codec, or
+    # How `output` writes a channel's payload: the named codec, or
     # `plain_payload` when the channel names none.
     def channel_encoder(codec, channel)
       case codec
@@ -82,7 +82,7 @@ module Flezha
       end
     end
 
-    # A String as its bytes and anything else as JSON: what a sink naming no
+    # A String as its bytes and anything else as JSON: what an output naming no
     # codec sends, and what a steps completion carries. `owner` is the
     # channel or tasklet a refusal names.
     def plain_payload(value, owner)
