@@ -13,12 +13,12 @@
 #     def run(input, ctx) = ctx.emit(input)
 #   end
 #
-#   class EchoOperator < Flezha::Operator
+#   class EchoRelay < Flezha::Relay
 #     factory_id "echo"
 #     channels { |c| c.input("input", codec: :text).into(Echo).sink("out") }
 #   end
 #
-#   Flezha.create_runner("default").register_factory(EchoOperator).run
+#   Flezha.create_runner("default").register_factory(EchoRelay).run
 
 require_relative "flezha/version"
 require_relative "flezha/errors"
@@ -31,7 +31,7 @@ require_relative "flezha/state"
 require_relative "flezha/builder"
 require_relative "flezha/tasklet"
 require_relative "flezha/route_latest"
-require_relative "flezha/operator"
+require_relative "flezha/relay"
 require_relative "flezha/graph"
 require_relative "flezha/ctx"
 require_relative "flezha/dispatch"

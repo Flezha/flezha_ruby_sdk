@@ -39,11 +39,11 @@ module Flezha
     class Harness
       attr_reader :log
 
-      def initialize(tasklet_class, cell_key: nil, operator: "harness")
+      def initialize(tasklet_class, cell_key: nil, relay: "harness")
         @definition = tasklet_class.definition
         @cell_key = cell_key
         # What every invocation's activation names: the cell this harness drives.
-        @target = { operator: operator, cell_key: cell_key }.freeze
+        @target = { relay: relay, cell_key: cell_key }.freeze
         # The real channel builder, not a hand-written spec: one entry channel
         # into the tasklet, and one plugin sink so `ctx.emit` has somewhere
         # to go. A tasklet under test emits to be observed, not to be routed,

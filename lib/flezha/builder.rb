@@ -62,7 +62,7 @@ module Flezha
 
     # Whether each invocation's output rides one effect record the controller
     # stamps at flush: under the effectively-once tier, and for a durable
-    # steps operator, whose stage commit names the record.
+    # steps relay, whose stage commit names the record.
     def records_effects?
       exactly = run.is_a?(Hash) && run["flow"].is_a?(Hash) ? run["flow"]["exactly"] : nil
       ClassSpec.branch(exactly) == "effectively_once" || (runs_in_steps? && keeps_work?)
@@ -93,7 +93,7 @@ module Flezha
     end
   end
 
-  # The fluent channel builder an operator's `channels` block receives.
+  # The fluent channel builder a relay's `channels` block receives.
   class Builder
     attr_reader :factory_id, :tasklets, :channels, :compact_after_bytes_value
 
@@ -150,7 +150,7 @@ module Flezha
       group
     end
 
-    # Turn an operator-wide document stream into per-key deliveries: every key
+    # Turn a relay-wide document stream into per-key deliveries: every key
     # seen on `traffic` receives each distinct document once, as
     # `[key, document]`, on that key's own next traffic item. The block answers
     # a traffic item's key.
@@ -161,7 +161,7 @@ module Flezha
     # rescale; a key its own traffic just reached is one it owns.
     #
     # Sugar over a merge into one packaged `RouteLatest` node named
-    # `route_latest`, so a second router in one operator names its own node
+    # `route_latest`, so a second router in one relay names its own node
     # with `route_latest_named`. Answers the router's output edge.
     def route_latest(documents, traffic, &key) = route_latest_named(documents, traffic, nil, &key)
 
@@ -365,7 +365,7 @@ module Flezha
       plug_end({ "link" => "response" }, nil, encode, codec)
     end
 
-    # End this edge's chain in a call to another operator, and answer the edge
+    # End this edge's chain in a call to another relay, and answer the edge
     # of its Response channel: the entry channel `<channel>.response`, whose
     # values are `Flezha::Response`s. Every value reaching the call, after this
     # chain's transforms and key, is one request. `target` names an instance,

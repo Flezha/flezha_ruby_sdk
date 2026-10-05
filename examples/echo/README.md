@@ -9,7 +9,7 @@ Three files, one for each part the guides describe:
 | File | Part | What it does |
 |---|---|---|
 | `echo_tasklet.rb` | the tasklet | the processing stage: prefixes each message |
-| `echo_operator.rb` | the operator | the graph: `in` feeds the tasklet, output lands on `out` |
+| `echo_relay.rb` | the relay | the graph: `in` feeds the tasklet, output lands on `out` |
 | `runner.rb` | the runner | this process: registers the echo factory and waits |
 
 ## Run it
@@ -26,8 +26,8 @@ bundle exec ruby runner.rb
 Then, from another terminal:
 
 ```sh
-flz operator start echo --id my_echo
-flz operator send my_echo --text 'hello world' --await 2000
+flz relay start echo --id my_echo
+flz relay send my_echo --text 'hello world' --await 2000
 ```
 
 ```

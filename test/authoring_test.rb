@@ -25,8 +25,8 @@ class AuthoringTest < Minitest::Test
     end
   end
 
-  def operator(factory, &channels)
-    klass = Class.new(Flezha::Operator)
+  def relay(factory, &channels)
+    klass = Class.new(Flezha::Relay)
     klass.factory_id factory
     klass.channels(&channels)
     klass
@@ -95,7 +95,7 @@ class AuthoringTest < Minitest::Test
   # value to serialize, and the core reads a sink as the terminal of the
   # channel it sits on — it cannot see that this one is fed by the controller.
   def test_a_plugin_sink_on_an_entry_channel_is_refused_here
-    klass = operator("entry_sink") { |c| c.input("in").sink }
+    klass = relay("entry_sink") { |c| c.input("in").sink }
 
     error = refusal { klass.spec }
     assert_equal ["topology.sink_on_entry", { "channel" => "<derived>" }], [error.code, error.details]
@@ -108,7 +108,7 @@ class AuthoringTest < Minitest::Test
       tasklet_name "keyed"
       def run(input, ctx) = ctx.emit(input)
     end
-    klass = operator("dup_key_by") do |c|
+    klass = relay("dup_key_by") do |c|
       c.input("in").key_by { "a" }.key_by { "b" }.into(target)
     end
 
@@ -121,7 +121,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_an_ack_at_checkpoint_with_its_members_reaches_the_declaration_as_the_tree
-    klass = operator("compose") { |c| c.input("in").into(pass_through("p")).keyed.sink }
+    klass = relay("compose") { |c| c.input("in").into(pass_through("p")).keyed.sink }
     klass.run flow: { exactly: { effectively_once: { ack: { checkpoint: { every: 4, outputs: :at_checkpoint,
                                                                           max_delay_ms: 250 } } } } }
     decl = Flezha::Graph.to_host_class_decl(klass.spec)
@@ -133,20 +133,20 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_steps_class_declaring_no_channels_is_refused_naming_them
-    klass = Class.new(Flezha::Operator)
+    klass = Class.new(Flezha::Relay)
     klass.run :steps
     klass.factory_id "bodiless"
 
     error = refusal { klass.spec }
 
     assert_equal "topology.missing_body", error.code
-    assert_equal "operator 'bodiless'", error.details["declaration"]
+    assert_equal "relay 'bodiless'", error.details["declaration"]
     assert_includes error.message, "`channels`"
   end
 
   # The core's own check, reached through the one submission path.
   def test_a_steps_class_declaring_no_tasklet_is_refused
-    klass = Class.new(Flezha::Operator)
+    klass = Class.new(Flezha::Relay)
     klass.run :steps
     klass.factory_id "empty"
     klass.channels { |_c| nil }
@@ -157,7 +157,7 @@ class AuthoringTest < Minitest::Test
   def test_two_unnamed_mentions_of_one_tasklet_are_one_node
     shared = pass_through("shared")
     upstream = pass_through("upstream")
-    klass = operator("diamond") do |c|
+    klass = relay("diamond") do |c|
       edge = c.input("input").into(upstream)
       edge.named("left").into(shared)
       edge.named("right").into(shared)
@@ -174,7 +174,7 @@ class AuthoringTest < Minitest::Test
   def test_a_second_tasklet_claiming_one_node_identity_is_refused
     first = pass_through("same_name")
     second = pass_through("same_name")
-    klass = operator("collide") do |c|
+    klass = relay("collide") do |c|
       edge = c.input("input").into(first)
       edge.named("hop").into(second)
     end
@@ -195,12 +195,12 @@ class AuthoringTest < Minitest::Test
   end
 
   # `named` is honoured on the inter-task path and was dropped on the plugin
-  # path, so `named("input").sink("relay_out")` produced a channel called
-  # `relay_out` — and the channel name is what a forwarded frame carries and
-  # what selects the receiving operator's entry channel.
+  # path, so `named("input").sink("pass_out")` produced a channel called
+  # `pass_out` — and the channel name is what a forwarded frame carries and
+  # what selects the receiving relay's entry channel.
   def test_a_named_edge_terminating_on_a_sink_names_the_channel_too
-    klass = operator("named_sink") do |c|
-      c.input("input").into(pass_through("relay")).sink("in")
+    klass = relay("named_sink") do |c|
+      c.input("input").into(pass_through("forward")).sink("in")
     end
 
     assert_equal %w[input in], klass.spec.channels.map(&:name)
@@ -210,7 +210,7 @@ class AuthoringTest < Minitest::Test
   # keeps the PRODUCER NODE's name — the derivation a channel with no sink at
   # all would take.
   def test_an_unnamed_edge_terminating_on_a_sink_takes_the_producing_nodes_name
-    klass = operator("unnamed_sink") do |c|
+    klass = relay("unnamed_sink") do |c|
       c.input("input").into(pass_through("plain")).sink
     end
 
@@ -237,7 +237,7 @@ class AuthoringTest < Minitest::Test
   def test_a_held_edge_wired_twice_is_one_channel_with_two_consumers
     b = pass_through("b")
     c_task = pass_through("c")
-    klass = operator("fan_out") do |c|
+    klass = relay("fan_out") do |c|
       edge = c.input("in").into(pass_through("producer"))
       edge.into(b)
       edge.into(c_task)
@@ -251,12 +251,12 @@ class AuthoringTest < Minitest::Test
     producer = pass_through("producer")
     b = pass_through("b")
     c_task = pass_through("c")
-    separate = operator("separate") do |c|
+    separate = relay("separate") do |c|
       edge = c.input("in").into(producer)
       edge.into(b)
       edge.into(c_task)
     end
-    branched = operator("branched") do |c|
+    branched = relay("branched") do |c|
       c.input("in").into(producer).branch(->(arm) { arm.into(b) }, ->(arm) { arm.into(c_task) })
     end
 
@@ -264,7 +264,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_sink_returns_the_edge_so_a_consumer_wires_behind_it
-    klass = operator("hybrid") do |c|
+    klass = relay("hybrid") do |c|
       c.input("in").into(pass_through("producer"))
        .sink("hybrid_indicator").into(pass_through("consumer"))
     end
@@ -275,10 +275,10 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_the_sink_names_the_channel_and_the_no_argument_form_does_not
-    named = operator("sink_named") do |c|
+    named = relay("sink_named") do |c|
       c.input("in").into(pass_through("producer")).sink("items_output")
     end
-    derived = operator("sink_derived") do |c|
+    derived = relay("sink_derived") do |c|
       c.input("in").into(pass_through("producer")).sink
     end
 
@@ -287,7 +287,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_channel_named_twice_is_refused_naming_both
-    klass = operator("named_twice") do |c|
+    klass = relay("named_twice") do |c|
       c.input("in").into(pass_through("producer")).named("a").sink("b")
     end
 
@@ -297,16 +297,16 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_channel_option_with_nothing_wired_after_it_still_reaches_the_channel
-    renamed = operator("trailing_named") { |c| c.input("in").into(pass_through("producer")).named("renamed") }
-    keyed = operator("trailing_keyed") { |c| c.input("in").into(pass_through("producer")).keyed }
+    renamed = relay("trailing_named") { |c| c.input("in").into(pass_through("producer")).named("renamed") }
+    keyed = relay("trailing_keyed") { |c| c.input("in").into(pass_through("producer")).keyed }
 
     assert_equal %w[in renamed], channels_of(renamed).map(&:first)
     assert_equal ["topology.keyed_channel_without_plugin_wire"], codes(refusal { validate(keyed.spec) })
   end
 
   def test_response_records_its_link_and_ends_the_channel_as_a_sink_would
-    terminal = operator("answers") { |c| c.input("in").into(pass_through("producer")).response }
-    hybrid = operator("answers_and_feeds") do |c|
+    terminal = relay("answers") { |c| c.input("in").into(pass_through("producer")).response }
+    hybrid = relay("answers_and_feeds") do |c|
       c.input("in").into(pass_through("producer")).response.into(pass_through("consumer"))
     end
 
@@ -320,7 +320,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_sink_beside_a_response_on_one_channel_is_refused
-    klass = operator("ends_twice") do |c|
+    klass = relay("ends_twice") do |c|
       c.input("in").into(pass_through("producer")).sink("out").response
     end
 
@@ -330,7 +330,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_two_channels_naming_one_sink_is_refused
-    klass = operator("one_sink_two_channels") do |c|
+    klass = relay("one_sink_two_channels") do |c|
       c.input("in").into(pass_through("a")).sink("shared")
        .into(pass_through("b")).sink("shared")
     end
@@ -341,7 +341,7 @@ class AuthoringTest < Minitest::Test
   def test_a_transform_before_one_into_reaches_that_consumer_only
     b = pass_through("b")
     c_task = pass_through("c")
-    klass = operator("per_edge_transform") do |c|
+    klass = relay("per_edge_transform") do |c|
       edge = c.input("in").into(pass_through("producer"))
       edge.map { |value| "#{value}!" }.into(b)
       edge.into(c_task)
@@ -357,7 +357,7 @@ class AuthoringTest < Minitest::Test
   # not two, and not a refusal.
   def test_a_bare_re_declared_edge_is_a_no_op_not_a_second_edge
     target = pass_through("target")
-    klass = operator("edge_redeclared_bare") do |c|
+    klass = relay("edge_redeclared_bare") do |c|
       edge = c.input("in")
       edge.into(target)
       edge.into(target)
@@ -381,7 +381,7 @@ class AuthoringTest < Minitest::Test
   def test_a_misplaced_setting_is_refused_naming_it_and_its_parent
     MISPLACED.each do |setting, tree, field, parent|
       step = pass_through("producer")
-      klass = operator("misplaced") { |c| c.input("in").into(step) }
+      klass = relay("misplaced") { |c| c.input("in").into(step) }
       klass.public_send(setting, tree)
       error = refusal { validate(klass.spec) }
 
@@ -393,7 +393,7 @@ class AuthoringTest < Minitest::Test
 
   def test_a_flow_class_may_keep_its_work_remote
     step = pass_through("producer")
-    klass = operator("remote_flow") { |c| c.input("in").into(step) }
+    klass = relay("remote_flow") { |c| c.input("in").into(step) }
     klass.durable :remote
 
     validate(klass.spec)
@@ -403,7 +403,7 @@ class AuthoringTest < Minitest::Test
   def test_the_durability_reaches_the_declaration_as_written
     step = pass_through("step")
     durable = lambda do |*tree|
-      klass = operator("kept") { |c| c.input("in").into(step) }
+      klass = relay("kept") { |c| c.input("in").into(step) }
       klass.run :steps
       klass.durable(*tree) unless tree.empty?
       Flezha::Graph.to_host_class_decl(klass.spec)["durable"]
@@ -417,7 +417,7 @@ class AuthoringTest < Minitest::Test
     [[{ steps: { each: :forever } }, "forever"], [{ steps: { on_failure: :best_effort } }, "best_effort"],
      [:bounded, "bounded"]].each do |run, value|
       step = pass_through("step")
-      klass = operator("moded") { |c| c.input("in").into(step) }
+      klass = relay("moded") { |c| c.input("in").into(step) }
       klass.run run
       error = refusal { validate(klass.spec) }
 
@@ -428,7 +428,7 @@ class AuthoringTest < Minitest::Test
 
   def test_the_retired_class_retry_and_wake_settings_are_not_declared
     %i[retry_attempts retry_backoff_ms barrier_retry_attempts wake_after_ms].each do |retired|
-      assert_raises(NoMethodError) { Class.new(Flezha::Operator).public_send(retired, 5) }
+      assert_raises(NoMethodError) { Class.new(Flezha::Relay).public_send(retired, 5) }
     end
   end
 
@@ -442,7 +442,7 @@ class AuthoringTest < Minitest::Test
 
   def test_a_merge_wires_one_node_with_one_edge_per_source_each_under_its_own_mapping
     target = pass_through("label")
-    klass = operator("merged") do |c|
+    klass = relay("merged") do |c|
       c.merge.from(c.input("ticks"), &tagged("ticks")).from(c.input("quotes"), &tagged("quotes"))
        .key_by { |value| value[:value] }.into(target)
     end
@@ -457,7 +457,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_merge_of_one_source_is_refused_as_too_few_sources
-    klass = operator("merge_one") do |c|
+    klass = relay("merge_one") do |c|
       c.merge.from(c.input("in")) { |value| value }.into(pass_through("plain"))
     end
 
@@ -465,7 +465,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_a_merge_naming_one_source_twice_is_refused_as_a_duplicate_source
-    klass = operator("merge_twice") do |c|
+    klass = relay("merge_twice") do |c|
       source = c.input("in")
       c.input("other")
       c.merge.from(source) { |value| value }.from(source) { |value| value }.into(pass_through("plain"))
@@ -476,7 +476,7 @@ class AuthoringTest < Minitest::Test
 
   def test_a_merge_source_already_wired_into_the_node_with_a_transform_is_refused
     target = pass_through("plain")
-    klass = operator("merge_rewired") do |c|
+    klass = relay("merge_rewired") do |c|
       ticks = c.input("ticks")
       ticks.map { |value| value }.into(target)
       c.merge.from(ticks) { |value| value }.from(c.input("quotes")) { |value| value }.into(target)
@@ -486,7 +486,7 @@ class AuthoringTest < Minitest::Test
   end
 
   def test_the_latest_document_router_is_a_route_latest_node_and_the_named_form_names_it
-    klass = operator("routers") do |c|
+    klass = relay("routers") do |c|
       trades = c.input("trades")
       c.route_latest(c.input("config"), trades) { |trade| trade[:symbol] }.sink("routed")
       c.route_latest_named(c.input("limits"), trades, "limits_router") { |trade| trade[:symbol] }
@@ -511,7 +511,7 @@ class AuthoringTest < Minitest::Test
   CODEC_CASES = Flezha::TestSupport.contract_file("test/fixtures/channel_codecs.txt")
 
   def codec_slots(input = {}, sink = {})
-    klass = operator("codecs") { |c| c.input("in", **input).into(pass_through("echo")).sink("out", **sink) }
+    klass = relay("codecs") { |c| c.input("in", **input).into(pass_through("echo")).sink("out", **sink) }
     entry, out = klass.spec.channels
     [entry.decode, out.sink_encode]
   end
@@ -573,7 +573,7 @@ class AuthoringTest < Minitest::Test
     assert_equal "hello", bytes.call("hello")
   end
 
-  def test_an_unknown_codec_name_is_refused_naming_the_operator_the_channel_and_the_names
+  def test_an_unknown_codec_name_is_refused_naming_the_relay_the_channel_and_the_names
     [[{ codec: :yaml }, {}, "in"], [{}, { codec: "yaml" }, "out"]].each do |input, sink, channel|
       error = refusal { codec_slots(input, sink) }
 

@@ -10,7 +10,7 @@ class SpawnTest < Minitest::Test
   FakeCore = Flezha::TestSupport::FakeCore
 
   def ctx(core, replay: false, offset: nil)
-    Flezha::Ctx.new(spec: nil, node: Flezha::TaskNode.new(0, "spawner"), outgoing: [], operator: "op",
+    Flezha::Ctx.new(spec: nil, node: Flezha::TaskNode.new(0, "spawner"), outgoing: [], relay: "op",
                     cell_key: nil, change_seq: 0, now: 0, replay: replay, state: nil, bridge: core,
                     token: 7, offset: offset)
   end
@@ -41,7 +41,7 @@ class SpawnTest < Minitest::Test
   end
 
   # The payload takes the no-codec sink rule `complete` applies: a String is
-  # its bytes and anything else its JSON, so the spawned steps operator's `text` or
+  # its bytes and anything else its JSON, so the spawned steps relay's `text` or
   # `json` entry decodes it as it decodes a send's payload.
   def test_a_spawn_payload_is_what_a_text_or_json_entry_reads
     core = FakeCore.new(spawns: [resolved("a", "spawned"), resolved("b", "spawned")])
@@ -56,19 +56,19 @@ class SpawnTest < Minitest::Test
   end
 
   def test_the_error_policy_is_sent_and_an_existing_instance_raises_already_running
-    core = FakeCore.new(spawns: [failed("operator.already_running", operator: "w1")])
+    core = FakeCore.new(spawns: [failed("relay.already_running", relay: "w1")])
     handle = ctx(core).spawn_steps("worker", "p", id: "w1", if_running: "error")
 
     assert_equal "error", core.spawn_requests.first[4]
     error = assert_raises(Flezha::Error) { handle.wait }
-    assert_equal ["operator.already_running", { "operator" => "w1" }], [error.code, error.details]
+    assert_equal ["relay.already_running", { "relay" => "w1" }], [error.code, error.details]
   end
 
   def test_a_spawn_naming_a_flow_factory_raises_factory_not_steps
-    refusal = failed("operator.factory_not_steps", factory: "prices", namespace: "default")
+    refusal = failed("relay.factory_not_steps", factory: "prices", namespace: "default")
     handle = ctx(FakeCore.new(spawns: [refusal])).spawn_steps("prices", "p", id: "w1")
 
-    assert_equal "operator.factory_not_steps", assert_raises(Flezha::Error) { handle.wait }.code
+    assert_equal "relay.factory_not_steps", assert_raises(Flezha::Error) { handle.wait }.code
   end
 
   def test_if_running_without_an_id_raises_at_the_call_and_sends_nothing
@@ -84,7 +84,7 @@ class SpawnTest < Minitest::Test
   # read raises, each failure as the one error carrying its own code.
   def test_every_failure_is_raised_by_a_read_as_the_one_error_with_its_code
     {
-      "operator.factory_unknown" => { factory: "worker", namespace: "default" },
+      "relay.factory_unknown" => { factory: "worker", namespace: "default" },
       "authz.no_role_binding" => {},
       "spawn.timeout" => { seconds: 30 },
       "spawn.unavailable" => {}
@@ -127,7 +127,7 @@ class SpawnTest < Minitest::Test
     item = Flezha::TestSupport.input_item("p")
     core = FakeCore.new(activations: [Flezha::TestSupport.activation(factory: "waiter_op", items: [item])],
                         spawns: [nil, resolved("w1", "spawned")])
-    deps = Flezha::TestSupport.deps(WaiterOperator, core)
+    deps = Flezha::TestSupport.deps(WaiterRelay, core)
     executor = Flezha::FiberExecutor.new(core, deps, fetchers: 1).start
     begin
       deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 5
@@ -146,7 +146,7 @@ class SpawnTest < Minitest::Test
     def run(input, ctx) = ctx.emit(ctx.spawn_steps("worker", input, id: "w1").wait.outcome.to_s)
   end
 
-  class WaiterOperator < Flezha::Operator
+  class WaiterRelay < Flezha::Relay
     factory_id "waiter_op"
     channels { |c| c.input("in", codec: :text).into(Waiter).sink("out") }
   end
@@ -175,7 +175,7 @@ class SpawnTest < Minitest::Test
     end
   end
 
-  class SpawnerOperator < Flezha::Operator
+  class SpawnerRelay < Flezha::Relay
     factory_id "spawner_op"
     channels { |c| c.input("in", codec: :text).into(Spawner).sink("out") }
   end
@@ -188,8 +188,8 @@ class SpawnTest < Minitest::Test
 
     core = Flezha::Core.create
     registry = Flezha::Registry.new
-    Flezha::Graph.declare(SpawnerOperator.spec, core, registry)
-    core.local_start(SpawnerOperator.factory_id, "spawner-local")
+    Flezha::Graph.declare(SpawnerRelay.spec, core, registry)
+    core.local_start(SpawnerRelay.factory_id, "spawner-local")
     core.local_on_sink("out")
     core.local_feed("in", "p")
     activation = core.poll(5_000)

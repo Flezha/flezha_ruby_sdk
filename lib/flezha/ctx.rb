@@ -21,7 +21,7 @@ module Flezha
 
     attr_reader :changes, :outputs, :timers, :cell_key, :replay
 
-    def initialize(spec:, node:, outgoing:, operator:, cell_key:, change_seq:,
+    def initialize(spec:, node:, outgoing:, relay:, cell_key:, change_seq:,
                    now:, replay:, state:, bridge:, token:, offset: nil, item: nil, compensating: false)
       @token = token
       # The index of the work item this invocation runs within its activation,
@@ -35,7 +35,7 @@ module Flezha
       @spec = spec
       @node = node
       @outgoing = outgoing
-      @operator = operator
+      @relay = relay
       @cell_key = cell_key
       @change_seq = change_seq
       @now = now
@@ -63,7 +63,7 @@ module Flezha
     def stable_id
       # Lazily, because most invocations never ask and the identity is the one
       # part of the derivation that costs an allocation.
-      @identity ||= Identity.cell_identity(@operator, @node.name, @cell_key.to_s)
+      @identity ||= Identity.cell_identity(@relay, @node.name, @cell_key.to_s)
       id = Identity.stable_id(@identity, @change_seq, @ordinal)
       @ordinal += 1
       id
@@ -102,7 +102,7 @@ module Flezha
     # Send `value` as a part: a preview of the output this invocation is
     # producing, which leaves the runner now rather than when the handler
     # returns. It previews the tasklet's own output channel and is encoded as
-    # an emit of the same value there would be. The operator's listeners
+    # an emit of the same value there would be. The relay's listeners
     # receive it before the output; a sink never does, and it is never durable
     # or replayed. Parts are numbered from 0 within each attempt, so a retry
     # starts its preview again.
@@ -162,7 +162,7 @@ module Flezha
     #
     # The rest of the iteration still runs and commits; the instance then ends
     # instead of waiting for its next input, a flow instance once every Cell is
-    # idle. In a `once` steps operator it sets the result the pass ends with.
+    # idle. In a `once` steps relay it sets the result the pass ends with.
     # `result` is encoded as a sink naming no codec encodes a value: a String as
     # its bytes and anything else as JSON; nil carries an empty result. A later
     # call in the same invocation replaces an earlier one.
@@ -177,7 +177,7 @@ module Flezha
     # String as its bytes and anything else as JSON, so the instance's `text`
     # or `json` entry channel reads it as it reads a send. With an `id` already
     # running, `if_running: "deliver"` (the default) hands it `payload` instead,
-    # and `"error"` resolves to a `Flezha::Error` coded `operator.already_running`. A replayed
+    # and `"error"` resolves to a `Flezha::Error` coded `relay.already_running`. A replayed
     # invocation sends nothing and resolves to `:skipped_on_replay`.
     #
     # Without an `id` the controller generates one and always starts a new
@@ -305,14 +305,14 @@ module Flezha
 
     # Output identity for one plugin frame, appended after the user's metadata.
     # Written only when the class records no effects: under the tier, and for a
-    # durable steps operator, the controller derives the identity from the durable
+    # durable steps relay, the controller derives the identity from the durable
     # effect record, and a second answer here would contradict it. The ordinal
     # advances on every plugin output, stamped or not, so hosts of one topology
     # agree on the sequence.
     def stamp_identity(pairs, channel, key)
       if channel.keyed && !@spec.records_effects?
         pairs.push(
-          ["flz.cell", "#{@operator}/#{@node.name}/#{@cell_key}"],
+          ["flz.cell", "#{@relay}/#{@node.name}/#{@cell_key}"],
           ["flz.seq", "#{@change_seq}.#{@emit_ordinal}"],
           ["flz.key", key.to_s]
         )
@@ -350,7 +350,7 @@ module Flezha
 
     # Wait for the answer: a `SpawnResult`, or raises the `Flezha::Error`
     # naming why the spawn failed, its code the controller's (such as
-    # `operator.already_running`) or the core's (`spawn.timeout`,
+    # `relay.already_running`) or the core's (`spawn.timeout`,
     # `spawn.unavailable`).
     #
     # The wait is in the core with the GVL released, as every waiting core

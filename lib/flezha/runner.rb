@@ -7,7 +7,7 @@ require_relative "executor"
 require_relative "graph"
 require_relative "logger"
 require_relative "native"
-require_relative "operator"
+require_relative "relay"
 
 module Flezha
   # The runner: what an author starts, and everything it owns while running.
@@ -46,11 +46,11 @@ module Flezha
       @teardown = []
     end
 
-    # Register an operator class, short form or full.
+    # Register a relay class, short form or full.
     def register_factory(klass)
-      # A tasklet is registered by the operator that wires it.
-      unless klass.is_a?(Class) && klass < Operator
-        raise Error.new("topology.no_operator_exported", module: klass.to_s)
+      # A tasklet is registered by the relay that wires it.
+      unless klass.is_a?(Class) && klass < Relay
+        raise Error.new("topology.no_relay_exported", module: klass.to_s)
       end
 
       klass.check_declaration!
@@ -85,7 +85,7 @@ module Flezha
     end
 
     # Administer this namespace from ordinary application code: start and stop
-    # operators, enable and disable plugins, read what is running.
+    # relays, enable and disable plugins, read what is running.
     #
     # The controller judges every call as the identity this connection proved,
     # so no credential is held here and nothing expires. A user grants a
@@ -94,25 +94,25 @@ module Flezha
     # is refused.
     def control = Control.new(@core || Core.context_free)
 
-    # Send `message` to the entry channel `channel` of `operator_id`, through
+    # Send `message` to the entry channel `channel` of `relay_id`, through
     # the controller under the same role check as `control`, answering its
-    # verdict: `{"to" => operator, "verdict" => "delivered" | "absorbed" |
-    # "suspended"}`. `msg_id:` is stamped as `flz.msg_id`, so an operator whose
+    # verdict: `{"to" => relay, "verdict" => "delivered" | "absorbed" |
+    # "suspended"}`. `msg_id:` is stamped as `flz.msg_id`, so a relay whose
     # input log still holds that id absorbs the repeat; `key:` reaches the
     # partition group member whose range owns it.
     #
     # `local: true`: in process, without the controller: the message is on no
-    # disk, is lost if the runner stops before handling it, and an operator's
+    # disk, is lost if the runner stops before handling it, and a relay's
     # input log does not cover it. It answers `nil`.
     #
     # Named `send_to` because `send` is every Ruby object's own.
-    def send_to(operator_id, message, channel, msg_id: nil, key: nil, local: false)
-      JSON.parse((@core || Core.context_free).send_message(operator_id, channel, message.b, msg_id, key, local))
+    def send_to(relay_id, message, channel, msg_id: nil, key: nil, local: false)
+      JSON.parse((@core || Core.context_free).send_message(relay_id, channel, message.b, msg_id, key, local))
     end
 
-    # The ids of the operator instances bound on this runner now, read without
+    # The ids of the relay instances bound on this runner now, read without
     # the controller. Refused with `runtime.runner_not_started` before `boot`.
-    def operators = (@core || raise(Error.new("runtime.runner_not_started"))).operators
+    def relays = (@core || raise(Error.new("runtime.runner_not_started"))).relays
 
     # Override the YJIT decision. `nil` (the default) means "decide", `false`
     # means "leave it off".
@@ -211,7 +211,7 @@ module Flezha
       # this SDK renders it, so an author meets a declaration refusal rather
       # than a native failure at the first connection.
       @classes.each { |klass| Graph.declare(klass.spec, @core, @registry) }
-      raise Error.new("runtime.no_operators") if @registry.empty?
+      raise Error.new("runtime.no_relays") if @registry.empty?
     end
 
     def build_executor
@@ -255,6 +255,6 @@ module Flezha
     end
   end
 
-  # Start here: `Flezha.create_runner("default").register_factory(MyOperator).run`.
+  # Start here: `Flezha.create_runner("default").register_factory(MyRelay).run`.
   def self.create_runner(namespace) = Runner.new(namespace)
 end

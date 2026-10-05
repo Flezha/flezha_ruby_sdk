@@ -2,7 +2,7 @@
 
 require_relative "test_helper"
 
-# `call`: a chain's end on another operator. The builder records the `call`
+# `call`: a chain's end on another relay. The builder records the `call`
 # link and declares the Response channel `<channel>.response`; an emit on the
 # calling channel leaves as one plugin output per request, with the call
 # chain's transforms and key applied here; each outcome arrives as a
@@ -20,8 +20,8 @@ class CallTest < Minitest::Test
     def run(input, ctx) = ctx.emit(input)
   end
 
-  def operator(factory, run: nil, &channels)
-    klass = Class.new(Flezha::Operator)
+  def relay(factory, run: nil, &channels)
+    klass = Class.new(Flezha::Relay)
     klass.factory_id factory
     klass.run(run) if run
     klass.channels(&channels)
@@ -41,7 +41,7 @@ class CallTest < Minitest::Test
   end
 
   def back_into_caller
-    operator("call_back") { |c| c.input("in").into(Ask).named("quote").call("pricing", deadline_ms: 500).into(Ask) }
+    relay("call_back") { |c| c.input("in").into(Ask).named("quote").call("pricing", deadline_ms: 500).into(Ask) }
   end
 
   def test_the_call_link_closes_the_chain_and_the_response_channel_is_an_entry
@@ -56,7 +56,7 @@ class CallTest < Minitest::Test
   end
 
   def test_a_factory_call_records_create_channel_and_its_key
-    klass = operator("call_factory") do |c|
+    klass = relay("call_factory") do |c|
       c.input("in").into(Ask).key_by(&:to_s)
        .call(factory: "agent", deadline_ms: 60_000, create: false, channel: "turn").into(Ask)
     end
@@ -79,32 +79,32 @@ class CallTest < Minitest::Test
   def test_the_refusals_are_the_cores
     refused = {
       "topology.channel_ends_twice" =>
-        operator("twice") { |c| c.input("in").into(Ask).sink("out").call("p", deadline_ms: 5).into(Ask) },
+        relay("twice") { |c| c.input("in").into(Ask).sink("out").call("p", deadline_ms: 5).into(Ask) },
       "topology.call_deadline_zero" =>
-        operator("zero") { |c| c.input("in").into(Ask).call("p", deadline_ms: 0).into(Ask) },
+        relay("zero") { |c| c.input("in").into(Ask).call("p", deadline_ms: 0).into(Ask) },
       "topology.call_without_key" =>
-        operator("unkeyed") { |c| c.input("in").into(Ask).call(factory: "a", deadline_ms: 5, create: false).into(Ask) },
+        relay("unkeyed") { |c| c.input("in").into(Ask).call(factory: "a", deadline_ms: 5, create: false).into(Ask) },
       "topology.call_response_unread" =>
-        operator("unread") { |c| c.input("in").into(Ask).call("p", deadline_ms: 5) },
+        relay("unread") { |c| c.input("in").into(Ask).call("p", deadline_ms: 5) },
       "topology.call_outside_per_input_loop" =>
-        operator("once", run: :steps) { |c| c.input("in").into(Ask).call("p", deadline_ms: 5).into(Ask) }
+        relay("once", run: :steps) { |c| c.input("in").into(Ask).call("p", deadline_ms: 5).into(Ask) }
     }
 
     refused.each { |code, klass| assert_includes codes(klass), code }
-    per_input = operator("per_input", run: { steps: { each: :per_input } }) do |c|
+    per_input = relay("per_input", run: { steps: { each: :per_input } }) do |c|
       c.input("in").into(Ask).call("p", deadline_ms: 5).into(Ask)
     end
     assert validate(per_input.spec)
   end
 
   def test_a_call_on_an_entry_channel_is_refused_as_a_sink_there_is
-    klass = operator("on_entry") { |c| c.input("in").call("p", deadline_ms: 5) }
+    klass = relay("on_entry") { |c| c.input("in").call("p", deadline_ms: 5) }
 
     error = assert_raises(Flezha::Error) { klass.spec }
     assert_equal ["topology.sink_on_entry", "in"], [error.code, error.details["channel"]]
   end
 
-  class Gateway < Flezha::Operator
+  class Gateway < Flezha::Relay
     factory_id "call_gateway_emit"
     channels do |c|
       asked = c.input("in", codec: :text).into(Ask)

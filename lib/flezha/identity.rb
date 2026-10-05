@@ -30,7 +30,7 @@ module Flezha
       instance = instance_id.to_s.b
       tasklet = tasklet_name.to_s.b
       key = cell_key.to_s.b
-      [["operator id", instance_id, 255], ["tasklet name", tasklet_name, 255], ["cell key", cell_key, 0xffff]]
+      [["relay id", instance_id, 255], ["tasklet name", tasklet_name, 255], ["cell key", cell_key, 0xffff]]
         .each do |part, value, limit|
           next if value.to_s.bytesize <= limit
 

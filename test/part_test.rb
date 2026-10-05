@@ -20,7 +20,7 @@ class PartTest < Minitest::Test
     end
   end
 
-  class PreviewOperator < Flezha::Operator
+  class PreviewRelay < Flezha::Relay
     factory_id "preview_op"
     channels do |c|
       c.input("in", codec: :text).into(Previewer).sink("answer", encode: ->(v) { "<#{v.to_json}>".b })
@@ -30,7 +30,7 @@ class PartTest < Minitest::Test
   def answer(core, items)
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
-    deps = Flezha::TestSupport.wired_deps(PreviewOperator, core)
+    deps = Flezha::TestSupport.wired_deps(PreviewRelay, core)
     activation = Flezha::TestSupport.activation(factory: "preview_op", token: 9, items: items)
     Flezha::Dispatch.answer(activation, deps)
   end
@@ -84,21 +84,21 @@ class PartTest < Minitest::Test
     end
   end
 
-  class Relay < Flezha::Tasklet
-    tasklet_name "part_relay"
+  class Forward < Flezha::Tasklet
+    tasklet_name "part_pass"
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class FeederOperator < Flezha::Operator
+  class FeederRelay < Flezha::Relay
     factory_id "part_feeder_op"
-    channels { |c| c.input("in", codec: :text).into(Feeder).into(Relay).sink("answer") }
+    channels { |c| c.input("in", codec: :text).into(Feeder).into(Forward).sink("answer") }
   end
 
   class Answerer < Feeder
     tasklet_name "part_answerer"
   end
 
-  class AnswererOperator < Flezha::Operator
+  class AnswererRelay < Flezha::Relay
     factory_id "part_answerer_op"
     channels { |c| c.input("in", codec: :text).into(Answerer).response }
   end
@@ -106,8 +106,8 @@ class PartTest < Minitest::Test
   def test_a_channel_without_a_sink_refuses_the_part
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
-    assert_equal %w[x], released(FeederOperator, %w[x])
-    assert_equal %w[y], released(AnswererOperator, %w[y], sink: "part_answerer")
+    assert_equal %w[x], released(FeederRelay, %w[x])
+    assert_equal %w[y], released(AnswererRelay, %w[y], sink: "part_answerer")
     refusals = Array.new(Feeder::REFUSALS.size) { Feeder::REFUSALS.pop }
 
     assert_equal %w[part.no_sink part.no_sink], refusals,
@@ -116,9 +116,9 @@ class PartTest < Minitest::Test
 
   private
 
-  def released(operator, inputs, sink: "answer")
+  def released(relay, inputs, sink: "answer")
     outputs = []
-    run = Flezha::LocalOperator.start(operator)
+    run = Flezha::LocalRelay.start(relay)
     begin
       run.on_sink(sink) { |output| outputs << output.payload.dup.force_encoding("UTF-8") }
       inputs.each { |input| run.feed("in", input) }

@@ -39,7 +39,7 @@ module Fixtures
     tasklet_name "part_echo"
   end
 
-  class PartEcho < Flezha::Operator
+  class PartEcho < Flezha::Relay
     factory_id "part_echo"
     channels do |c|
       c.input("in", codec: :text).retry_backoff_ms(25).into(PartEchoStep).sink("answer")
@@ -50,7 +50,7 @@ module Fixtures
     tasklet_name "part_echo_turn"
   end
 
-  class PartEchoSteps < Flezha::Operator
+  class PartEchoSteps < Flezha::Relay
     factory_id "part_echo_steps"
     run steps: { each: :per_input }
     durable FIXTURE_DURABLE

@@ -10,9 +10,9 @@
 # default) or the fiber scheduler, and the fixtures are identical under both.
 #
 # FLEZHA_LOCAL_SEND_SCRIPT is the local-send drill: a JSON array of
-# `{operator, channel, message, when}` sends this app's own code makes with
+# `{relay, channel, message, when}` sends this app's own code makes with
 # `local`, each once the file `when` names exists, printing
-# `local_send <operator> ok` or `local_send <operator> err <code>` per send.
+# `local_send <relay> ok` or `local_send <relay> err <code>` per send.
 
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 
@@ -38,11 +38,11 @@ if (topology = ENV["FLEZHA_REFUSAL_FIXTURE"])
   # topology dies at declaration, before the core is started.
   Conformance.register_only(runner, topology)
 else
-  Fixtures::ALL.each { |operator| runner.register_factory(operator) }
+  Fixtures::ALL.each { |relay| runner.register_factory(relay) }
   Fixtures::SHORTHAND.each { |short_form| runner.register_factory(short_form) }
-  Fixtures::STEPS.each { |operator| runner.register_factory(operator) }
-  Fixtures::PARTS.each { |operator| runner.register_factory(operator) }
-  Fixtures::CALLS.each { |operator| runner.register_factory(operator) }
+  Fixtures::STEPS.each { |relay| runner.register_factory(relay) }
+  Fixtures::PARTS.each { |relay| runner.register_factory(relay) }
+  Fixtures::CALLS.each { |relay| runner.register_factory(relay) }
 end
 
 # The harness stops a runner by closing its pipes. A write that lands after
@@ -62,10 +62,10 @@ if (script = ENV["FLEZHA_LOCAL_SEND_SCRIPT"])
     JSON.parse(script).each do |send|
       sleep(0.05) until File.exist?(send["when"])
       begin
-        runner.send_to(send["operator"], send["message"], send["channel"], local: true)
-        puts("local_send #{send['operator']} ok")
+        runner.send_to(send["relay"], send["message"], send["channel"], local: true)
+        puts("local_send #{send['relay']} ok")
       rescue Flezha::Error => e
-        puts("local_send #{send['operator']} err #{e.code}")
+        puts("local_send #{send['relay']} err #{e.code}")
       end
     end
   end

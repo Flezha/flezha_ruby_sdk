@@ -24,10 +24,10 @@ module Flezha
       @lock = Mutex.new
     end
 
-    # Where the cell an activation names keeps its state. The operator is part
-    # of it: one class serves every operator of its factory on this runner,
+    # Where the cell an activation names keeps its state. The relay is part
+    # of it: one class serves every relay of its factory on this runner,
     # such as each steps instance, and each has cells of its own.
-    def self.address(activation, node) = [activation[:operator], node.index, activation[:cell_key]]
+    def self.address(activation, node) = [activation[:relay], node.index, activation[:cell_key]]
 
     # The cell's live state, created from the declaration on first touch.
     def state_of(node, address)
@@ -90,7 +90,7 @@ module Flezha
     # An entry channel's decoder, or the entry edge's transforms over what it
     # decoded, rejected a message. Only the entrance raises this: the verdict
     # it becomes tells the core the message is unreadable rather than that the
-    # handler failed, so a steps operator parks it and keeps waiting instead of
+    # handler failed, so a steps relay parks it and keeps waiting instead of
     # ending.
     class UnreadableMessage < StandardError
       def initialize(cause)
@@ -173,7 +173,7 @@ module Flezha
       address = RegisteredClass.address(activation, node)
       ctx = Ctx.new(
         spec: registered.spec, node: node, outgoing: registered.outgoing[node.index],
-        operator: activation[:operator], cell_key: activation[:cell_key],
+        relay: activation[:relay], cell_key: activation[:cell_key],
         change_seq: activation[:change_seq], now: now, replay: replay,
         state: registered.state_of(node, address), bridge: deps.bridge,
         token: activation[:token], offset: offset, item: item,
@@ -246,7 +246,7 @@ module Flezha
         channel.nil? || channel.kind == :entry || registered.spec.runs_in_steps?
       edge = untransformed ? edge_into(channel, node.index) : nil
       # The entrance (the entry channel's decoder and the entry edge's
-      # transforms) is where a message the operator cannot read is told
+      # transforms) is where a message the relay cannot read is told
       # apart from a handler that fails on one it can.
       values =
         begin

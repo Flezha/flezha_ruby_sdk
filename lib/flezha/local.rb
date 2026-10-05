@@ -5,16 +5,16 @@ module Flezha
   # deployed run would have put on the wire, `flz.*` stamps included.
   SinkOutput = Struct.new(:channel, :payload, :metadata, keyword_init: true)
 
-  # Running a declared operator graph in this process, with no controller.
+  # Running a declared relay graph in this process, with no controller.
   #
-  # `LocalOperator.start` takes the operator class you deploy and runs the
+  # `LocalRelay.start` takes the relay class you deploy and runs the
   # `channels` graph it already declares — no local-mode member on the class,
   # no second declaration. What runs is the deployed machinery: entry decode,
   # edge transforms and keying, one Cell per resolved key with its own
   # mailbox, the retry ladder, and inter-tasklet delivery performed by the
   # runtime.
   #
-  #   run = Flezha::LocalOperator.start(WordCount)
+  #   run = Flezha::LocalRelay.start(WordCount)
   #   run.on_sink("totals") { |output| puts output.payload }
   #   run.feed("lines", "the quick brown fox")
   #   run.run_until_idle(5_000)
@@ -24,7 +24,7 @@ module Flezha
   # placement and migration, the dead-letter queue, observability export,
   # authz and multi-runner scale all need a controller; the run says so on
   # stderr every time it starts. `docs/quickstart.md` walks through it.
-  class LocalOperator
+  class LocalRelay
     # Bounded so a stopped run's drain thread leaves promptly.
     OUTPUT_POLL_MS = 100
 

@@ -2,7 +2,7 @@
 
 require_relative "test_helper"
 
-# The Ruby SDK's local mode: a user's own operator class, its declared
+# The Ruby SDK's local mode: a user's own relay class, its declared
 # two-tasklet graph, and no controller anywhere.
 #
 # The graph and its expected sink output are read from
@@ -33,7 +33,7 @@ class LocalModeTest < Minitest::Test
     end
   end
 
-  class WordCount < Flezha::Operator
+  class WordCount < Flezha::Relay
     factory_id "local_word_count_ruby"
     channels do |c|
       c.input("lines", codec: :text)
@@ -63,7 +63,7 @@ class LocalModeTest < Minitest::Test
   def test_a_declared_graph_runs_locally_and_releases_the_recorded_output
     lines, expected = scenario
     released = []
-    run = Flezha::LocalOperator.start(WordCount)
+    run = Flezha::LocalRelay.start(WordCount)
     begin
       run.on_sink("totals") { |output| released << output }
       lines.each { |line| run.feed("lines", line) }
@@ -84,7 +84,7 @@ class LocalModeTest < Minitest::Test
   end
 
   def test_a_channel_the_class_does_not_declare_is_refused_by_name
-    run = Flezha::LocalOperator.start(WordCount)
+    run = Flezha::LocalRelay.start(WordCount)
     begin
       error = assert_raises(Flezha::Error) { run.feed("nope", "1") }
 
@@ -105,14 +105,14 @@ class LocalModeTest < Minitest::Test
     end
   end
 
-  class DefaultCodecs < Flezha::Operator
+  class DefaultCodecs < Flezha::Relay
     factory_id "local_default_codecs_ruby"
     channels { |c| c.input("in").into(Defaults).sink("out") }
   end
 
   ECHOLESS_CALLS = Queue.new
 
-  class Echoless < Flezha::Operator
+  class Echoless < Flezha::Relay
     factory_id "local_echoless_ruby"
     input "ticks"
     codec :text
@@ -124,7 +124,7 @@ class LocalModeTest < Minitest::Test
   end
 
   def test_a_sinkless_short_form_whose_run_returns_a_value_runs_it_once
-    run = Flezha::LocalOperator.start(Echoless)
+    run = Flezha::LocalRelay.start(Echoless)
     begin
       run.feed("ticks", "a")
       run.run_until_idle(5_000)
@@ -137,7 +137,7 @@ class LocalModeTest < Minitest::Test
 
   def test_an_undeclared_entry_reads_json_and_an_undeclared_sink_follows_the_value
     released = []
-    run = Flezha::LocalOperator.start(DefaultCodecs)
+    run = Flezha::LocalRelay.start(DefaultCodecs)
     begin
       run.on_sink("out") { |output| released << output.payload }
       run.feed("in", '{"a":1}')

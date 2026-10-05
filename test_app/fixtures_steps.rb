@@ -106,7 +106,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit("echo:#{input}")
   end
 
-  class EchoSteps < Flezha::Operator
+  class EchoSteps < Flezha::Relay
     factory_id "echo_steps"
     run :steps
     durable FIXTURE_DURABLE
@@ -115,7 +115,7 @@ module Fixtures
 
   # -- typed_once_steps --------------------------------------------------
   #
-  # A `once` steps operator whose entry decodes JSON: its one pass runs over the
+  # A `once` steps relay whose entry decodes JSON: its one pass runs over the
   # message it was spawned or sent with, prints what it read, emits it to the
   # `placed` sink and completes with it.
 
@@ -131,7 +131,7 @@ module Fixtures
     end
   end
 
-  class TypedOnceSteps < Flezha::Operator
+  class TypedOnceSteps < Flezha::Relay
     factory_id "typed_once_steps"
     run :steps
     durable FIXTURE_DURABLE
@@ -159,14 +159,14 @@ module Fixtures
     c.input("in", codec: :text).into(CommitA).named("mid").into(BlockB)
   end
 
-  class CommitBlockSteps < Flezha::Operator
+  class CommitBlockSteps < Flezha::Relay
     factory_id "commit_block_steps"
     run :steps
     durable FIXTURE_DURABLE
     channels(&COMMIT_BLOCK_CHAIN)
   end
 
-  class SyncDurableSteps < Flezha::Operator
+  class SyncDurableSteps < Flezha::Relay
     factory_id "sync_durable_steps"
     run :steps
     durable :remote
@@ -180,7 +180,7 @@ module Fixtures
   # without durable state. A crash re-runs the chain from the top, so the sink
   # sees A's marker once per run and no journal file exists.
 
-  class OptoutCommitBlock < Flezha::Operator
+  class OptoutCommitBlock < Flezha::Relay
     factory_id "optout_commit_block"
     run :steps
     durable false
@@ -203,7 +203,7 @@ module Fixtures
     def released(input, ctx) = ctx.emit("committed:#{input}", key: "job")
   end
 
-  class TierCommitBlockSteps < Flezha::Operator
+  class TierCommitBlockSteps < Flezha::Relay
     factory_id "tier_commit_block_steps"
     run :steps
     durable FIXTURE_DURABLE
@@ -236,7 +236,7 @@ module Fixtures
     def run(_input, _ctx) = raise("saga_c always fails")
   end
 
-  class SagaBlockSteps < Flezha::Operator
+  class SagaBlockSteps < Flezha::Relay
     factory_id "saga_block_steps"
     run :steps
     durable FIXTURE_DURABLE
@@ -280,14 +280,14 @@ module Fixtures
      .into(KeyedCommit).named("committed")
   end
 
-  class KeyedBlockSteps < Flezha::Operator
+  class KeyedBlockSteps < Flezha::Relay
     factory_id "keyed_block_steps"
     run :steps
     durable FIXTURE_DURABLE
     channels { |c| KEYED_COMMITS.call(c).into(BlockB) }
   end
 
-  class KeyedSagaSteps < Flezha::Operator
+  class KeyedSagaSteps < Flezha::Relay
     factory_id "keyed_saga_steps"
     run :steps
     durable FIXTURE_DURABLE
@@ -306,7 +306,7 @@ module Fixtures
     def released(input, ctx) = ctx.emit(input, key: "k", metadata: { "trace" => "t1" })
   end
 
-  class OutboxBlockSteps < Flezha::Operator
+  class OutboxBlockSteps < Flezha::Relay
     factory_id "outbox_block_steps"
     run :steps
     durable FIXTURE_DURABLE
@@ -341,7 +341,7 @@ module Fixtures
     def run(_input, _ctx) = raise("undo_outbox_c always fails")
   end
 
-  class UndoOutboxSteps < Flezha::Operator
+  class UndoOutboxSteps < Flezha::Relay
     factory_id "undo_outbox_steps"
     run :steps
     durable FIXTURE_DURABLE
@@ -369,7 +369,7 @@ module Fixtures
     end
   end
 
-  class FailedStageSteps < Flezha::Operator
+  class FailedStageSteps < Flezha::Relay
     factory_id "failed_stage_steps"
     run :steps
     durable FIXTURE_DURABLE
@@ -430,7 +430,7 @@ module Fixtures
     end
   end
 
-  class BranchSteps < Flezha::Operator
+  class BranchSteps < Flezha::Relay
     factory_id "branch_steps"
     run :steps
     durable FIXTURE_DURABLE
@@ -489,7 +489,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit("j:#{input}")
   end
 
-  class DiamondSteps < Flezha::Operator
+  class DiamondSteps < Flezha::Relay
     factory_id "diamond_steps"
     run :steps
     durable FIXTURE_DURABLE
@@ -538,7 +538,7 @@ module Fixtures
     end
   end
 
-  class RetrySteps < Flezha::Operator
+  class RetrySteps < Flezha::Relay
     factory_id "retry_steps"
     run :steps
     durable FIXTURE_DURABLE
@@ -621,7 +621,7 @@ module Fixtures
   # A loop here ends on an external stop, or on `bye` where ChatTurn runs; the
   # duration backstop keeps a stray instance from outliving the test run. The
   # knobs are declared once and inherited; `factory_id` deliberately is not.
-  class LoopSteps < Flezha::Operator
+  class LoopSteps < Flezha::Relay
     run steps: { each: :per_input }
     durable FIXTURE_DURABLE
     max_duration_ms 600_000
@@ -645,7 +645,7 @@ module Fixtures
 
   # keyed_loop_steps is a durable per-input loop keyed on its entry edge
   # by the text before the first `:`, so one Cell counts one symbol's messages
-  # and emits `<symbol>:<count>`: the shape a partition group of steps operator
+  # and emits `<symbol>:<count>`: the shape a partition group of steps relay
   # members takes.
   class KeyedLoopCount < Flezha::Tasklet
     tasklet_name "keyed_loop_count"
@@ -780,7 +780,7 @@ module Fixtures
   end.freeze
 
   def self.bench_chain(id, steps, persist)
-    Class.new(Flezha::Operator) do
+    Class.new(Flezha::Relay) do
       factory_id id
       run :steps
       durable(persist ? :local : false)
@@ -840,12 +840,12 @@ module Fixtures
 
   # -- timer_loop_steps --------------------------------------------------
   #
-  # `in -> tick -> relay -> out`, a per-input loop whose `tick` arms a
+  # `in -> tick -> tock -> out`, a per-input loop whose `tick` arms a
   # processing-time timer of the delay `after:<ms>` names and emits
   # `armed:<at>`; its firing emits `fired:<at>` and opens a pass of its own.
   # `slow:<ms>` holds `tick` that long, for a firing due mid-pass (steps.rs).
   # On a runner booted with `FLEZHA_STEPS_E2E_HOLD` the firing parks at the
-  # gate: `timer` inside `on_timer`, before `tick` commits; `relay` in `relay`, after.
+  # gate: `timer` inside `on_timer`, before `tick` commits; `tock` in `tock`, after.
 
   class TimerTick < Flezha::Tasklet
     tasklet_name "tick"
@@ -872,19 +872,19 @@ module Fixtures
     def millis(input, prefix) = Integer(input.delete_prefix(prefix), exception: false) || 0
   end
 
-  class TimerRelay < Flezha::Tasklet
-    tasklet_name "relay"
+  class TimerTock < Flezha::Tasklet
+    tasklet_name "tock"
 
     def run(input, ctx)
-      Fixtures.hold_at("relay") if input.start_with?("fired:")
-      ctx.emit("relay:#{input}")
+      Fixtures.hold_at("tock") if input.start_with?("fired:")
+      ctx.emit("tock:#{input}")
     end
   end
 
   class TimerLoopSteps < LoopSteps
     factory_id "timer_loop_steps"
     channels do |c|
-      c.input("in", codec: :text).into(TimerTick).named("ticked").into(TimerRelay).sink("out")
+      c.input("in", codec: :text).into(TimerTick).named("ticked").into(TimerTock).sink("out")
     end
   end
 
@@ -949,7 +949,7 @@ module Fixtures
     channels { |c| c.input("in", codec: :text).into(CallTurnStep).response }
   end
 
-  # Every steps operator this app registers, in the reference's order.
+  # Every steps relay this app registers, in the reference's order.
   STEPS = [
     EchoSteps, TypedOnceSteps, CommitBlockSteps, SyncDurableSteps, OptoutCommitBlock,
     TierCommitBlockSteps, SagaBlockSteps, KeyedBlockSteps, KeyedSagaSteps,

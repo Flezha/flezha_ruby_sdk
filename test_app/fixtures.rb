@@ -24,7 +24,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class DoNothingOperator < Flezha::Operator
+  class DoNothingRelay < Flezha::Relay
     factory_id "do_nothing"
     channels do |c|
       c.input("input", codec: :text).into(DoNothing)
@@ -35,7 +35,7 @@ module Fixtures
   # Echo with a declared DropNothing on its entry mailbox. `do_nothing` is the
   # merge-blocking bench factory and must not change; this keeps the round-trip
   # bench's back-pressure posture independent of it.
-  class BenchEchoOperator < Flezha::Operator
+  class BenchEchoRelay < Flezha::Relay
     factory_id "bench_echo"
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
@@ -56,7 +56,7 @@ module Fixtures
     end
   end
 
-  class CompleteFlowOperator < Flezha::Operator
+  class CompleteFlowRelay < Flezha::Relay
     factory_id "complete_flow"
     channels do |c|
       c.input("input", codec: :text).into(CompleteFlow).sink("complete_flow_out")
@@ -76,7 +76,7 @@ module Fixtures
     end
   end
 
-  class ChainedStepsOperator < Flezha::Operator
+  class ChainedStepsRelay < Flezha::Relay
     factory_id "chained_steps"
     run steps: { each: :chained }
     channels do |c|
@@ -97,7 +97,7 @@ module Fixtures
     end
   end
 
-  class CompareFilterOperator < Flezha::Operator
+  class CompareFilterRelay < Flezha::Relay
     factory_id "compare_filter"
     channels do |c|
       c.input("input", codec: :text).into(CompareFilter)
@@ -105,7 +105,7 @@ module Fixtures
     end
   end
 
-  # -- static_cell / sugar_static_cell / mixed_operator ---------------
+  # -- static_cell / sugar_static_cell / mixed_relay ---------------
 
   STATIC_KEYS = %w[a b c d].freeze
 
@@ -146,7 +146,7 @@ module Fixtures
     tasklet_name "macro_static_downstream_tasklet"
   end
 
-  class StaticCellOperator < Flezha::Operator
+  class StaticCellRelay < Flezha::Relay
     factory_id "static_cell"
     channels do |c|
       c.input("input", codec: :text).into(StaticEntry).named("hop")
@@ -157,7 +157,7 @@ module Fixtures
 
   # The reference pipeline sugar leaves the hop unnamed and lets the sink name
   # the producing channel.
-  class SugarStaticCellOperator < Flezha::Operator
+  class SugarStaticCellRelay < Flezha::Relay
     factory_id "sugar_static_cell"
     channels do |c|
       c.input("input", codec: :text).into(MacroStaticEntry)
@@ -174,8 +174,8 @@ module Fixtures
     tasklet_name "mixed_hand_downstream"
   end
 
-  class MixedOperator < Flezha::Operator
-    factory_id "mixed_operator"
+  class MixedRelay < Flezha::Relay
+    factory_id "mixed_relay"
     channels do |c|
       c.input("input", codec: :text).into(MixedMacroEntry).named("hop")
        .into(MixedHandDownstream)
@@ -185,18 +185,18 @@ module Fixtures
 
   # -- the §5 short forms --------------------------------------------------
   #
-  # One operator class each, carrying its one tasklet's `run` body instead
+  # One relay class each, carrying its one tasklet's `run` body instead
   # of `channels`; `runner.rb` registers the class itself. No tasklet stands
   # beside them.
 
-  class SugarDoNothing < Flezha::Operator
+  class SugarDoNothing < Flezha::Relay
     factory_id "sugar_do_nothing"
     sink "sugar_do_nothing_echo"
     codec :text
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class SugarStoreInput < Flezha::Operator
+  class SugarStoreInput < Flezha::Relay
     factory_id "sugar_store_input"
     sink "sugar_store_sink"
     codec :text
@@ -209,7 +209,7 @@ module Fixtures
     end
   end
 
-  class SugarNamedInput < Flezha::Operator
+  class SugarNamedInput < Flezha::Relay
     factory_id "sugar_named_input"
     sink "sugar_named_input_sink"
     input "prices"
@@ -217,7 +217,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class SugarSteps < Flezha::Operator
+  class SugarSteps < Flezha::Relay
     factory_id "sugar_steps"
     run :steps
     durable FIXTURE_DURABLE
@@ -227,7 +227,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class SugarStepsPerInput < Flezha::Operator
+  class SugarStepsPerInput < Flezha::Relay
     factory_id "sugar_steps_per_input"
     sink "sugar_steps_per_input_out"
     codec :text
@@ -237,7 +237,7 @@ module Fixtures
   end
 
   # No sink: what it was sent is proven by its state.
-  class SugarStateOnly < Flezha::Operator
+  class SugarStateOnly < Flezha::Relay
     factory_id "sugar_state_only"
     input "ticks"
     codec :text
@@ -289,7 +289,7 @@ module Fixtures
     [value].pack("N")
   end
 
-  class HybridChannelOperator < Flezha::Operator
+  class HybridChannelRelay < Flezha::Relay
     factory_id "hybrid_channel"
     channels do |c|
       c.input("input", codec: :text).into(HybridProducer).branch(
@@ -316,7 +316,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit("#{input[:source]}:#{input[:payload]}")
   end
 
-  class MergedInputOperator < Flezha::Operator
+  class MergedInputRelay < Flezha::Relay
     factory_id "merged_input"
     channels do |c|
       c.merge
@@ -338,7 +338,7 @@ module Fixtures
     tasklet_name "transform_label_tasklet"
   end
 
-  class TransformChainOperator < Flezha::Operator
+  class TransformChainRelay < Flezha::Relay
     factory_id "transform_chain"
     channels do |c|
       c.input("trades", codec: :text)
@@ -380,7 +380,7 @@ module Fixtures
     tasklet_name "stress_d"
   end
 
-  class CellStressOperator < Flezha::Operator
+  class CellStressRelay < Flezha::Relay
     factory_id "cell_stress"
     channels do |c|
       c.input("input", codec: :text).into(StressA).named("a_to_b")
@@ -405,7 +405,7 @@ module Fixtures
     end
   end
 
-  class PoisonProbeOperator < Flezha::Operator
+  class PoisonProbeRelay < Flezha::Relay
     factory_id "poison_probe"
     channels do |c|
       c.input("input", codec: :text).retry_backoff_ms(25)
@@ -415,7 +415,7 @@ module Fixtures
   end
 
   # The `pool_wedge` fixture: the two ways a runner stops doing work, on one
-  # operator.
+  # relay.
   #
   #   "wedge" — blocks the dispatch inside user code forever, so the SDK's
   #     dispatch counter stops advancing while the heartbeat keeps reporting
@@ -441,7 +441,7 @@ module Fixtures
     end
   end
 
-  class WedgeProbeOperator < Flezha::Operator
+  class WedgeProbeRelay < Flezha::Relay
     factory_id "wedge_probe"
     channels do |c|
       c.input("input", codec: :text).into(WedgeProbe)
@@ -476,7 +476,7 @@ module Fixtures
     end
   end
 
-  class CandleOperator < Flezha::Operator
+  class CandleRelay < Flezha::Relay
     factory_id "candle"
     run flow: { exactly: { effectively_once: { correction_ms: 600_000 } } }
     channels do |c|
@@ -520,7 +520,7 @@ module Fixtures
     end
   end
 
-  class SessionTimeoutOperator < Flezha::Operator
+  class SessionTimeoutRelay < Flezha::Relay
     factory_id "session_timeout"
     channels do |c|
       c.input("input", codec: :text).into(SessionTimeout)
@@ -541,13 +541,13 @@ module Fixtures
     end
   end
 
-  # One operator per overflow policy, over the same bounded-mailbox tasklet. The
+  # One relay per overflow policy, over the same bounded-mailbox tasklet. The
   # capacity and the fold come from the base class: a subclass inherits every
   # declaration its parent made.
   BOUNDED_MAILBOX = %w[drop_nothing drop_newest drop_oldest].map do |policy|
     tasklet = Class.new(BoundedMailbox) { tasklet_name "#{policy}_test_tasklet" }
 
-    Class.new(Flezha::Operator) do
+    Class.new(Flezha::Relay) do
       factory_id "bounded_mailbox_#{policy}"
       channels do |c|
         c.input("#{policy}_input", codec: :text).on_full(policy.to_sym)
@@ -557,16 +557,16 @@ module Fixtures
     end
   end.freeze
 
-  # -- partition_relay -----------------------------------------------------
+  # -- partition_pass -----------------------------------------------------
   #
-  # The partitioned-operators upstream: keyed on the wiring so it can be
+  # The partitioned-relays upstream: keyed on the wiring so it can be
   # partitioned at all, and emitting keyed so a partitioned forward target can
   # resolve the owning member. The plugin channel is named `input` because a
   # forwarded frame keeps its producing channel's name, and that is what
-  # selects the receiving operator's entry channel — so the entry here is `in`.
+  # selects the receiving relay's entry channel — so the entry here is `in`.
 
-  class PartitionRelay < Flezha::Tasklet
-    tasklet_name "partition_relay_tasklet"
+  class PartitionPass < Flezha::Tasklet
+    tasklet_name "partition_pass_tasklet"
     def init_state(_cell_key) = { seen: [] }
     def apply_change(state, change) = state[:seen] << change[:push]
 
@@ -577,11 +577,11 @@ module Fixtures
     end
   end
 
-  class PartitionRelayOperator < Flezha::Operator
-    factory_id "partition_relay"
+  class PartitionPassRelay < Flezha::Relay
+    factory_id "partition_pass"
     channels do |c|
       c.input("in", codec: :text).key_by { |value| PREFIX.call(value) }
-       .into(PartitionRelay).keyed
+       .into(PartitionPass).keyed
        .sink("input")
     end
   end
@@ -603,7 +603,7 @@ module Fixtures
     end
   end
 
-  class DynamicCellOperator < Flezha::Operator
+  class DynamicCellRelay < Flezha::Relay
     factory_id "dynamic_cell"
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
@@ -644,7 +644,7 @@ module Fixtures
     end
   end
 
-  class SpawnRequesterOperator < Flezha::Operator
+  class SpawnRequesterRelay < Flezha::Relay
     factory_id "spawn_requester"
     channels do |c|
       c.input("in", codec: :text).into(SpawnRequester)
@@ -668,7 +668,7 @@ module Fixtures
     end
   end
 
-  class SpawnHoldRequesterOperator < Flezha::Operator
+  class SpawnHoldRequesterRelay < Flezha::Relay
     factory_id "spawn_hold_requester"
     run flow: { exactly: :effectively_once }
     channels do |c|
@@ -692,7 +692,7 @@ module Fixtures
     end
   end
 
-  class SpawnOnceRequesterOperator < Flezha::Operator
+  class SpawnOnceRequesterRelay < Flezha::Relay
     factory_id "spawn_once_requester"
     channels do |c|
       c.input("in", codec: :text).into(SpawnOnceRequester)
@@ -702,7 +702,7 @@ module Fixtures
 
   # -- call_response -------------------------------------------------------
 
-  # Operators an outside caller calls and whose graph answers it through
+  # Relays an outside caller calls and whose graph answers it through
   # `response`: from the first tasklet, from a downstream one, and from
   # whichever of two filtered paths the input took. `call_turn` is the steps
   # one, in fixtures_steps.rb.
@@ -710,7 +710,7 @@ module Fixtures
     tasklet_name "call_echo"
   end
 
-  class CallEcho < Flezha::Operator
+  class CallEcho < Flezha::Relay
     factory_id "call_echo"
     channels { |c| c.input("in", codec: :text).into(CallEchoTasklet).response }
   end
@@ -724,7 +724,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit("re:#{input}")
   end
 
-  class CallDownstream < Flezha::Operator
+  class CallDownstream < Flezha::Relay
     factory_id "call_downstream"
     channels { |c| c.input("in", codec: :text).into(CallParse).into(CallAnswer).response }
   end
@@ -744,7 +744,7 @@ module Fixtures
     def run(input, ctx) = ctx.emit("refused:#{input}")
   end
 
-  class CallSplit < Flezha::Operator
+  class CallSplit < Flezha::Relay
     factory_id "call_split"
     channels do |c|
       admitted = c.input("in", codec: :text).into(CallAdmit)
@@ -753,16 +753,16 @@ module Fixtures
     end
   end
 
-  # Every operator this app registers, in declaration order.
+  # Every relay this app registers, in declaration order.
   ALL = [
-    DoNothingOperator, BenchEchoOperator, CompareFilterOperator,
-    CompleteFlowOperator, ChainedStepsOperator,
-    StaticCellOperator, SugarStaticCellOperator, MixedOperator,
-    HybridChannelOperator,
-    MergedInputOperator, TransformChainOperator, CellStressOperator, *STATE,
-    CandleOperator, PoisonProbeOperator, WedgeProbeOperator, SessionTimeoutOperator, *BOUNDED_MAILBOX,
-    PartitionRelayOperator, DynamicCellOperator, SpawnRequesterOperator,
-    SpawnHoldRequesterOperator, SpawnOnceRequesterOperator,
+    DoNothingRelay, BenchEchoRelay, CompareFilterRelay,
+    CompleteFlowRelay, ChainedStepsRelay,
+    StaticCellRelay, SugarStaticCellRelay, MixedRelay,
+    HybridChannelRelay,
+    MergedInputRelay, TransformChainRelay, CellStressRelay, *STATE,
+    CandleRelay, PoisonProbeRelay, WedgeProbeRelay, SessionTimeoutRelay, *BOUNDED_MAILBOX,
+    PartitionPassRelay, DynamicCellRelay, SpawnRequesterRelay,
+    SpawnHoldRequesterRelay, SpawnOnceRequesterRelay,
     CallEcho, CallDownstream, CallSplit
   ].freeze
 

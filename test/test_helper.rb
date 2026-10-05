@@ -142,9 +142,9 @@ module Flezha
     # The dispatch dependencies over one declared class and one peer. Every
     # suite that drives the dispatcher needs exactly this, so it is built here
     # rather than once per fixture.
-    def self.deps(operator_class, core)
+    def self.deps(relay_class, core)
       registry = Flezha::Registry.new
-      registry.add(operator_class.spec)
+      registry.add(relay_class.spec)
       Flezha::DispatchDeps.new(registry: registry, bridge: core)
     end
 
@@ -153,15 +153,15 @@ module Flezha
     # an author declared and the core says which of them became edges, so a
     # dispatch over a graph needs a real context to have judged the record
     # first.
-    def self.wired_deps(operator_class, core = FakeCore.new)
-      validate(operator_class.spec)
-      deps(operator_class, core)
+    def self.wired_deps(relay_class, core = FakeCore.new)
+      validate(relay_class.spec)
+      deps(relay_class, core)
     end
 
     # One activation, with the fields every kind carries; a caller merges what
     # its own kind adds.
     def self.activation(factory:, **extra)
-      { token: 1, operator: "op-1", tasklet: 0, cell_key: nil, change_seq: 0,
+      { token: 1, relay: "op-1", tasklet: 0, cell_key: nil, change_seq: 0,
         factory: factory, kind: :work }.merge(extra)
     end
 

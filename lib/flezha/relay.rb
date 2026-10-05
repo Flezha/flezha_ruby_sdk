@@ -6,11 +6,11 @@ require_relative "errors"
 require_relative "tasklet"
 
 module Flezha
-  # The base an authored operator subclasses. Its class body declares the
+  # The base an authored relay subclasses. Its class body declares the
   # factory id and one body: a `channels` graph, or, for the single-tasklet
   # short form, that tasklet's `run` instance method, which emits through its
   # `ctx` as a tasklet's does. `spec` resolves the declaration once.
-  class Operator
+  class Relay
     extend Declarative
     # A short form's tasklet settings, handed to the tasklet it generates.
     extend TaskletSettings
@@ -29,7 +29,7 @@ module Flezha
     # reads the tree when the class registers and refuses a misplaced setting
     # by name.
     setting :run, :durable, :max_duration_ms, :description
-    # `factory_id` is deliberately NOT inherited: two operators cannot share
+    # `factory_id` is deliberately NOT inherited: two relays cannot share
     # one, and a subclass silently taking its parent's would be refused by the
     # core at declare time rather than here.
 
@@ -53,9 +53,9 @@ module Flezha
 
         check_declaration!
         @tasklet ||= Class.new(Tasklet).tap do |generated|
-          operator = self
+          relay = self
           generated.tasklet_name(@factory_id)
-          generated.define_singleton_method(:body) { operator }
+          generated.define_singleton_method(:body) { relay }
           hand_down(generated, TaskletSettings::NAMES)
         end
       end
@@ -65,14 +65,14 @@ module Flezha
       # the spec is built.
       def check_declaration!
         # A factory id is written, never derived from the class.
-        raise Error.new("topology.missing_factory_id", operator: to_s) unless @factory_id
+        raise Error.new("topology.missing_factory_id", relay: to_s) unless @factory_id
 
         if short_form?
           raise Error.new("topology.short_form_with_topology", factory_id: @factory_id) if channels
         elsif channels
           refuse_written("topology.short_form_field_on_full_form", SHORT_FORM_ONLY)
         else
-          raise Error.new("topology.missing_body", declaration: "operator '#{@factory_id}'",
+          raise Error.new("topology.missing_body", declaration: "relay '#{@factory_id}'",
                                                    body: "`channels`, or one tasklet's `run` as the short form")
         end
       end

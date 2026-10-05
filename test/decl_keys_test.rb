@@ -41,7 +41,7 @@ class DeclKeysTest < Minitest::Test
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class FullFlow < Flezha::Operator
+  class FullFlow < Flezha::Relay
     factory_id "decl_keys_flow"
     description "every flow key"
     run flow: { exactly: { effectively_once: {
@@ -92,7 +92,7 @@ class DeclKeysTest < Minitest::Test
   # source's own links, its mapping, the merge's key, then the merge naming
   # the node and a group of its own per merge.
   def test_a_merge_records_each_source_chain_in_the_cores_link_shape
-    klass = Class.new(Flezha::Operator)
+    klass = Class.new(Flezha::Relay)
     klass.factory_id "decl_keys_merge"
     klass.channels do |c|
       c.merge.from(c.input("a")) { |v| v }.from(c.input("b").flat_map { |v| [v] }) { |v| v }
@@ -133,7 +133,7 @@ class ReferenceTopologiesTest < Minitest::Test
     def run(_input, _ctx) = nil
   end
 
-  class HybridChannel < Flezha::Operator
+  class HybridChannel < Flezha::Relay
     factory_id "hybrid_channel"
     channels do |c|
       c.input("input").into(HybridProducer)
@@ -151,7 +151,7 @@ class ReferenceTopologiesTest < Minitest::Test
     def run(_input, _ctx) = nil
   end
 
-  class CommitBlockChain < Flezha::Operator
+  class CommitBlockChain < Flezha::Relay
     factory_id "commit_block_chain"
     run :steps
     channels do |c|

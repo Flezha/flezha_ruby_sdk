@@ -110,7 +110,7 @@ module Flezha
     end
 
     # The nodes some chain reaches through a `key` link. The cell mode is the
-    # wiring's, so one tasklet can be keyed in one operator and single in
+    # wiring's, so one tasklet can be keyed in one relay and single in
     # another.
     def keyed_nodes(spec)
       spec.channels.flat_map(&:chains).each_with_object(Set.new) do |links, keyed|

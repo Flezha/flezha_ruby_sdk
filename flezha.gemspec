@@ -7,7 +7,7 @@ Gem::Specification.new do |spec|
   spec.version = Flezha::VERSION
   spec.summary = "The Flezha Ruby SDK — a poll host over flz_core"
   spec.description = <<~TEXT
-    Author Flezha operators in Ruby: flow and steps classes over the same
+    Author Flezha relays in Ruby: flow and steps classes over the same
     shared kernel the Rust, Java, Node and Elixir SDKs drive. Transport,
     ordering, per-cell exclusivity, durability, retries, timers, credit and
     the steps driver all live in the core; this gem brings the authoring

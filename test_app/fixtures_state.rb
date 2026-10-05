@@ -70,7 +70,7 @@ module Fixtures
 
   # The same keyed upsert under both durability postures, so the round-trip
   # bench can isolate the cost of per-Cell persistence.
-  class KeyedUpsertOperator < Flezha::Operator
+  class KeyedUpsertRelay < Flezha::Relay
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
        .into(TierStore).keyed
@@ -80,21 +80,21 @@ module Fixtures
 
   # Per-cell persistence off: this is the heap-only posture the bench
   # isolates against the durable one.
-  class BenchKeyedNoPersistOperator < KeyedUpsertOperator
+  class BenchKeyedNoPersistRelay < KeyedUpsertRelay
     factory_id "bench_keyed_nopersist"
     durable false
   end
 
-  class BenchKeyedOperator < KeyedUpsertOperator
+  class BenchKeyedRelay < KeyedUpsertRelay
     factory_id "bench_keyed"
   end
 
   # The effectively-once reference: a keyed upsert under the tier. A 300 ms
   # backoff base keeps the min-watermark freeze observable in the DLQ e2e.
-  # Declared DropNothing: a durable-input-log operator that shed at its
+  # Declared DropNothing: a durable-input-log relay that shed at its
   # mailbox would hold the min-watermark on the shed offset forever while the
   # log behind it kept growing.
-  class TierStoreOperator < Flezha::Operator
+  class TierStoreRelay < Flezha::Relay
     factory_id "tier_store"
     run flow: { exactly: :effectively_once }
     channels do |c|
@@ -106,25 +106,25 @@ module Fixtures
 
   # `tier_store` kept `durable: remote`: an input is acknowledged only once the
   # durability backend holds the records it produced.
-  class RemoteTierStoreOperator < TierStoreOperator
+  class RemoteTierStoreRelay < TierStoreRelay
     factory_id "remote_tier_store"
     durable :remote
   end
 
   # -- tier_chain ------------------------------------------------------------
   #
-  # An effectively-once stream of two tasklets. `tier_relay` counts what it
-  # relays and passes each `key:value` on; `tier_tally` counts each key's
+  # An effectively-once stream of two tasklets. `tier_pass` counts what it
+  # forwards and passes each `key:value` on; `tier_tally` counts each key's
   # inputs and emits `key=count`. Until the release env is set the tally fails
   # the value `hold` and keeps retrying it, so a runner killed there has made
-  # the relay's record durable and not the tally's.
+  # the pass's record durable and not the tally's.
   class Counting < Flezha::Tasklet
     def init_state(_cell_key) = { value: 0 }
     def apply_change(state, change) = state[:value] += change[:delta]
   end
 
-  class TierRelay < Counting
-    tasklet_name "tier_relay"
+  class TierPass < Counting
+    tasklet_name "tier_pass"
 
     def run(input, ctx)
       ctx.change({ delta: 1 })
@@ -146,19 +146,19 @@ module Fixtures
     end
   end
 
-  class TierChainOperator < Flezha::Operator
+  class TierChainRelay < Flezha::Relay
     factory_id "tier_chain"
     run flow: { exactly: :effectively_once }
     channels do |c|
       c.input("input", codec: :text).on_full(:drop_nothing)
-       .into(TierRelay)
+       .into(TierPass)
        .key_by { |value| PREFIX.call(value) }.retry_max(1_000)
        .into(TierTally).keyed
        .sink("sink")
     end
   end
 
-  class CheckpointStoreOperator < Flezha::Operator
+  class CheckpointStoreRelay < Flezha::Relay
     factory_id "checkpoint_store"
     run flow: { exactly: { effectively_once: { ack: :checkpoint } } }
     channels do |c|
@@ -172,7 +172,7 @@ module Fixtures
   # `every` is deliberately absent so the test drives the close
   # itself — with `commit:` for the batch case, and with the delay alone for
   # the quiet-Cell case.
-  class CheckpointBatchedOperator < Flezha::Operator
+  class CheckpointBatchedRelay < Flezha::Relay
     factory_id "checkpoint_batched_store"
     run flow: { exactly: { effectively_once: { ack: { checkpoint: { outputs: :at_checkpoint, max_delay_ms: 1_500 } } } } }
     channels do |c|
@@ -189,7 +189,7 @@ module Fixtures
   # 500) per Cell. `FLEZHA_BENCH_CHECKPOINT_OUTPUTS=at_checkpoint` (with
   # `FLEZHA_BENCH_CHECKPOINT_DELAY_MS`) additionally holds the interval's
   # outputs until it closes.
-  class BenchCheckpointOperator < Flezha::Operator
+  class BenchCheckpointRelay < Flezha::Relay
     factory_id "bench_checkpoint"
     checkpoint = { every: ENV_INT.call("FLEZHA_BENCH_CHECKPOINT_EVERY", 500) }
     if ENV["FLEZHA_BENCH_CHECKPOINT_OUTPUTS"] == "at_checkpoint"
@@ -218,7 +218,7 @@ module Fixtures
     end
   end
 
-  class StoreInputOperator < Flezha::Operator
+  class StoreInputRelay < Flezha::Relay
     factory_id "store_input"
     channels do |c|
       c.input("input", codec: :text).into(StoreInput)
@@ -244,7 +244,7 @@ module Fixtures
     end
   end
 
-  class StatefulCounterOperator < Flezha::Operator
+  class StatefulCounterRelay < Flezha::Relay
     factory_id "stateful_counter"
     channels do |c|
       c.input("input", codec: :text).into(CounterEntry).named("ticks").into(Counter)
@@ -253,7 +253,7 @@ module Fixtures
 
   # The same topology with per-Cell persistence off, under the reference's
   # node names: the toggle is a class property, not a different computation.
-  class PersistenceOffCounterOperator < Flezha::Operator
+  class PersistenceOffCounterRelay < Flezha::Relay
     factory_id "persistence_off_counter"
     durable false
     channels do |c|
@@ -265,7 +265,7 @@ module Fixtures
 
   # -- sleeping_counter ------------------------------------------------------
   #
-  # A flow operator that sleeps when idle: `key:delta` inputs fold into one running
+  # A flow relay that sleeps when idle: `key:delta` inputs fold into one running
   # total per key, and every input emits `key=total` on the `totals` sink. The
   # sleep e2e reads the total after a wake to prove the Cell came back with the
   # state it slept with.
@@ -282,7 +282,7 @@ module Fixtures
     end
   end
 
-  class SleepingCounterOperator < Flezha::Operator
+  class SleepingCounterRelay < Flezha::Relay
     factory_id "sleeping_counter"
     durable FIXTURE_DURABLE
     channels do |c|
@@ -319,7 +319,7 @@ module Fixtures
     end
   end
 
-  class CoalescingCounterOperator < Flezha::Operator
+  class CoalescingCounterRelay < Flezha::Relay
     factory_id "coalescing_counter"
     channels do |c|
       c.input("input", codec: :text).into(TickEntry).named("ticks").into(Tick)
@@ -343,7 +343,7 @@ module Fixtures
     end
   end
 
-  class ResumeProbeOperator < Flezha::Operator
+  class ResumeProbeRelay < Flezha::Relay
     factory_id "resume_probe"
     channels do |c|
       c.input("input", codec: :text).into(ResumeProbe)
@@ -354,7 +354,7 @@ module Fixtures
   # -- schema_evolution_v1 / schema_evolution_v2 -----------------------------
   #
   # The same class either side of a deploy that edits its own state type. Both
-  # halves declare the SAME tasklet name, so an operator started under v1
+  # halves declare the SAME tasklet name, so a relay started under v1
   # and restarted under v2 restores from the very WAL v1 wrote — which is what
   # a deploy does, with the two binaries collapsed into one fixture file.
   #
@@ -406,7 +406,7 @@ module Fixtures
     end
   end
 
-  class SchemaEvolutionV1Operator < Flezha::Operator
+  class SchemaEvolutionV1Relay < Flezha::Relay
     factory_id "schema_evolution_v1"
     channels do |c|
       c.input("input", codec: :text).into(EvolvingCartV1)
@@ -414,7 +414,7 @@ module Fixtures
     end
   end
 
-  class SchemaEvolutionV2Operator < Flezha::Operator
+  class SchemaEvolutionV2Relay < Flezha::Relay
     factory_id "schema_evolution_v2"
     channels do |c|
       c.input("input", codec: :text).into(EvolvingCartV2)
@@ -424,11 +424,11 @@ module Fixtures
 
   # The persisted-state family, in declaration order.
   STATE = [
-    BenchKeyedNoPersistOperator, StoreInputOperator, StatefulCounterOperator,
-    PersistenceOffCounterOperator, SleepingCounterOperator, CoalescingCounterOperator,
-    ResumeProbeOperator, BenchKeyedOperator, SchemaEvolutionV1Operator,
-    SchemaEvolutionV2Operator, TierStoreOperator, RemoteTierStoreOperator, TierChainOperator,
-    CheckpointStoreOperator,
-    CheckpointBatchedOperator, BenchCheckpointOperator
+    BenchKeyedNoPersistRelay, StoreInputRelay, StatefulCounterRelay,
+    PersistenceOffCounterRelay, SleepingCounterRelay, CoalescingCounterRelay,
+    ResumeProbeRelay, BenchKeyedRelay, SchemaEvolutionV1Relay,
+    SchemaEvolutionV2Relay, TierStoreRelay, RemoteTierStoreRelay, TierChainRelay,
+    CheckpointStoreRelay,
+    CheckpointBatchedRelay, BenchCheckpointRelay
   ].freeze
 end

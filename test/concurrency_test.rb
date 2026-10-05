@@ -12,7 +12,7 @@ class ConcurrencyTest < Minitest::Test
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class EchoOperator < Flezha::Operator
+  class EchoRelay < Flezha::Relay
     factory_id "echo_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
@@ -20,11 +20,11 @@ class ConcurrencyTest < Minitest::Test
     end
   end
 
-  def deps(core) = Flezha::TestSupport.deps(EchoOperator, core)
+  def deps(core) = Flezha::TestSupport.deps(EchoRelay, core)
 
   def activation(token, payload)
     Flezha::TestSupport.activation(
-      factory: "echo_op", token: token, operator: "op",
+      factory: "echo_op", token: token, relay: "op",
       items: [Flezha::TestSupport.input_item(payload, now: 0)]
     )
   end
@@ -157,7 +157,7 @@ class ConcurrencyTest < Minitest::Test
     end
   end
 
-  class RecorderOperator < Flezha::Operator
+  class RecorderRelay < Flezha::Relay
     factory_id "recorder_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
@@ -172,7 +172,7 @@ class ConcurrencyTest < Minitest::Test
       hold: -> { ORDER_LOCK.synchronize { ORDER << :completed } }
     )
     executor = Flezha::ThreadExecutor.new(
-      core, Flezha::TestSupport.deps(RecorderOperator, core), base: 1, ceiling: 1
+      core, Flezha::TestSupport.deps(RecorderRelay, core), base: 1, ceiling: 1
     ).start
     begin
       assert wait_until { ORDER.size == 2 }
@@ -190,7 +190,7 @@ class ConcurrencyTest < Minitest::Test
     def run(_input, _ctx) = sleep
   end
 
-  class NeverReturnsOperator < Flezha::Operator
+  class NeverReturnsRelay < Flezha::Relay
     factory_id "never_returns_op"
     channels do |c|
       c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
@@ -198,7 +198,7 @@ class ConcurrencyTest < Minitest::Test
     end
   end
 
-  def never_returns_deps(core) = Flezha::TestSupport.deps(NeverReturnsOperator, core)
+  def never_returns_deps(core) = Flezha::TestSupport.deps(NeverReturnsRelay, core)
 
   # A handler that never returns must not keep the runner alive forever. The
   # harness stops runners by closing their pipes, so an unbounded drain leaks a

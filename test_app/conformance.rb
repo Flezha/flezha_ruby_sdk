@@ -6,7 +6,7 @@
 # `flz_core/src/host/check_tests.rs` is the same table driven against the
 # record directly, because the core has no builder. This one maps the same step
 # vocabulary onto the Ruby graph builder, so what is measured here is what an
-# author of a Ruby operator actually writes.
+# author of a Ruby relay actually writes.
 #
 # Two entry points, both off `runner.rb`:
 #
@@ -40,7 +40,7 @@ module Conformance
   # The two topologies the fixture cites rather than re-spells: this app's own
   # fixtures, the twins of its seven-column table.
   CITED = {
-    "hybrid_channel" => Fixtures::HybridChannelOperator,
+    "hybrid_channel" => Fixtures::HybridChannelRelay,
     "commit_block_chain" => Fixtures::TierCommitBlockSteps
   }.freeze
 
@@ -251,12 +251,12 @@ module Conformance
     raise "#{FIXTURE} is not under any parent of the working directory"
   end
 
-  # A row's operator class. Fresh per row: an operator memoises its own spec,
+  # A row's relay class. Fresh per row: a relay memoises its own spec,
   # and the class settings are class declarations rather than builder calls,
   # written as the row wrote them so the core judges the tree.
-  def self.operator_for(row)
+  def self.relay_for(row)
     interpreter = Interpreter.new(row[:steps])
-    klass = Class.new(Flezha::Operator)
+    klass = Class.new(Flezha::Relay)
     klass.factory_id(row[:topology])
     class_settings(row[:steps]).each { |setting, tree| klass.public_send(setting, tree) }
     klass.channels { |builder| interpreter.declare(builder) }
@@ -279,7 +279,7 @@ module Conformance
   end
 
   def self.class_for(row)
-    CITED[row[:topology]] || operator_for(row)
+    CITED[row[:topology]] || relay_for(row)
   end
 
   # The §5 short form. Ruby refuses a malformed declaration where the author
@@ -308,7 +308,7 @@ module Conformance
   # runs in steps, so a collision crosses runs.
   def self.declare_shorthands(declarations)
     declarations.each_with_index.map do |declaration, position|
-      Class.new(Flezha::Operator) do
+      Class.new(Flezha::Relay) do
         factory_id(declaration[:id]) if declaration[:id]
         run(:steps) unless position.zero?
         sink(declaration[:sink]) if declaration[:sink]
@@ -326,7 +326,7 @@ module Conformance
   # what keeps the name the author reads and the name reported the same one.
   def self.judge_shorthand(row, declarations)
     registry = Flezha::Registry.new
-    declare_shorthands(declarations).each { |operator| registry.add(operator.spec) }
+    declare_shorthands(declarations).each { |relay| registry.add(relay.spec) }
     { "topology" => row[:topology], "outcome" => "accepted" }
   rescue Flezha::Error => e
     refused(row, e)
@@ -401,7 +401,7 @@ module Conformance
     end
 
     declarations = shorthand_steps(row)
-    operators = declarations.empty? ? [class_for(row)] : declare_shorthands(declarations)
-    operators.each { |operator| runner.register_factory(operator) }
+    relays = declarations.empty? ? [class_for(row)] : declare_shorthands(declarations)
+    relays.each { |relay| runner.register_factory(relay) }
   end
 end

@@ -12,14 +12,14 @@ class RunnerTest < Minitest::Test
     def run(input, ctx) = ctx.emit(input)
   end
 
-  class EchoOperator < Flezha::Operator
+  class EchoRelay < Flezha::Relay
     factory_id "runner_echo_op"
     channels { |c| c.input("input").into(Echo).sink("out") }
   end
 
   def boot_recording
     core = Flezha::TestSupport::FakeCore.new
-    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperator)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> { core.events << :warmup }) do
         runner.boot(core: core)
@@ -47,11 +47,11 @@ class RunnerTest < Minitest::Test
   def test_declaration_precedes_serving_for_every_declared_class
     core = Flezha::TestSupport::FakeCore.new
     events = core.events
-    second = Class.new(Flezha::Operator)
+    second = Class.new(Flezha::Relay)
     second.factory_id "runner_second_op"
     second.channels { |c| c.input("in").into(Echo, "second_node").sink("o") }
 
-    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperator).register_factory(second)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay).register_factory(second)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> { core.events << :warmup }) do
         runner.boot(core: core)
@@ -73,7 +73,7 @@ class RunnerTest < Minitest::Test
 
   def test_await_termination_waits_for_a_stop_then_drains
     core = Flezha::TestSupport::FakeCore.new
-    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperator)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> { core.events << :warmup }) do
         runner.boot(core: core)
@@ -94,11 +94,11 @@ class RunnerTest < Minitest::Test
     runner = Flezha::Runner.new("test-ns")
 
     error = assert_raises(Flezha::Error) { runner.boot(core: Flezha::TestSupport::FakeCore.new) }
-    assert_equal "runtime.no_operators", error.code
+    assert_equal "runtime.no_relays", error.code
   end
 
   def test_an_unknown_executor_is_refused_by_name
-    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperator).executor(:ractors)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay).executor(:ractors)
 
     Flezha::TestSupport.without_a_terminal do
       error = assert_raises(Flezha::Error) { runner.boot(core: Flezha::TestSupport::FakeCore.new) }
@@ -182,10 +182,10 @@ class RunnerTest < Minitest::Test
   # list: the Ruby runner exposes no accessor for it.
   def declared(runner) = runner.instance_variable_get(:@classes).map(&:factory_id)
 
-  def decl(operator) = Flezha::Graph.to_host_class_decl(operator.spec)
+  def decl(relay) = Flezha::Graph.to_host_class_decl(relay.spec)
 
-  def refused(operator)
-    assert_raises(Flezha::Error) { Flezha::Runner.new("test-ns").register_factory(operator) }
+  def refused(relay)
+    assert_raises(Flezha::Error) { Flezha::Runner.new("test-ns").register_factory(relay) }
   end
 
   # The short forms under test are the test app's own, the classes the
@@ -195,7 +195,7 @@ class RunnerTest < Minitest::Test
     tasklet_name "sugar_do_nothing"
   end
 
-  class DoNothingTwin < Flezha::Operator
+  class DoNothingTwin < Flezha::Relay
     factory_id "sugar_do_nothing"
     channels { |c| c.input("input", codec: :text).into(DoNothingTasklet).sink("sugar_do_nothing_echo") }
   end
@@ -204,7 +204,7 @@ class RunnerTest < Minitest::Test
     tasklet_name "sugar_steps"
   end
 
-  class StepsTwin < Flezha::Operator
+  class StepsTwin < Flezha::Relay
     factory_id "sugar_steps"
     run :steps
     durable Fixtures::FIXTURE_DURABLE
@@ -215,7 +215,7 @@ class RunnerTest < Minitest::Test
     tasklet_name "sugar_steps_per_input"
   end
 
-  class PerInputTwin < Flezha::Operator
+  class PerInputTwin < Flezha::Relay
     factory_id "sugar_steps_per_input"
     run steps: { each: :per_input }
     durable Fixtures::FIXTURE_DURABLE
@@ -229,7 +229,7 @@ class RunnerTest < Minitest::Test
     def run(_input, _ctx) = nil
   end
 
-  class StateOnlyTwin < Flezha::Operator
+  class StateOnlyTwin < Flezha::Relay
     factory_id "sugar_state_only"
     channels { |c| c.input("ticks", codec: :text).into(StateOnlyTasklet) }
   end
@@ -243,7 +243,7 @@ class RunnerTest < Minitest::Test
                  "the generated tasklet is named after the factory id, verbatim"
     assert_equal "héllo", short.spec.channels.first.decode.call("héllo".b),
                  "the entry decodes text"
-    refute_operator short, :<, Flezha::Tasklet, "a short form is an operator, not a tasklet"
+    refute_operator short, :<, Flezha::Tasklet, "a short form is a relay, not a tasklet"
   end
 
   def test_a_steps_short_form_is_equal_to_its_twin
@@ -309,13 +309,13 @@ class RunnerTest < Minitest::Test
 
   def test_unregistering_after_start_is_refused
     core = Flezha::TestSupport::FakeCore.new
-    runner = Flezha::Runner.new("test-ns").register_factory(EchoOperator)
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> {}) do
         runner.boot(core: core)
-        error = assert_raises(Flezha::Error) { runner.unregister_factory(EchoOperator) }
+        error = assert_raises(Flezha::Error) { runner.unregister_factory(EchoRelay) }
 
-        assert_equal ["runtime.factory_in_service", EchoOperator.to_s], [error.code, error.details["module"]]
+        assert_equal ["runtime.factory_in_service", EchoRelay.to_s], [error.code, error.details["module"]]
       ensure
         runner.stop
         runner.drain
@@ -331,7 +331,7 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_run_body_beside_a_channels_body_is_refused
-    both = Class.new(Flezha::Operator) do
+    both = Class.new(Flezha::Relay) do
       factory_id "both"
       channels { |c| c.input("input").into(DoNothingTasklet) }
       def run(input, ctx) = ctx.emit(input)
@@ -343,7 +343,7 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_short_form_with_no_factory_id_is_refused_rather_than_derived
-    derived = Class.new(Flezha::Operator) do
+    derived = Class.new(Flezha::Relay) do
       sink "out"
       def run(input, ctx) = ctx.emit(input)
     end
@@ -354,11 +354,11 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_malformed_short_form_is_refused_before_its_tasklet_is_generated
-    derived = Class.new(Flezha::Operator) do
+    derived = Class.new(Flezha::Relay) do
       sink "out"
       def run(input, ctx) = ctx.emit(input)
     end
-    both = Class.new(Flezha::Operator) do
+    both = Class.new(Flezha::Relay) do
       factory_id "both"
       channels { |c| c.input("in") }
       def run(input, ctx) = ctx.emit(input)
@@ -368,9 +368,9 @@ class RunnerTest < Minitest::Test
     assert_equal "topology.short_form_with_topology", assert_raises(Flezha::Error) { both.tasklet }.code
   end
 
-  def test_an_operator_with_neither_body_is_refused_naming_both
+  def test_a_relay_with_neither_body_is_refused_naming_both
     [nil, :steps].each do |setting|
-      bodiless = Class.new(Flezha::Operator) do
+      bodiless = Class.new(Flezha::Relay) do
         factory_id "bodiless"
         run(setting) if setting
       end
@@ -382,7 +382,7 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_short_form_takes_the_class_settings_the_full_form_takes
-    short = Class.new(Flezha::Operator) do
+    short = Class.new(Flezha::Relay) do
       factory_id "kept_short"
       run steps: { each: :per_input, on_failure: :keep_progress }
       durable local: { sleep_after: 2_000 }
@@ -398,7 +398,7 @@ class RunnerTest < Minitest::Test
 
   def test_a_short_form_key_or_a_tasklet_setting_on_a_full_form_is_refused_naming_it
     { sink: "out", input: "ticks", codec: :text, idle_ttl_seconds: 60 }.each do |key, value|
-      full = Class.new(Flezha::Operator) do
+      full = Class.new(Flezha::Relay) do
         factory_id "full"
         channels { |c| c.input("input").into(DoNothingTasklet) }
         public_send(key, value)
@@ -410,7 +410,7 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_short_form_hands_its_tasklet_settings_to_the_generated_tasklet
-    keyed = Class.new(Flezha::Operator) do
+    keyed = Class.new(Flezha::Relay) do
       factory_id "keyed_short"
       cell_keys "a", "b"
       mailbox_capacity 8
@@ -428,7 +428,7 @@ class RunnerTest < Minitest::Test
   end
 
   def test_a_duplicate_factory_id_across_kinds_is_refused_by_name
-    twin = Class.new(Flezha::Operator) do
+    twin = Class.new(Flezha::Relay) do
       factory_id "sugar_do_nothing"
       run :steps
       sink "twin_sink"
@@ -443,19 +443,19 @@ class RunnerTest < Minitest::Test
     assert_includes error.message, "sugar_do_nothing"
   end
 
-  def test_a_sink_on_a_tasklet_is_refused_naming_the_operator_bases
+  def test_a_sink_on_a_tasklet_is_refused_naming_the_relay_bases
     error = assert_raises(Flezha::Error) do
       Class.new(Flezha::Tasklet) { sink "out" }
     end
 
-    assert_equal ["topology.operator_field_on_tasklet", ["`sink`"]], [error.code, error.details["fields"]]
-    assert_includes error.message, "Flezha::Operator"
+    assert_equal ["topology.relay_field_on_tasklet", ["`sink`"]], [error.code, error.details["fields"]]
+    assert_includes error.message, "Flezha::Relay"
   end
 
   def test_registering_a_tasklet_is_refused
     error = assert_raises(Flezha::Error) do
       Flezha::Runner.new("test-ns").register_factory(DoNothingTasklet)
     end
-    assert_equal "topology.no_operator_exported", error.code
+    assert_equal "topology.no_relay_exported", error.code
   end
 end

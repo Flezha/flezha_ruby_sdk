@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-# Twins of the reference's operator call fixtures
-# (sdk/rust/test_app/src/operator_call.rs), under the same factory ids,
-# tasklet names, channel names and payloads: operators that call another
-# operator from their graph and read the outcome as a `Flezha::Response`.
+# Twins of the reference's relay call fixtures
+# (sdk/rust/test_app/src/relay_call.rs), under the same factory ids,
+# tasklet names, channel names and payloads: relays that call another
+# relay from their graph and read the outcome as a `Flezha::Response`.
 #
 # - `call_pricing`: a flow callee answering `price:<input>`; an input
 #   starting `silent` is never answered.
@@ -26,7 +26,7 @@ require "flezha"
 require_relative "fixtures_state"
 
 module Fixtures
-  module OperatorCall
+  module RelayCall
     DEADLINE_MS = 30_000
 
     # The prefix a caller's tasklet puts on an outcome line, which no request
@@ -45,7 +45,7 @@ module Fixtures
     end
 
     # What a caller's tasklet emits: a turn as it came, an outcome as its line.
-    def relay(input) = input.is_a?(Flezha::Response) ? "#{OUTCOME}#{render(input)}" : input
+    def pass(input) = input.is_a?(Flezha::Response) ? "#{OUTCOME}#{render(input)}" : input
 
     def outcome?(line) = line.start_with?(OUTCOME)
     def resume?(line) = line.start_with?(RESUME)
@@ -60,7 +60,7 @@ module Fixtures
     def run(input, ctx) = input.start_with?("silent") ? nil : ctx.emit("price:#{input}")
   end
 
-  class CallPricing < Flezha::Operator
+  class CallPricing < Flezha::Relay
     factory_id "call_pricing"
     channels { |c| c.input("in", codec: :text).into(PricingQuote).response }
   end
@@ -71,14 +71,14 @@ module Fixtures
 
   class OrderPriced < Flezha::Tasklet
     tasklet_name "order_priced"
-    def run(input, ctx) = ctx.emit(OperatorCall.render(input))
+    def run(input, ctx) = ctx.emit(RelayCall.render(input))
   end
 
-  class CallOrders < Flezha::Operator
+  class CallOrders < Flezha::Relay
     factory_id "call_orders"
     channels do |c|
       c.input("in", codec: :text).into(OrderAsk).named("order")
-       .call("pricing", deadline_ms: OperatorCall::DEADLINE_MS, codec: :text)
+       .call("pricing", deadline_ms: RelayCall::DEADLINE_MS, codec: :text)
        .into(OrderPriced).sink("priced")
     end
   end
@@ -95,7 +95,7 @@ module Fixtures
     end
   end
 
-  class CallAgent < Flezha::Operator
+  class CallAgent < Flezha::Relay
     factory_id "call_agent"
     run steps: { each: :per_input, on_failure: :keep_progress }
     durable FIXTURE_DURABLE
@@ -105,56 +105,56 @@ module Fixtures
 
   class GatewayAccount < Flezha::Tasklet
     tasklet_name "gateway_account"
-    def run(input, ctx) = ctx.emit(OperatorCall.relay(input))
+    def run(input, ctx) = ctx.emit(RelayCall.pass(input))
   end
 
   class GatewayResume < Flezha::Tasklet
     tasklet_name "gateway_resume"
-    def run(input, ctx) = ctx.emit(input.delete_prefix(OperatorCall::RESUME))
+    def run(input, ctx) = ctx.emit(input.delete_prefix(RelayCall::RESUME))
   end
 
   class GatewayLog < Flezha::Tasklet
     tasklet_name "gateway_log"
-    def run(input, ctx) = ctx.emit(input.delete_prefix(OperatorCall::OUTCOME))
+    def run(input, ctx) = ctx.emit(input.delete_prefix(RelayCall::OUTCOME))
   end
 
-  class CallGateway < Flezha::Operator
+  class CallGateway < Flezha::Relay
     factory_id "call_gateway"
     run flow: { exactly: :effectively_once }
     channels do |c|
       account = c.input("in", codec: :text).into(GatewayAccount).named("gateway")
-      account.filter { |line| OperatorCall.turn?(line) }.key_by { |line| OperatorCall.session(line) }
-             .call(factory: "call_agent", deadline_ms: OperatorCall::DEADLINE_MS, codec: :text)
+      account.filter { |line| RelayCall.turn?(line) }.key_by { |line| RelayCall.session(line) }
+             .call(factory: "call_agent", deadline_ms: RelayCall::DEADLINE_MS, codec: :text)
              .into(GatewayAccount)
-      account.filter { |line| OperatorCall.resume?(line) }.into(GatewayResume).named("resume")
-             .key_by { |line| OperatorCall.session(line) }
-             .call(factory: "call_agent", deadline_ms: OperatorCall::DEADLINE_MS, create: false, codec: :text)
+      account.filter { |line| RelayCall.resume?(line) }.into(GatewayResume).named("resume")
+             .key_by { |line| RelayCall.session(line) }
+             .call(factory: "call_agent", deadline_ms: RelayCall::DEADLINE_MS, create: false, codec: :text)
              .into(GatewayAccount)
-      account.filter { |line| OperatorCall.outcome?(line) }.key_by { |line| OperatorCall.session(line) }
+      account.filter { |line| RelayCall.outcome?(line) }.key_by { |line| RelayCall.session(line) }
              .into(GatewayLog).keyed.sink("gateway_out")
     end
   end
 
   class ToolTurn < Flezha::Tasklet
     tasklet_name "tool_turn"
-    def run(input, ctx) = ctx.emit(OperatorCall.relay(input))
+    def run(input, ctx) = ctx.emit(RelayCall.pass(input))
   end
 
   class ToolLog < Flezha::Tasklet
     tasklet_name "tool_log"
-    def run(input, ctx) = ctx.emit(input.delete_prefix(OperatorCall::OUTCOME))
+    def run(input, ctx) = ctx.emit(input.delete_prefix(RelayCall::OUTCOME))
   end
 
-  class CallToolSession < Flezha::Operator
+  class CallToolSession < Flezha::Relay
     factory_id "call_tool_session"
     run steps: { each: :per_input }
     durable FIXTURE_DURABLE
     max_duration_ms 600_000
     channels do |c|
       turn = c.input("turn", codec: :text).into(ToolTurn).named("tool")
-      turn.filter { |line| !OperatorCall.outcome?(line) }
-          .call("pricing", deadline_ms: OperatorCall::DEADLINE_MS, codec: :text).into(ToolTurn)
-      turn.filter { |line| OperatorCall.outcome?(line) }.into(ToolLog).sink("tool_out")
+      turn.filter { |line| !RelayCall.outcome?(line) }
+          .call("pricing", deadline_ms: RelayCall::DEADLINE_MS, codec: :text).into(ToolTurn)
+      turn.filter { |line| RelayCall.outcome?(line) }.into(ToolLog).sink("tool_out")
     end
   end
 

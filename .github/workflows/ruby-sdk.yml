@@ -6,7 +6,7 @@ name: Ruby SDK
 # the wrapper crate, which takes the core from its git tag.
 #
 # What this cannot prove is the capability vocabulary the controller owns:
-# persistence, effectively-once, correction, partitioning, steps operators, liveness,
+# persistence, effectively-once, correction, partitioning, steps relays, liveness,
 # restarts. Those are end-to-end scenarios and they run in the core's tree,
 # against the commit it pins this repository at.
 

@@ -6,9 +6,9 @@ require_relative "watch"
 require_relative "budget"
 require_relative "admit"
 
-# The HTTP side of the desk: a flow operator that carries the HTTP plugin,
+# The HTTP side of the desk: a flow relay that carries the HTTP plugin,
 # answers every request, and calls the session a message is for.
-class GatewayOperator < Flezha::Operator
+class GatewayRelay < Flezha::Relay
   factory_id "gateway"
   run flow: { exactly: :effectively_once } # each request and answer on disk before it runs
 
@@ -35,7 +35,7 @@ class GatewayOperator < Flezha::Operator
     verdicts.filter { |verdict| Budget.admitted?(verdict) }
             .map { |verdict| verdict[:message] }
             .key_by(&user) # the user's session
-            # call the "agent" operator; its answer comes back here
+            # call the "agent" relay; its answer comes back here
             .call(factory: "agent", channel: "message", deadline_ms: DEADLINE_MS)
             .map { |response| Budget.used(response) } # the session's answer, as tokens used
             .key_by(&user)

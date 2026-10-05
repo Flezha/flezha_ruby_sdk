@@ -10,7 +10,7 @@ class ControlTest < Minitest::Test
     calls = []
     core = Flezha::TestSupport::FakeCore.new
     result = core.stub(:admin_call, ->(verb, json) { calls << [verb, JSON.parse(json)] && answer }) do
-      Flezha::Control.new(core).start_operator(*args, **options)
+      Flezha::Control.new(core).start_relay(*args, **options)
     end
     [calls, result]
   end
@@ -18,7 +18,7 @@ class ControlTest < Minitest::Test
   def test_a_start_without_an_id_sends_none_and_answers_the_generated_one
     calls, result = start('{"id":"echo-k7m2qzxw4pd3fn2a","outcome":"started"}', "echo")
 
-    assert_equal [["Operator.start", [{ "factory_id" => "echo" }]]], calls
+    assert_equal [["Relay.start", [{ "factory_id" => "echo" }]]], calls
     assert_equal Flezha::StartResult.new(id: "echo-k7m2qzxw4pd3fn2a", outcome: :started), result
     assert_equal %i[id outcome], result.members
   end
@@ -27,19 +27,19 @@ class ControlTest < Minitest::Test
     answer = '{"id":"my_echo","outcome":"already_running"}'
     calls, result = start(answer, "echo", id: "my_echo")
 
-    assert_equal [["Operator.start", [{ "factory_id" => "echo", "id" => "my_echo" }]]],
+    assert_equal [["Relay.start", [{ "factory_id" => "echo", "id" => "my_echo" }]]],
                  calls
     assert_equal Flezha::StartResult.new(id: "my_echo", outcome: :already_running), result
   end
 
-  def test_a_plugin_is_enabled_by_name_and_bound_and_unbound_by_operator
+  def test_a_plugin_is_enabled_by_name_and_bound_and_unbound_by_relay
     calls = []
     core = Flezha::TestSupport::FakeCore.new
     core.stub(:admin_call, ->(verb, json) { calls << [verb, JSON.parse(json)] && "null" }) do
       control = Flezha::Control.new(core)
-      control.enable_plugin("writer", "operator_file_sink", opts: { "path" => "out.txt" })
-      control.enable_plugin("feed", "operator_websocket", single: true, operator_id: "my_echo",
-                                                          hooks: [["on_output", {}]])
+      control.enable_plugin("writer", "relay_file_sink", opts: { "path" => "out.txt" })
+      control.enable_plugin("feed", "relay_websocket", single: true, relay_id: "my_echo",
+                                                       hooks: [["on_output", {}]])
       control.bind_plugin("writer", "my_echo")
       control.bind_plugin("writer", "my_other", hooks: ["on_output"], channel: "in")
       control.unbind_plugin("writer", "my_echo")
@@ -48,12 +48,12 @@ class ControlTest < Minitest::Test
     end
 
     assert_equal [
-      ["PluginManager.enable", ["writer", { "provider" => "operator_file_sink", "opts" => { "path" => "out.txt" } }]],
-      ["PluginManager.enable", ["feed", { "provider" => "operator_websocket", "opts" => {}, "single" => true,
-                                          "operator_id" => "my_echo", "hooks" => [["on_output", {}]] }]],
-      ["PluginManager.bind", ["writer", { "operator_id" => "my_echo" }]],
-      ["PluginManager.bind", ["writer", { "operator_id" => "my_other", "hooks" => ["on_output"], "channel" => "in" }]],
-      ["PluginManager.unbind", ["writer", { "operator_id" => "my_echo" }]],
+      ["PluginManager.enable", ["writer", { "provider" => "relay_file_sink", "opts" => { "path" => "out.txt" } }]],
+      ["PluginManager.enable", ["feed", { "provider" => "relay_websocket", "opts" => {}, "single" => true,
+                                          "relay_id" => "my_echo", "hooks" => [["on_output", {}]] }]],
+      ["PluginManager.bind", ["writer", { "relay_id" => "my_echo" }]],
+      ["PluginManager.bind", ["writer", { "relay_id" => "my_other", "hooks" => ["on_output"], "channel" => "in" }]],
+      ["PluginManager.unbind", ["writer", { "relay_id" => "my_echo" }]],
       ["PluginManager.disable", ["writer", {}]],
       ["PluginManager.list", []]
     ], calls
@@ -63,12 +63,12 @@ class ControlTest < Minitest::Test
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
     core = Flezha::TestSupport::FakeCore.new
-    refusal = ->(*) { raise Flezha::Error.new("quota.exceeded", kind: "max_operators", current: 3, limit: 3) }
+    refusal = ->(*) { raise Flezha::Error.new("quota.exceeded", kind: "max_relays", current: 3, limit: 3) }
 
     error = assert_raises(Flezha::Error) do
-      core.stub(:admin_call, refusal) { Flezha::Control.new(core).start_operator("echo") }
+      core.stub(:admin_call, refusal) { Flezha::Control.new(core).start_relay("echo") }
     end
-    assert_equal ["quota.exceeded", "max_operators"], [error.code, error.details["kind"]]
+    assert_equal ["quota.exceeded", "max_relays"], [error.code, error.details["kind"]]
   end
 
   # A core that records what crosses to it.
@@ -108,14 +108,14 @@ class ControlTest < Minitest::Test
     begin
       runner = runner_over(core)
       error = assert_raises(Flezha::Error) { runner.send_to("elsewhere", "x", "in", local: true) }
-      assert_equal "runtime.operator_not_local", error.code
+      assert_equal "runtime.relay_not_local", error.code
       error = assert_raises(Flezha::Error) { runner.send_to("orders", "x", "in", local: true, msg_id: "m-1") }
       assert_equal "usage.options_conflict", error.code
-      assert_kind_of Array, runner.operators
+      assert_kind_of Array, runner.relays
     ensure
       core.free
     end
-    refused = assert_raises(Flezha::Error) { Flezha::Runner.new("test-ns").operators }
+    refused = assert_raises(Flezha::Error) { Flezha::Runner.new("test-ns").relays }
     assert_equal "runtime.runner_not_started", refused.code
   end
 end

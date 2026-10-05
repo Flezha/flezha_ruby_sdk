@@ -144,11 +144,11 @@ class NativeTest < Minitest::Test
       tasklet_name "#{factory_id}_tasklet"
       def run(input, ctx) = ctx.emit(input)
     end
-    operator = Class.new(Flezha::Operator)
-    operator.factory_id factory_id
-    operator.run flow: { exactly: { effectively_once: { ack: ack } } }
-    operator.channels { |c| c.input("input").into(tasklet).keyed.sink("sink") }
-    Flezha::Graph.to_host_class_decl(operator.spec)
+    relay = Class.new(Flezha::Relay)
+    relay.factory_id factory_id
+    relay.run flow: { exactly: { effectively_once: { ack: ack } } }
+    relay.channels { |c| c.input("input").into(tasklet).keyed.sink("sink") }
+    Flezha::Graph.to_host_class_decl(relay.spec)
   end
 
   def test_holding_outputs_at_the_checkpoint_registers_with_its_delay
@@ -185,11 +185,11 @@ class NativeTest < Minitest::Test
       tasklet_name "check_keyed"
       def run(input, ctx) = ctx.emit(input)
     end
-    operator = Class.new(Flezha::Operator)
-    operator.factory_id "check_dup_key"
-    operator.channels { |c| c.input("input").key_by { "a" }.key_by { "b" }.into(keyed) }
+    relay = Class.new(Flezha::Relay)
+    relay.factory_id "check_dup_key"
+    relay.channels { |c| c.input("input").key_by { "a" }.key_by { "b" }.into(keyed) }
 
-    json = JSON.generate(Flezha::Graph.to_host_class_decl(operator.spec))
+    json = JSON.generate(Flezha::Graph.to_host_class_decl(relay.spec))
     error = assert_raises(Flezha::Error) { Flezha::Native.check_class(json) }
 
     assert_equal "topology.duplicate_key_by", error.code
@@ -207,11 +207,11 @@ class NativeTest < Minitest::Test
       tasklet_name "native_echo"
       def run(input, ctx) = ctx.emit(input)
     end
-    operator = Class.new(Flezha::Operator)
-    operator.factory_id "native_echo_op"
-    operator.channels { |c| c.input("input").into(echo).sink("out") }
+    relay = Class.new(Flezha::Relay)
+    relay.factory_id "native_echo_op"
+    relay.channels { |c| c.input("input").into(echo).sink("out") }
 
-    decl = Flezha::Graph.to_host_class_decl(operator.spec)
+    decl = Flezha::Graph.to_host_class_decl(relay.spec)
     assert_equal 5, decl["sdk_lang"]
     assert_equal 5, decl["change_format_id"], "MessagePack, shared with every MessagePack SDK"
 

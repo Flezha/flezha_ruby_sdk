@@ -5,16 +5,16 @@ standalone project. Nothing here depends on the Flezha source tree: the
 `Gemfile` names one released version of `flezha`, the way your own project
 would. It needs Ruby 3.3 or later.
 
-It holds the desk's two operators and the runner that serves them. The guides
+It holds the desk's two relays and the runner that serves them. The guides
 write them one tasklet at a time.
 
 | File | What is in it |
 |---|---|
 | `runner.rb` | the runner: this process joins the `trading` namespace and registers both factories |
-| `trade_watcher_operator.rb` | the ETL stream, a flow operator: the exchange's trade messages in, a cell per symbol, buy signals out |
+| `trade_watcher_relay.rb` | the ETL stream, a flow relay: the exchange's trade messages in, a cell per symbol, buy signals out |
 | `track_prices.rb` | keeps each symbol's last ten prices, and compares a new price with their average |
 | `buy_above_average.rb` | starts an order when a price is 2 % or more above its average |
-| `order_executor_operator.rb` | the workflow, a steps operator: two steps in order, then two side by side |
+| `order_executor_relay.rb` | the workflow, a steps relay: two steps in order, then two side by side |
 | `reserve_funds.rb` | step one: puts the money aside, and releases it again if the order is undone |
 | `place_order.rb` | step two: places the paper order, and cancels it if the order is undone |
 | `confirm_fill.rb` | waits ten seconds for the exchange, confirms the fill and ends the order with its result, and refuses an order above the exchange's limit |
@@ -54,7 +54,7 @@ One instance of `order_executor` is one order. `--text` carries the order on the
 `order` channel:
 
 ```sh
-flz operator start order_executor --id order_1 --namespace trading \
+flz relay start order_executor --id order_1 --namespace trading \
   --text '{"symbol": "EUR/USD", "quantity": 10}' --channel order
 ```
 
@@ -66,15 +66,15 @@ The runner's terminal shows the order being booked. The ids come from
 ```
 
 About ten seconds later, once `confirm_fill` has its answer from the exchange,
-the instance ends, and `flz operator info` shows how:
+the instance ends, and `flz relay info` shows how:
 
 ```sh
-flz operator info order_1 --namespace trading
+flz relay info order_1 --namespace trading
 ```
 
 ```
 ...
-Operator: order_1
+Relay: order_1
   Run: steps
   Phase: finished
   Status: ok
@@ -87,7 +87,7 @@ The paper exchange fills at most 100 at a time, so `confirm_fill` refuses a
 larger order. Start one the same way, with a quantity above the limit:
 
 ```sh
-flz operator start order_executor --id order_2 --namespace trading \
+flz relay start order_executor --id order_2 --namespace trading \
   --text '{"symbol": "EUR/USD", "quantity": 500}' --channel order
 ```
 
@@ -105,12 +105,12 @@ undone, in reverse: the order is cancelled, then the money is released.
 ```
 
 ```sh
-flz operator info order_2 --namespace trading
+flz relay info order_2 --namespace trading
 ```
 
 ```
 ...
-Operator: order_2
+Relay: order_2
   Run: steps
   Phase: finished
   Status: error
@@ -136,4 +136,4 @@ folder finds it, and once it is published the step goes away.
 
 The echo in [`../echo`](../echo/README.md) is the Part 1 project, and
 [`docs/guides/runner_deployment.md`](../../../../docs/guides/runner_deployment.md)
-walks through what a tasklet, an operator and a runner each are.
+walks through what a tasklet, a relay and a runner each are.

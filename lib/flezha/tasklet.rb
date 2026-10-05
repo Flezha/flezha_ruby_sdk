@@ -97,7 +97,7 @@ module Flezha
   end
 
   # A tasklet's class-level declarations. A tasklet class carries them,
-  # and so does a short-form operator class, which hands them to the
+  # and so does a short-form relay class, which hands them to the
   # tasklet it generates.
   module TaskletSettings
     # The scalar declarations. Each is read by its bare name and written by
@@ -197,7 +197,7 @@ module Flezha
     # the declaration rather than here.
 
     class << self
-      # The node identity within its operator, and the name every Cell's
+      # The node identity within its relay, and the name every Cell's
       # saved state is kept under. Written on every concrete tasklet, never
       # derived: a derived name would move the saved state when the class is
       # renamed. Not `name`, which is `Class#name`.
@@ -208,16 +208,16 @@ module Flezha
       end
 
       # The class whose instance methods run for this tasklet: the tasklet
-      # itself, or the short-form operator whose `run` body it was generated
+      # itself, or the short-form relay whose `run` body it was generated
       # from.
       def body = self
 
-      # A tasklet has no sink: the one-tasklet short form is an operator,
+      # A tasklet has no sink: the one-tasklet short form is a relay,
       # and its sink is written there.
       def sink(*, **)
-        raise Error.new("topology.operator_field_on_tasklet",
+        raise Error.new("topology.relay_field_on_tasklet",
                         tasklet: to_s, fields: ["`sink`"],
-                        instead: "a Flezha::Operator subclass with a `run` body")
+                        instead: "a Flezha::Relay subclass with a `run` body")
       end
 
       # The resolved declaration. Built once: it instantiates the tasklet,

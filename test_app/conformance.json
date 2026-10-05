@@ -55,7 +55,7 @@
     "graph_builder": [
       "sugar_static_cell",
       "static_cell",
-      "mixed_operator",
+      "mixed_relay",
       "hybrid_channel",
       "merged_input",
       "transform_chain",
@@ -103,7 +103,7 @@
       "candle"
     ],
     "keyed_channels": [
-      "partition_relay"
+      "partition_pass"
     ],
     "call_response": [
       "call_echo",
@@ -111,7 +111,7 @@
       "call_split",
       "call_turn"
     ],
-    "operator_call": [
+    "relay_call": [
       "call_pricing",
       "call_orders",
       "call_agent",
@@ -123,7 +123,7 @@
       "part_echo_steps"
     ],
     "partitioned": [
-      "partition_relay",
+      "partition_pass",
       "dynamic_cell",
       "keyed_loop_steps"
     ],

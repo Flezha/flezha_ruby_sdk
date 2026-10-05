@@ -10,14 +10,14 @@ Flezha::TestSupport.require_test_app("fixtures")
 # what passes there cannot be two different graphs.
 #
 # The other ten capabilities in the vocabulary are the controller's:
-# persistence, effectively-once, correction, partitioning, steps operators,
+# persistence, effectively-once, correction, partitioning, steps relays,
 # liveness, restarts. Local mode refuses them by name rather than
 # approximating them, and `sdk-local-mode` says a sixth needs its own
 # proposal.
 #
 # What each test can assert is what a run with no controller can see. A
 # durable write reaches a null sink, a parked payload has nowhere to park, and
-# a partition member's key range arrives with `AddOperator`, so the
+# a partition member's key range arrives with `AddRelay`, so the
 # assertions here are the output side of each capability, which is the half
 # the language layer produces.
 class LocalModeCapabilitiesTest < Minitest::Test
@@ -33,12 +33,12 @@ class LocalModeCapabilitiesTest < Minitest::Test
                  "the builder produced a graph the core ran, in order"
   end
 
-  # `partition_relay` is the manifest's only keyed-channel class. Partitioning
+  # `partition_pass` is the manifest's only keyed-channel class. Partitioning
   # itself is the controller's (a member's key-group range arrives with
-  # `AddOperator`), so what is asserted here is the half the language layer
+  # `AddRelay`), so what is asserted here is the half the language layer
   # owns: the key it resolves and the stamps it puts on the released value.
   def test_keyed_channels_a_keyed_sink_stamps_the_key_the_class_resolved
-    released = release(declares("keyed_channels", "partition_relay"),
+    released = release(declares("keyed_channels", "partition_pass"),
                        "in", "input", %w[a:1 b:1 a:2])
 
     assert_equal({ "a" => %w[a:1 a:2], "b" => %w[b:1] }, per_key(payloads(released)))
@@ -52,7 +52,7 @@ class LocalModeCapabilitiesTest < Minitest::Test
 
   # The class's sink is not keyed, so a released value carries no cell stamp
   # and the per-key minting is not visible on this channel. It is asserted
-  # above, on `partition_relay`, whose tasklet is dynamic too and whose sink
+  # above, on `partition_pass`, whose tasklet is dynamic too and whose sink
   # IS keyed. What this class shows that that one does not is the declared
   # filter: a value it rejects answers no key, so the core is never asked to
   # mint a Cell for it.
@@ -81,14 +81,14 @@ class LocalModeCapabilitiesTest < Minitest::Test
   end
 
   def test_cell_timers_a_declared_timer_fires_locally_with_its_scheduled_time
-    operator = declares("cell_timers", "session_timeout")
+    relay = declares("cell_timers", "session_timeout")
 
     # The class reads its own deadline from the environment, the way the e2e
     # sets it; 200 ms keeps the run short without changing what is proved.
     previous = ENV.fetch("TIMER_TEST_TIMEOUT_MS", nil)
     ENV["TIMER_TEST_TIMEOUT_MS"] = "200"
     begin
-      released = release(operator, "input", "kafka", ["open"])
+      released = release(relay, "input", "kafka", ["open"])
     ensure
       ENV["TIMER_TEST_TIMEOUT_MS"] = previous
     end
@@ -104,8 +104,8 @@ class LocalModeCapabilitiesTest < Minitest::Test
   # `tier_store` is effectively-once, which needs a durable store to release
   # from, so a local run says so instead of running the graph.
   def test_a_controller_capability_is_refused_by_name_not_approximated
-    operator = declares("effectively_once", "tier_store")
-    error = assert_raises(Flezha::Error) { Flezha::LocalOperator.start(operator) }
+    relay = declares("effectively_once", "tier_store")
+    error = assert_raises(Flezha::Error) { Flezha::LocalRelay.start(relay) }
 
     assert_equal %w[runtime.local_needs_controller effectively_once], [error.code, error.details["capability"]]
   end
@@ -122,14 +122,14 @@ class LocalModeCapabilitiesTest < Minitest::Test
     # By factory id, not by constant: one of these classes is built in a loop
     # over its overflow policy and has no name of its own.
     registered = Fixtures::ALL + Fixtures::SHORTHAND
-    registered.find { |operator| operator.factory_id == factory_id } ||
+    registered.find { |relay| relay.factory_id == factory_id } ||
       flunk("the test app registers no class whose factory id is #{factory_id}")
   end
 
   # Run one class over +inputs+ on +channel+, and return what +sink+ released.
-  def release(operator, channel, sink, inputs, budget_ms = 20_000)
+  def release(relay, channel, sink, inputs, budget_ms = 20_000)
     released = []
-    run = Flezha::LocalOperator.start(operator)
+    run = Flezha::LocalRelay.start(relay)
     begin
       run.on_sink(sink) { |output| released << output }
       inputs.each { |input| run.feed(channel, input) }
