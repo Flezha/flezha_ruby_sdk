@@ -7,7 +7,7 @@ SPEC = Gem::Specification.load("flezha.gemspec")
 
 Rake::TestTask.new(:test) do |t|
   t.libs = %w[lib test]
-  t.test_files = FileList["test/**/*_test.rb"]
+  t.test_files = FileList["test/**/*_test.rb", "examples/starter/*_test.rb"]
   t.warning = true
   # `COVERAGE=1 rake test` measures the one suite this task defines. SimpleCov
   # has to be tracking before `flezha` is loaded, so it rides the interpreter's
