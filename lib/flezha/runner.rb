@@ -110,6 +110,20 @@ module Flezha
       JSON.parse((@core || Core.context_free).send_message(relay_id, channel, message.b, msg_id, key, local))
     end
 
+    # Call the entry channel `channel` of `relay_id` with `value`, through the
+    # controller under the same role check as `send_to`, answering what the
+    # relay answers: a JSON value, a String for text, binary bytes for the
+    # binary formats, or `{"accepted" => true}` from a channel no output
+    # answers. `value` is encoded as an output naming no codec encodes it.
+    def call(relay_id, channel, value)
+      payload = [Codec.plain_payload(value, "a call to '#{relay_id}'")].pack("m0")
+      args = JSON.generate([relay_id, channel, payload, { "payload" => "base64" }])
+      reply = JSON.parse((@core || Core.context_free).admin_call("Relay.call_channel", args))
+      return { "accepted" => true } if reply["accepted"]
+
+      %w[json text].include?(reply["answer_codec"]) ? reply["answer"] : reply["answer"].unpack1("m0")
+    end
+
     # The ids of the relay instances bound on this runner now, read without
     # the controller. Refused with `runtime.runner_not_started` before `boot`.
     def relays = (@core || raise(Error.new("runtime.runner_not_started"))).relays

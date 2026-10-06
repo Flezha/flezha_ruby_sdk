@@ -56,7 +56,8 @@ class DeclKeysTest < Minitest::Test
       edge.named("hop").key_by { |value| value.to_s }.retry_max(5).retry_backoff_ms(50)
           .into(Downstream)
       edge.named("fan").into(Fanned)
-      c.input("second").into(Entry).keyed.output("sink")
+      c.input("second", description: "every key", schema: { type: "object" })
+       .into(Entry).keyed.output("sink")
     end
   end
 

@@ -38,7 +38,8 @@
     "steps",
     "shorthand",
     "call",
-    "untyped_tree"
+    "untyped_tree",
+    "schema"
   ],
   "deferred": [],
   "fixtures": {
@@ -173,7 +174,8 @@
       "static_cell_steps"
     ],
     "local_send": ["bench_keyed_nopersist", "store_input", "tier_store", "sugar_steps_per_input"],
-    "recorded_effects": ["effect_block_steps", "effect_flow"]
+    "recorded_effects": ["effect_block_steps", "effect_flow"],
+    "relay_api": ["orders"]
   },
   "docs": "docs/sdk/ruby_sdk.md"
 }

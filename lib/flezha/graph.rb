@@ -105,7 +105,10 @@ module Flezha
         "retry_max" => channel.retry_max,
         "retry_backoff_ms" => channel.retry_backoff_ms,
         "overflow" => channel.overflow.to_s,
-        "keyed" => channel.keyed
+        "keyed" => channel.keyed,
+        "codec" => channel.codec,
+        "schema" => channel.schema,
+        "description" => channel.description
       )
     end
 

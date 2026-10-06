@@ -104,7 +104,8 @@ module Conformance
       # naming that tasklet's output channel.
       @handles = {}
       @classes = {}
-      @mailbox = mailbox_capacities
+      @mailbox = knobs("mailbox").transform_values { |arg| Integer(arg) }
+      @schemas = knobs("schema").transform_values { |arg| JSON.parse(arg) }
     end
 
     def declare(builder)
@@ -116,7 +117,7 @@ module Conformance
     def run_step(builder, step)
       verb, arg = Conformance.split_call(step)
       case verb
-      when "entry" then @handles[arg] = builder.input(arg)
+      when "entry" then @handles[arg] = builder.input(arg, schema: @schemas[arg])
       when "branch" then branch(arg)
       when "merge" then merge(builder, arg)
       else dotted(builder, step)
@@ -146,9 +147,9 @@ module Conformance
       when "output" then arg.empty? ? edge.output : edge.output(arg)
       when /\Acall/ then call_step(edge, verb, arg, role)
       when "into" then wire(edge, arg)
-      # Declared on the tasklet in this SDK, and read as its class was
-      # minted — one step earlier than the step that names it.
-      when "mailbox" then edge
+      # Declared on the tasklet or the entry in this SDK, and read before the
+      # step that names it.
+      when "mailbox", "schema" then edge
       else raise "the fixture spells a link this interpreter does not map: #{verb}"
       end
     end
@@ -208,15 +209,15 @@ module Conformance
       end
     end
 
-    # The capacities a row declares, read BEFORE the steps run: a tasklet is
-    # minted by the `into` that first names it, which is one step earlier than
-    # the `mailbox` step that declares its capacity.
-    def mailbox_capacities
+    # The `<handle>.<knob>(<arg>)` steps a row declares, read BEFORE the steps
+    # run: a tasklet is minted by the `into` that first names it, and an entry
+    # by its `entry`, each one step earlier than the knob that configures it.
+    def knobs(knob)
       @steps.filter_map do |step|
-        role, rest = step.split(".", 2)
-        next unless rest&.start_with?("mailbox(")
+        head, rest = step.split(".", 2)
+        next unless rest&.start_with?("#{knob}(")
 
-        [role, Integer(Conformance.split_call(rest).last)]
+        [head, Conformance.split_call(rest).last]
       end.to_h
     end
   end

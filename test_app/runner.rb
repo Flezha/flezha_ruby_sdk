@@ -12,7 +12,10 @@
 # FLEZHA_LOCAL_SEND_SCRIPT is the local-send drill: a JSON array of
 # `{relay, channel, message, when}` sends this app's own code makes with
 # `local`, each once the file `when` names exists, printing
-# `local_send <relay> ok` or `local_send <relay> err <code>` per send.
+# `local_send <relay> ok` or `local_send <relay> err <code>` per send. An
+# entry with `call: true` carries `value` instead and calls the channel with
+# `runner.call`, printing `call <relay> ok <answer JSON>` or
+# `call <relay> err <code>`.
 
 $LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 
@@ -61,11 +64,17 @@ if (script = ENV["FLEZHA_LOCAL_SEND_SCRIPT"])
   Thread.new do
     JSON.parse(script).each do |send|
       sleep(0.05) until File.exist?(send["when"])
+      verb = send["call"] ? "call" : "local_send"
       begin
-        runner.send_to(send["relay"], send["message"], send["channel"], local: true)
-        puts("local_send #{send['relay']} ok")
+        if send["call"]
+          answer = runner.call(send["relay"], send["channel"], send["value"])
+          puts("call #{send['relay']} ok #{JSON.generate(answer)}")
+        else
+          runner.send_to(send["relay"], send["message"], send["channel"], local: true)
+          puts("local_send #{send['relay']} ok")
+        end
       rescue Flezha::Error => e
-        puts("local_send #{send['relay']} err #{e.code}")
+        puts("#{verb} #{send['relay']} err #{e.code}")
       end
     end
   end

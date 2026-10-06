@@ -17,6 +17,8 @@
 #   calling tasklet.
 # - `call_tool_session`: a durable per-input session calling `pricing` from a
 #   turn and reading the outcome as its next turn.
+# - `orders`: the relay_api fixture, a described JSON entry `place` answering
+#   through `placed` and a text entry `audit` no output answers.
 #
 # Every outcome is written to an output as one line,
 # `<request>=ok:<answer>@<target>/<created>` or
@@ -159,5 +161,26 @@ module Fixtures
     end
   end
 
-  CALLS = [CallPricing, CallOrders, CallAgent, CallGateway, CallToolSession].freeze
+  class PlaceOrder < Flezha::Tasklet
+    tasklet_name "place"
+    def run(input, ctx) = ctx.emit({ pair: input[:pair], amount: input[:amount], status: "placed" })
+  end
+
+  class AuditOrder < Flezha::Tasklet
+    tasklet_name "audit"
+    def run(_input, _ctx) = nil
+  end
+
+  class Orders < Flezha::Relay
+    ORDER = { type: "object", properties: { pair: { type: "string" }, amount: { type: "number" } },
+              required: %w[pair amount] }.freeze
+
+    factory_id "orders"
+    channels do |c|
+      c.input("place", description: "Places an order", schema: ORDER).into(PlaceOrder).output("placed")
+      c.input("audit", codec: :text).into(AuditOrder)
+    end
+  end
+
+  CALLS = [CallPricing, CallOrders, CallAgent, CallGateway, CallToolSession, Orders].freeze
 end

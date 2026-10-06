@@ -100,6 +100,36 @@ class ControlTest < Minitest::Test
     assert_equal({ "to" => "prices#p1", "verdict" => "absorbed" }, verdict)
   end
 
+  def test_a_call_sends_the_value_as_an_output_would_and_decodes_each_answer
+    replies = ['{"answer":{"status":"placed"},"answer_codec":"json"}', '{"answer":"ok","answer_codec":"text"}',
+               '{"answer":"AQI=","answer_codec":"bytes"}', '{"accepted":true}']
+    calls = []
+    core = Flezha::TestSupport::FakeCore.new
+    answers = core.stub(:admin_call, ->(verb, json) { calls << [verb, JSON.parse(json)] && replies.shift }) do
+      runner = runner_over(core)
+      [runner.call("orders", "place", { "pair" => "EUR/USD" }), runner.call("orders", "note", "hé"),
+       runner.call("orders", "raw", "\x07".b), runner.call("orders", "audit", "x")]
+    end
+
+    assert_equal [{ "status" => "placed" }, "ok", "\x01\x02".b, { "accepted" => true }], answers
+    base64 = ->(text) { [text].pack("m0") }
+    assert_equal [["Relay.call_channel", ["orders", "place", base64.('{"pair":"EUR/USD"}'), { "payload" => "base64" }]],
+                  ["Relay.call_channel", ["orders", "note", base64.("hé"), { "payload" => "base64" }]],
+                  ["Relay.call_channel", ["orders", "raw", "Bw==", { "payload" => "base64" }]],
+                  ["Relay.call_channel", ["orders", "audit", base64.("x"), { "payload" => "base64" }]]], calls
+  end
+
+  def test_a_refused_call_raises_the_controller_code
+    skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
+
+    core = Flezha::TestSupport::FakeCore.new
+    refusal = ->(*) { raise Flezha::Error.new("api.channel_unknown", channel: "plce", channels: "place") }
+    error = assert_raises(Flezha::Error) do
+      core.stub(:admin_call, refusal) { runner_over(core).call("orders", "plce", {}) }
+    end
+    assert_equal "api.channel_unknown", error.code
+  end
+
   # Against the real core: no runner here holds `elsewhere`.
   def test_the_core_refuses_a_local_send_held_elsewhere_or_with_an_id
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?

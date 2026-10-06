@@ -31,6 +31,8 @@ module Flezha
   # plugin frame alone: an inter-tasklet frame is decoded with the class codec,
   # so encoding one with it hands the consuming tasklet bytes it cannot read.
   # `call` is the channel's call end, when a chain closes on one.
+  # `codec` is the format the relay's API announces (an entry's input, an
+  # output's value), and `schema` and `description` an entry's own.
   #
   # `chain_edges` runs parallel to `chains`: the closures each sequence closed
   # on, at the position the core reads that sequence at. `consumers` is filled
@@ -38,6 +40,7 @@ module Flezha
   ChannelSpec = Struct.new(
     :index, :name, :kind, :producer, :consumers, :chains, :chain_edges, :overflow,
     :retry_max, :retry_backoff_ms, :keyed, :sink, :decode, :sink_encode, :call,
+    :codec, :schema, :description,
     keyword_init: true
   )
 
@@ -115,13 +118,17 @@ module Flezha
     # Declare a controller-fed entry channel. `decode` turns the wire bytes
     # into the value a handler sees, `codec` names a format from
     # `Codec::CHANNEL_CODECS` instead, and with neither the bytes are JSON.
-    def input(name, decode: nil, codec: nil)
+    # `description` and a `json` channel's JSON Schema `schema` are announced
+    # in the relay's API.
+    def input(name, decode: nil, codec: nil, description: nil, schema: nil)
       channel = ChannelSpec.new(
         index: @channels.size, name: name.to_s, kind: :entry, consumers: [],
-        chains: [], chain_edges: [], overflow: :drop_nothing, keyed: false
+        chains: [], chain_edges: [], overflow: :drop_nothing, keyed: false,
+        description: description, schema: schema
       )
       named = channel_codec(channel, codec, decode)
       channel.decode = decode || Codec.channel_decoder(named, channel)
+      channel.codec = api_codec(named, decode)
       @channels << channel
       Edge.new(self, [:entry, channel], {})
     end
@@ -139,6 +146,10 @@ module Flezha
       raise Error.new("topology.unknown_codec", channel: channel.name, codec: codec.to_s,
                                                 codecs: Codec::CHANNEL_CODECS.map(&:to_s))
     end
+
+    # The format the relay's API announces for a channel: the codec it names,
+    # `custom` for its own decoder or encoder, else JSON.
+    def api_codec(named, callable) = callable ? "custom" : (named || :json).to_s
 
     # Merge two or more sources into one tasklet: see `Merge`.
     def merge = Merge.new(self)
@@ -400,6 +411,7 @@ module Flezha
       if target.sink.nil?
         target.sink = target.name
         target.sink_encode = encode || Codec.channel_encoder(named, target)
+        target.codec = @builder.api_codec(named, encode)
       end
       self
     end
