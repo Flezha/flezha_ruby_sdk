@@ -425,6 +425,8 @@ module Fixtures
   #     worker outright — the dispatcher rescues per item and the raise rides
   #     the retry ladder — so what the scenario asserts is that the Cell is
   #     served again and the aborting item does not produce twice.
+  #   "slow" — emits two seconds late, so the relay can be stopped or moved
+  #     while the activation still runs.
   class WedgeProbe < Flezha::Tasklet
     tasklet_name "wedge_probe_tasklet"
     ABORTED = { done: false }
@@ -436,6 +438,7 @@ module Fixtures
         ABORTED[:done] = true
         raise "wedge_probe: killing the worker holding this activation"
       end
+      sleep(2) if input == "slow"
 
       ctx.emit("ok:#{input}")
     end
