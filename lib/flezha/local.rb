@@ -138,7 +138,7 @@ module Flezha
       return if callback.nil?
 
       callback.call(LocalOutput.new(channel: channel, payload: output[:payload],
-                                   metadata: (output[:metadata] || []).to_h))
+                                    metadata: (output[:metadata] || []).to_h))
     end
   end
 end

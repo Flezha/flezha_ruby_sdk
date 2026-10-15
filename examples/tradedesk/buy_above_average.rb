@@ -21,10 +21,10 @@ class BuyAboveAverage < Flezha::Tasklet
     percent = (move[:price] - move[:average]) / move[:average] * 100.0
     return if percent < BUY_ABOVE_PCT
 
-    quantity = (percent * UNITS_PER_PERCENT).round           # a stronger move buys more
+    quantity = (percent * UNITS_PER_PERCENT).round # a stronger move buys more
 
     order = { symbol: move[:symbol], quantity: quantity }
-    ctx.spawn_steps("order_executor", order)               # one steps relay per order
+    ctx.spawn_steps("order_executor", order) # one steps relay per order
 
     ctx.emit(format("%<symbol>s %<price>.4f is %<percent>.2f%% above its average of %<average>.4f, buying %<quantity>d",
                     symbol: move[:symbol], price: move[:price], percent: percent,
