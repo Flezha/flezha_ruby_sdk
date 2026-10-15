@@ -39,6 +39,17 @@ module Flezha
     def set_state(address, state)
       @lock.synchronize { @cells[address] = state }
     end
+
+    # Drop a cell that left this runner, or every cell of its relay.
+    def forget(address, whole_relay)
+      @lock.synchronize do
+        if whole_relay
+          @cells.delete_if { |(relay, _, _), _| relay == address.first }
+        else
+          @cells.delete(address)
+        end
+      end
+    end
   end
 
   # The declared classes this runner serves.
@@ -153,6 +164,9 @@ module Flezha
         { token: activation[:token], outcome: "state_applied" }
       when :key_request then prepare(activation, registered)
       when :compensate_run then compensate(activation, registered, node, deps)
+      when :leave
+        registered.forget(RegisteredClass.address(activation, node), activation[:whole_relay])
+        { token: activation[:token], outcome: "state_applied" }
       else
         failed(activation[:token], "unknown activation kind `#{activation[:kind]}`",
                non_retryable: true)

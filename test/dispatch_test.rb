@@ -155,7 +155,7 @@ class DispatchTest < Minitest::Test
       apply_state: { state_json: Flezha::Codec.to_state_json({ total: 0 }).b },
       key_request: { key_request: { channel: 0, payloads: [], want_keys: false,
                                     want_event_time: false } },
-      compensate_run: { outputs: [] }
+      compensate_run: { outputs: [] }, leave: { whole_relay: false }
     }
 
     kinds.each do |kind, extra|
