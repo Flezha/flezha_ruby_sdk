@@ -121,8 +121,8 @@ class SpawnTest < Minitest::Test
     assert_equal [[1, Flezha::SpawnHandle::WAIT_MS]] * 2, core.spawn_reads
   end
 
-  # The fiber executor resumes a fiber that yielded only once another
-  # activation arrives, so a wait that yielded to the scheduler would stall.
+  # The wait is in the core, not in the scheduler, so under the fiber executor
+  # it answers on the dispatch thread like any other blocking core call.
   def test_a_wait_returns_under_the_fiber_executor
     item = Flezha::TestSupport.input_item("p")
     core = FakeCore.new(activations: [Flezha::TestSupport.activation(factory: "waiter_op", items: [item])],

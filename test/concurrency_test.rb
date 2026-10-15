@@ -183,6 +183,38 @@ class ConcurrencyTest < Minitest::Test
     end
   end
 
+  # A handler whose I/O yields to the fiber scheduler: a 10 ms sleep.
+  class Napper < Flezha::Tasklet
+    tasklet_name "napper"
+    def run(input, ctx)
+      sleep 0.01
+      ctx.emit(input)
+    end
+  end
+
+  class NapperRelay < Flezha::Relay
+    factory_id "napper_op"
+    channels do |c|
+      c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
+       .into(Napper).output("out", encode: ->(v) { v.to_s.b })
+    end
+  end
+
+  # One activation and then a quiet queue: the handler that yielded must be
+  # resumed by the scheduler, not by the next activation or the executor's stop.
+  def test_a_handler_that_yields_is_resumed_while_the_queue_is_quiet
+    core = Flezha::TestSupport::FakeCore.new(activations: [activation(1, "x").merge(factory: "napper_op")])
+    executor = Flezha::FiberExecutor.new(core, Flezha::TestSupport.deps(NapperRelay, core), fetchers: 1).start
+    begin
+      assert wait_until(timeout: 2) { core.completed.size == 1 },
+             "a 10 ms sleep under the fiber executor was not resumed while the queue was quiet"
+      assert_equal [["x"]], core.completed.first[:effects].map { |e| e[:outputs].map { |o| o[:payload] } }
+    ensure
+      core.shutdown
+      executor.stop
+    end
+  end
+
   # -- the drain is bounded -------------------------------------------------
 
   class NeverReturns < Flezha::Tasklet

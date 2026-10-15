@@ -405,9 +405,8 @@ module Flezha
     # `spawn.unavailable`).
     #
     # The wait is in the core with the GVL released, as every waiting core
-    # call is, so under the fiber executor it holds the dispatch thread until
-    # the answer arrives. A fiber that yielded there instead would not be
-    # resumed until the executor's next activation.
+    # call is, so under the fiber executor it holds the dispatch thread, and
+    # every other handler fiber with it, until the answer arrives.
     def wait
       result = read(WAIT_MS) until result
       result

@@ -306,18 +306,23 @@ module Flezha
       Flezha.log.error("a fetcher thread ended on #{e.class}: #{e.message}")
     end
 
-    # The scheduler is never closed by hand: Ruby closes a thread's scheduler
-    # when the thread ends, and closing it runs every outstanding fiber to
-    # completion first. That is what makes a drain under this executor mean the
-    # same thing it means under the thread one — and closing it here as well
-    # would be a second close, which the scheduler refuses.
+    # The pop runs in a scheduled fiber, so a quiet queue yields to the event
+    # loop and a handler fiber is resumed as soon as its I/O is ready. That loop
+    # is the scheduler's close, which Ruby runs when this thread ends and which
+    # runs every fiber to completion, the pop's included: a drain here means
+    # what it means under the thread executor. Closing the scheduler by hand as
+    # well would be a second close, which the scheduler refuses.
     def run_dispatcher
       Fiber.set_scheduler(build_scheduler)
+      Fiber.schedule { pop_and_dispatch }
+    rescue StandardError => e
+      Flezha.log.error("the fiber dispatcher ended on #{e.class}: #{e.message}")
+    end
+
+    def pop_and_dispatch
       while (activation = @queue.pop)
         Fiber.schedule { Dispatch.dispatch(activation, @core, @deps) }
       end
-    rescue ClosedQueueError
-      nil
     rescue StandardError => e
       Flezha.log.error("the fiber dispatcher ended on #{e.class}: #{e.message}")
     end
