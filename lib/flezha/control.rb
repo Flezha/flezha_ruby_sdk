@@ -66,10 +66,10 @@ module Flezha
     # The plugins enabled in this namespace: name, provider, single, bound relays.
     def list_plugins = call("PluginManager.list")
 
-    # One cell's live state, and the change sequence it was read at.
-    def cell_state(relay_id, cell_key)
-      call("Relay.cell_state", relay_id, cell_key)
-    end
+    # A relay's live state, and the change sequence it was read at. `cell` is
+    # `<tasklet>[/<cell_key>]`: a tasklet's Cells, or one of them; nil reads
+    # every Cell of the relay.
+    def cell_state(relay_id, cell = nil) = call("Relay.cell_state", relay_id, cell)
 
     # Any published function, by name. What succeeds follows from the role the
     # namespace is bound to, never from a list kept here. The arguments are the
