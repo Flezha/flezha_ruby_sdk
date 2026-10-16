@@ -88,14 +88,20 @@ class ConcurrencyTest < Minitest::Test
       activations: Array.new(6) { |i| activation(i, "x") },
       starvations: 10, hold: -> { release.pop }
     )
-    executor = Flezha::ThreadExecutor.new(core, deps(core), base: 1, ceiling: 3).start
-    begin
-      assert wait_until { executor.size == 3 }, "the supervisor grows the pool on an observation"
-      assert_equal 3, executor.size, "and never past the ceiling"
-    ensure
-      6.times { release.push(:go) }
-      core.shutdown
-      executor.stop
+    _, stderr = capture_io do
+      executor = Flezha::ThreadExecutor.new(core, deps(core), base: 1, ceiling: 3).start
+      begin
+        assert wait_until { executor.size == 3 }, "the supervisor grows the pool on an observation"
+        assert_equal 3, executor.size, "and never past the ceiling"
+      ensure
+        6.times { release.push(:go) }
+        core.shutdown
+        executor.stop
+      end
+    end
+    # Whether an observation lands at the ceiling before the shutdown is timing.
+    stderr.each_line do |line|
+      assert_match(/\A\[flezha\] the core is starving and the worker pool is at its ceiling of 3; /, line)
     end
   end
 
@@ -243,13 +249,11 @@ class ConcurrencyTest < Minitest::Test
     executor = Flezha::ThreadExecutor.new(core, never_returns_deps(core), base: 1, ceiling: 1).start
     assert wait_until { core.polled_once? }, "the worker picked the activation up"
 
-    core.shutdown
-    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    executor.stop
-    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    elapsed, stderr = timed_stop(core, executor)
 
     assert_operator elapsed, :<, Flezha::Executor::DRAIN_TIMEOUT_S + 3,
                     "the drain waited #{elapsed}s on a handler that never returns"
+    assert_reports_one_undrained(stderr)
   end
 
   def test_the_same_bound_holds_under_the_fiber_executor
@@ -259,13 +263,26 @@ class ConcurrencyTest < Minitest::Test
     executor = Flezha::FiberExecutor.new(core, never_returns_deps(core), fetchers: 1).start
     assert wait_until { core.polled_once? }
 
-    core.shutdown
-    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    executor.stop
-    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    elapsed, stderr = timed_stop(core, executor)
 
     assert_operator elapsed, :<, Flezha::Executor::DRAIN_TIMEOUT_S + 3,
                     "the drain waited #{elapsed}s on a fiber that never returns"
+    assert_reports_one_undrained(stderr)
+  end
+
+  # Shuts the core down and stops the executor; the seconds the stop took and
+  # what it wrote to standard error.
+  def timed_stop(core, executor)
+    core.shutdown
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    _, stderr = capture_io { executor.stop }
+    [Process.clock_gettime(Process::CLOCK_MONOTONIC) - started, stderr]
+  end
+
+  def assert_reports_one_undrained(stderr)
+    assert_equal ["[flezha] 1 activation(s) were still running after the #{Flezha::Executor::DRAIN_TIMEOUT_S}s drain; " \
+                  "the runner is exiting anyway. The core re-hands unanswered work on the next bind — find the " \
+                  "handler that does not return.\n"], stderr.lines
   end
 
   # -- the process rules ----------------------------------------------------

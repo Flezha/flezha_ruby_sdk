@@ -194,11 +194,26 @@ class SpawnTest < Minitest::Test
     core.local_feed("in", "p")
     activation = core.poll(5_000)
     activation[:items].each { |item| item[:replay] = replay }
-    Flezha::Dispatch.dispatch(activation, core, Flezha::DispatchDeps.new(registry: registry, bridge: core))
+    # Completing the activation releases its handles, and the core writes the
+    # unread one's failure to file descriptor 2 as it does.
+    _, stderr = capture_subprocess_io do
+      Flezha::Dispatch.dispatch(activation, core, Flezha::DispatchDeps.new(registry: registry, bridge: core))
+    end
+    assert_unread_failure_logged_once(stderr, replay: replay)
     yield core, *Array.new(4) { RECORDED.pop(timeout: 5) }
   ensure
     core&.local_stop
     core&.free
+  end
+
+  # A live invocation logs the one failure nobody read; a replay requested
+  # nothing, so it has nothing to log.
+  def assert_unread_failure_logged_once(stderr, replay:)
+    return assert_empty(stderr) if replay
+
+    assert_equal 1, stderr.lines.size, stderr
+    assert_match(/\A\[flezha\] spawn_steps\(factory `worker`, id `unread`\) failed \(spawn\.unavailable\): .*no control plane/,
+                 stderr)
   end
 
   def test_without_a_control_plane_a_read_raises_unavailable
@@ -222,15 +237,9 @@ class SpawnTest < Minitest::Test
 
   def test_an_unread_failure_is_logged_once_and_the_invocation_still_ships_its_emit
     released = nil
-    _, stderr = capture_subprocess_io do
-      dispatch_one(replay: false) { |core| released = core.local_next_output(5_000) }
-    end
+    dispatch_one(replay: false) { |core| released = core.local_next_output(5_000) }
 
     assert_equal "p", released&.fetch(:payload)
-    warnings = stderr.lines.grep(/spawn_steps\(/)
-    assert_equal 1, warnings.size, stderr
-    assert_includes warnings.first, "`unread`"
-    assert_includes warnings.first, "no control plane"
   end
 
   def test_a_handle_read_after_its_invocation_completed_answers_released
