@@ -18,6 +18,10 @@ module Flezha
   class Ctx
     # Metadata keys the runtime owns. A handler that sets one is refused.
     RESERVED_PREFIX = "flz."
+    # The identity stamps a keyed plugin output carries when no effect record does.
+    CELL_STAMP = "flz.cell"
+    SEQ_STAMP = "flz.seq"
+    KEY_STAMP = "flz.key"
 
     attr_reader :changes, :outputs, :timers, :cell_key, :replay
 
@@ -363,9 +367,9 @@ module Flezha
     def stamp_identity(pairs, channel, key)
       if channel.keyed && !@spec.records_effects?
         pairs.push(
-          ["flz.cell", "#{@relay}/#{@node.name}/#{@cell_key}"],
-          ["flz.seq", "#{@change_seq}.#{@emit_ordinal}"],
-          ["flz.key", key.to_s]
+          [CELL_STAMP, "#{@relay}/#{@node.name}/#{@cell_key}"],
+          [SEQ_STAMP, "#{@change_seq}.#{@emit_ordinal}"],
+          [KEY_STAMP, key.to_s]
         )
       end
       @emit_ordinal += 1
