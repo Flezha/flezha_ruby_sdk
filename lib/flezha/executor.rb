@@ -235,7 +235,7 @@ module Flezha
   # so a handler's I/O yields instead of blocking a thread.
   #
   # The fetcher stays a real thread under this executor too. `poll` blocks in
-  # native code, and `docs/sdk/poll_core.md` is explicit that fetching on a
+  # native code, and `docs/internal/sdk/poll_core.md` is explicit that fetching on a
   # runtime's shared I/O pool starves everything else that pool serves.
   #
   # Completion happens on the fiber that dispatched, not on the fetcher: the

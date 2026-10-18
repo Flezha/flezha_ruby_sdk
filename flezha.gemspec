@@ -57,7 +57,7 @@ Gem::Specification.new do |spec|
 
   spec.metadata = {
     "source_code_uri" => spec.homepage,
-    "documentation_uri" => "#{spec.homepage}/blob/main/docs/sdk/ruby_sdk.md",
+    "documentation_uri" => "#{spec.homepage}/blob/main/docs/internal/sdk/ruby_sdk.md",
     "rubygems_mfa_required" => "true"
   }
 end

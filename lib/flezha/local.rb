@@ -24,7 +24,7 @@ module Flezha
   # placement and migration, the dead-letter queue, observability export,
   # authz and multi-runner scale all need a controller; the run says so on
   # stderr every time it starts. The "Local mode" section of
-  # https://github.com/flezha/flezha/blob/main/docs/topics/core/running_and_testing.md#local-mode
+  # https://github.com/flezha/flezha/blob/main/docs/public/topics/core/running_and_testing.md#local-mode
   # walks through it.
   class LocalRelay
     # Bounded so a stopped run's drain thread leaves promptly.

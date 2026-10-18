@@ -57,5 +57,5 @@ folder finds it, and once it is published the step goes away.
 
 [`docs/guides/runner_deployment.md`](../../../../docs/guides/runner_deployment.md)
 walks through what each of the three parts is and why the split is the way it
-is. [`docs/sdk/ruby_sdk.md`](../../../../docs/sdk/ruby_sdk.md) covers the rest of
+is. [`docs/internal/sdk/ruby_sdk.md`](../../../../docs/internal/sdk/ruby_sdk.md) covers the rest of
 the SDK.
