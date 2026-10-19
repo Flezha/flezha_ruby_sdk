@@ -157,8 +157,7 @@ module Flezha
       when :work then run_work(activation, registered, node, deps)
       when :restore_fold then restore_fold(activation, registered, node)
       when :snapshot_request then snapshot(activation, registered, node)
-      when :live_state_read then state_json(activation, registered, node, "state_json")
-      when :migration_serialize then state_json(activation, registered, node, "migration_state")
+      when :live_state_read then state_json(activation, registered, node)
       when :apply_state
         registered.set_state(RegisteredClass.address(activation, node),
                              Codec.from_state_json(activation[:state_json]))
@@ -309,9 +308,9 @@ module Flezha
       { token: activation[:token], outcome: "restored" }
     end
 
-    def state_json(activation, registered, node, outcome)
+    def state_json(activation, registered, node)
       state = registered.state_of(node, RegisteredClass.address(activation, node))
-      { token: activation[:token], outcome: outcome, json: Codec.to_state_json(state).b }
+      { token: activation[:token], outcome: "state_json", json: Codec.to_state_json(state).b }
     end
 
     def snapshot(activation, registered, node)

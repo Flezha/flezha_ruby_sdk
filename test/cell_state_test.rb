@@ -65,12 +65,12 @@ class CellStateTest < Minitest::Test
     assert_equal({ seen: [] }, read("order_c"))
   end
 
-  def test_a_snapshot_and_a_migration_serialize_read_their_own_relays_cell
+  def test_a_snapshot_and_a_live_state_read_read_their_own_relays_cell
     work("order_a", "a")
     work("order_b", "b")
 
     snapshot = answer(:snapshot_request, "order_b")[:state]
-    migrated = answer(:migration_serialize, "order_b")[:json]
+    migrated = answer(:live_state_read, "order_b")[:json]
 
     assert_equal({ seen: %w[b] }, Flezha::Codec.decode(snapshot))
     assert_equal({ seen: %w[b] }, Flezha::Codec.from_state_json(migrated))

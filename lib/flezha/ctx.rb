@@ -189,13 +189,6 @@ module Flezha
     # second one, and a replayed invocation answers an empty id. Pass an id to
     # start at most one instance, or to get the id back on replay.
     def spawn_steps(factory_id, payload, id: nil, if_running: nil)
-      if if_running && id.to_s.empty?
-        raise ArgumentError,
-              "#{@node.name}: spawn_steps was given if_running without an id; if_running " \
-              "decides what a running instance named by id gets, and a spawn without an id " \
-              "always starts a new one"
-      end
-
       handle = @bridge.spawn_request(@token, factory_id, id.to_s,
                                      Codec.plain_payload(payload, "tasklet '#{@node.name}'").b,
                                      if_running.to_s, @replay, @offset)
@@ -394,10 +387,6 @@ module Flezha
   # a resolved handle answers every read the same until its invocation ends,
   # when the core releases it and logs once a failure no read collected.
   class SpawnHandle
-    # Long enough to reach the core's own deadline, which resolves the request
-    # as timed out thirty seconds after it was made.
-    WAIT_MS = 30_000
-
     def initialize(bridge, handle)
       @bridge = bridge
       @handle = handle
@@ -412,8 +401,8 @@ module Flezha
     # call is, so under the fiber executor it holds the dispatch thread, and
     # every other handler fiber with it, until the answer arrives.
     def wait
-      result = read(WAIT_MS) until result
-      result
+      Core.load_extension
+      read(Native::WAIT_CORE_BOUND)
     end
 
     # The answer if it has arrived, without waiting: `nil` while pending, and

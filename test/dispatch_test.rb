@@ -100,15 +100,12 @@ class DispatchTest < Minitest::Test
     assert_equal 7, Flezha::Codec.decode(result[:state])[:total]
   end
 
-  def test_a_live_state_read_and_a_migration_serialize_answer_json
+  def test_a_live_state_read_answers_json
     answer(:work, items: [input_item("3")])
 
-    %i[live_state_read migration_serialize].each do |kind|
-      result = answer(kind)
-      assert_equal({ live_state_read: "state_json", migration_serialize: "migration_state" }[kind],
-                   result[:outcome])
-      assert_equal 3, Flezha::Codec.from_state_json(result[:json])[:total]
-    end
+    result = answer(:live_state_read)
+    assert_equal "state_json", result[:outcome]
+    assert_equal 3, Flezha::Codec.from_state_json(result[:json])[:total]
   end
 
   def test_apply_state_materializes_a_migrated_state
@@ -151,7 +148,6 @@ class DispatchTest < Minitest::Test
       restore_fold: { changes: [] },
       snapshot_request: {},
       live_state_read: {},
-      migration_serialize: {},
       apply_state: { state_json: Flezha::Codec.to_state_json({ total: 0 }).b },
       key_request: { key_request: { channel: 0, payloads: [], want_keys: false,
                                     want_event_time: false } },

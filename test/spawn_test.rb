@@ -71,12 +71,11 @@ class SpawnTest < Minitest::Test
     assert_equal "relay.factory_not_steps", assert_raises(Flezha::Error) { handle.wait }.code
   end
 
-  def test_if_running_without_an_id_raises_at_the_call_and_sends_nothing
+  def test_if_running_without_an_id_raises_the_cores_refusal_and_sends_nothing
     core = FakeCore.new
-    error = assert_raises(ArgumentError) { ctx(core).spawn_steps("worker", "p", if_running: "error") }
+    error = assert_raises(Flezha::Error) { ctx(core).spawn_steps("worker", "p", if_running: "error") }
 
-    assert_includes error.message, "spawner: "
-    assert_includes error.message, "if_running without an id"
+    assert_equal "spawn.if_running_without_id", error.code
     assert_empty core.spawn_requests
   end
 
@@ -111,14 +110,14 @@ class SpawnTest < Minitest::Test
 
     assert_equal "authz.no_role_binding", assert_raises(Flezha::Error) { handle.wait }.code
     assert_equal "authz.no_role_binding", assert_raises(Flezha::Error) { handle.try_result }.code
-    assert_equal [[1, Flezha::SpawnHandle::WAIT_MS], [1, 0]], core.spawn_reads, "every read asks the core"
+    assert_equal [[1, Flezha::Native::WAIT_CORE_BOUND], [1, 0]], core.spawn_reads, "every read asks the core"
   end
 
-  def test_a_wait_waits_in_the_core_and_reads_again_while_pending
-    core = FakeCore.new(spawns: [nil, resolved("w1", "spawned")])
+  def test_a_wait_asks_the_core_once_to_its_own_bound
+    core = FakeCore.new(spawns: [resolved("w1", "spawned")])
     ctx(core).spawn_steps("worker", "p", id: "w1").wait
 
-    assert_equal [[1, Flezha::SpawnHandle::WAIT_MS]] * 2, core.spawn_reads
+    assert_equal [[1, Flezha::Native::WAIT_CORE_BOUND]], core.spawn_reads
   end
 
   # The wait is in the core, not in the scheduler, so under the fiber executor

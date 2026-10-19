@@ -293,8 +293,11 @@ module Flezha
 
       # A request answers the next handle number; a read answers the next
       # scripted answer, and pending once they run out. As in the core, a
-      # handle that resolved answers every later read the same.
+      # policy without an id is refused at the call, and a handle that
+      # resolved answers every later read the same.
       def spawn_request(*args)
+        raise Flezha::Error.new("spawn.if_running_without_id") if args[2].empty? && !args[4].empty?
+
         @lock.synchronize do
           @spawn_requests << args
           @spawn_requests.size
