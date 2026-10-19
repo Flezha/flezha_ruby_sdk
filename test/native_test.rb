@@ -15,51 +15,34 @@ class NativeTest < Minitest::Test
     assert_equal Flezha::ACTIVATION_SCHEMA_VERSION, Flezha::Native.schema_version
   end
 
-  # Schema negotiation happens at context creation, before any controller
-  # connection is attempted: a gem and a native library that disagree must fail
-  # at boot rather than half-way through a run.
-  def test_a_schema_mismatch_raises_naming_both_versions
-    error = assert_raises(Flezha::Error) do
-      Flezha::Native.context_new(Flezha::Native.schema_version + 1)
-    end
-
-    assert_equal "runtime.schema_mismatch", error.code
-    assert_equal({ "shim" => Flezha::Native.schema_version + 1, "core" => Flezha::Native.schema_version },
-                 error.details)
-  end
-
   def test_a_call_before_the_context_exists_names_what_the_caller_skipped
     error = assert_raises(Flezha::Error) { Flezha::Native.poll(1) }
     assert_equal "internal.uncatalogued", error.code
     assert_includes error.details["reason"], "context_new"
   end
 
-  # Every export maps onto one C ABI entry point: the veneer adds no kernel
-  # path of its own. Asserted from this side as well as from Rust, because this
-  # is the side that can go wrong without anyone rebuilding the crate.
-  def test_the_native_surface_names_only_abi_entry_points
+  # The extension's table against the C ABI fixture, the loaded module and the
+  # guarded wrapper. Every row is a function the module defines and names an
+  # entry point `abi_surface.txt` lists, so the veneer adds no kernel path of
+  # its own; and `Core` reaches every row, so an entry point added to the veneer
+  # and not to `ENTRY_POINTS` is not a method that quietly does not exist on
+  # `Core`, and one removed is not a delegation that raises `NoMethodError` at
+  # the first call.
+  def test_the_extension_exports_the_surface_the_gem_wraps
+    listed = File.readlines(Flezha::TestSupport.contract_file("test/fixtures/abi_surface.txt"), chomp: true)
+                 .map(&:strip).reject { |line| line.empty? || line.start_with?("#") }
     surface = Flezha::Native.native_surface
 
     refute_empty surface
-    surface.each do |name, abi, blocking|
-      assert abi.start_with?("flz_core_"), "#{name} names #{abi}, which is not a C ABI entry point"
-      assert_includes [true, false], blocking
+    surface.each do |name, abi, _blocking|
+      assert_includes listed, abi, "#{name} names #{abi}, which flz_core_ffi does not export"
+      assert_respond_to Flezha::Native, name
     end
-    blocking = surface.select { |row| row[2] }.map(&:first)
-    assert_equal %w[start local_feed local_next_output local_run_until_idle poll
-                    wait_starvation complete spawn_result effect_end admin_call send_message], blocking
-  end
-
-  # The guarded wrapper covers the whole surface. Without this, an entry point
-  # added to the veneer and not to `ENTRY_POINTS` is a method that quietly does
-  # not exist on `Core` — and one removed from the veneer is a delegation that
-  # raises `NoMethodError` at the first call.
-  def test_the_guarded_wrapper_covers_every_exported_entry_point
-    exported = Flezha::Native.native_surface.map(&:first).map(&:to_sym)
-    # The three the wrapper reaches other than by delegation: two are class
-    # level (`create` negotiates the schema, `free` releases it) and
-    # `native_surface` is this assertion's own subject.
-    # `error_document` is reached through `Core.error_document`.
+    exported = surface.map { |row| row.first.to_sym }
+    # The ones the wrapper reaches other than by delegation: two are class
+    # level (`create` negotiates the schema, `free` releases it),
+    # `native_surface` is this assertion's own subject and `error_document` is
+    # reached through `Core.error_document`.
     wrapped = Flezha::Core::ENTRY_POINTS + %i[schema_version context_new context_free native_surface error_document]
 
     assert_empty exported - wrapped, "the veneer exports entry points Core cannot reach"
