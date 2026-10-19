@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
-require "json"
-
 require_relative "errors"
+require_relative "native"
 
 module Flezha
   # One outcome of a `call`, as its Response channel delivers it: the `request`
@@ -13,16 +12,15 @@ module Flezha
   Response = Data.define(:request, :value, :error, :target, :created) do
     def ok? = error.nil?
 
-    # The Response a controller's envelope carries: a JSON object whose
-    # `request` and `value` are padded base64 and whose `error` is an error
-    # object. `decode` reads the request's and the answer's bytes.
+    # The Response a controller's envelope carries, read by the core's
+    # decoder; a payload that is no envelope raises `call.malformed_response`.
+    # `decode` reads the request's and the answer's bytes.
     def self.decode(payload, decode)
-      envelope = JSON.parse(payload)
-      error = envelope["error"] && Error.from_object(envelope["error"])
+      Core.load_extension unless defined?(Native)
+      target, created, request, value, error = Native.response_decode(payload)
       new(
-        request: decode.call(envelope.fetch("request").unpack1("m0")),
-        value: error ? nil : decode.call(envelope.fetch("value").unpack1("m0")),
-        error: error, target: envelope.fetch("target"), created: envelope.fetch("created")
+        request: decode.call(request), value: error ? nil : decode.call(value),
+        error: error && Error.from_document(error), target:, created:
       )
     end
   end

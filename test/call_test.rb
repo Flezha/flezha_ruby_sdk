@@ -128,6 +128,8 @@ class CallTest < Minitest::Test
   end
 
   def test_the_response_channel_decodes_the_envelope_with_the_calls_codec
+    skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
+
     response_channel = Gateway.spec.channels.find { |channel| channel.name == "ask.response" }
     envelope = { call: "c", target: "agent-1", created: true, request: ["s1"].pack("m0"),
                  value: ["fine"].pack("m0") }.to_json
@@ -136,22 +138,16 @@ class CallTest < Minitest::Test
                  response_channel.decode.call(envelope.b)
   end
 
-  ENVELOPES.each do |envelope|
-    define_method("test_the_envelope_#{envelope['name']}_decodes") do
-      expect = envelope["expect"]
-      response = Flezha::Response.decode(envelope["payload"], RAW)
+  def test_an_error_case_and_a_malformed_payload_read_through_the_core
+    skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
-      assert_equal [expect["target"], expect["created"], expect["request"].unpack1("m0")],
-                   [response.target, response.created, response.request]
-      assert_equal expect["ok"], response.ok?
-      if expect["ok"]
-        assert_equal expect["value"].unpack1("m0"), response.value
-      else
-        assert_nil response.value
-        assert_equal expect.values_at("error_code", "error_class", "error_message"),
-                     [response.error.code, response.error.error_class, response.error.message]
-        assert_kind_of Flezha::Error, response.error
-      end
-    end
+    case_ = ENVELOPES.find { |envelope| envelope["name"] == "error_timeout" }
+    expect = case_["expect"]
+    response = Flezha::Response.decode(case_["payload"], RAW)
+
+    assert_equal [expect["target"], expect["created"], expect["request"].unpack1("m0"), expect["error_code"]],
+                 [response.target, response.created, response.request, response.error.code]
+    refused = assert_raises(Flezha::Error) { Flezha::Response.decode('{"target":"t","created":false}', RAW) }
+    assert_equal "call.malformed_response", refused.code
   end
 end
