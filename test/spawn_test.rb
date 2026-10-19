@@ -194,26 +194,33 @@ class SpawnTest < Minitest::Test
     core.local_feed("in", "p")
     activation = core.poll(5_000)
     activation[:items].each { |item| item[:replay] = replay }
-    # Completing the activation releases its handles, and the core writes the
-    # unread one's failure to file descriptor 2 as it does.
-    _, stderr = capture_subprocess_io do
+    # Completing the activation releases its handles, and the core queues the
+    # unread one's failure as a notice for the SDK logger.
+    log, default_log = Flezha::TestSupport::CapturedLog.install
+    begin
       Flezha::Dispatch.dispatch(activation, core, Flezha::DispatchDeps.new(registry: registry, bridge: core))
+      Flezha.log_notices(core.take_notices)
+    ensure
+      Flezha.log = default_log
     end
-    assert_unread_failure_logged_once(stderr, replay: replay)
+    assert_unread_failure_logged_once(log.lines, replay: replay)
     yield core, *Array.new(4) { RECORDED.pop(timeout: 5) }
   ensure
     core&.local_stop
     core&.free
   end
 
-  # A live invocation logs the one failure nobody read; a replay requested
-  # nothing, so it has nothing to log.
-  def assert_unread_failure_logged_once(stderr, replay:)
-    return assert_empty(stderr) if replay
+  # The local run logs its banner; a live invocation also logs the one failure
+  # nobody read, and a replay requested nothing, so it has nothing to log.
+  def assert_unread_failure_logged_once(lines, replay:)
+    banner, *rest = lines
+    assert_equal :error, banner[0]
+    assert banner[1].start_with?("LOCAL MODE: "), banner[1]
+    return assert_empty(rest) if replay
 
-    assert_equal 1, stderr.lines.size, stderr
-    assert_match(/\A\[flezha\] spawn_steps\(factory `worker`, id `unread`\) failed \(spawn\.unavailable\): .*no control plane/,
-                 stderr)
+    assert_equal 1, rest.size, lines.inspect
+    assert_match(/\Aspawn_steps\(factory `worker`, id `unread`\) failed \(spawn\.unavailable\): .*no control plane/,
+                 rest[0][1])
   end
 
   def test_without_a_control_plane_a_read_raises_unavailable

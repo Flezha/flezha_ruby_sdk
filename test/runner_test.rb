@@ -307,19 +307,54 @@ class RunnerTest < Minitest::Test
     assert_equal %w[sugar_do_nothing], declared(runner)
   end
 
-  def test_unregistering_after_start_is_refused
+  class LaterRelay < Flezha::Relay
+    factory_id "runner_later_op"
+    channels { |c| c.input("input").into(Echo, "later").output("out") }
+  end
+
+  # The registry the executor reads follows a change after start, and the core
+  # hears of it: a class registered later runs, and one removed is no longer
+  # served.
+  def test_a_factory_changed_after_start_is_served_and_then_refused
     core = Flezha::TestSupport::FakeCore.new
     runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay)
+    work = lambda do |token|
+      Flezha::TestSupport.activation(factory: "runner_later_op", token: token,
+                                     items: [Flezha::TestSupport.input_item(JSON.generate("hi"))])
+    end
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> {}) do
         runner.boot(core: core)
-        error = assert_raises(Flezha::Error) { runner.unregister_factory(EchoRelay) }
+        runner.register_factory(LaterRelay)
+        assert_includes core.declarations.map { |json| JSON.parse(json)["factory_id"] }, "runner_later_op"
 
-        assert_equal ["runtime.factory_in_service", EchoRelay.to_s], [error.code, error.details["module"]]
+        core.offer(work.call(1))
+        ran = answered(core, 1)
+        assert_equal ["work", ["ok"]], [ran[:outcome], ran[:effects].map { |effect| effect[:verdict] }]
+
+        runner.unregister_factory(LaterRelay)
+        assert_includes core.events, [:undeclare, "runner_later_op"]
+        assert_equal %w[runner_echo_op], declared(runner)
+
+        core.offer(work.call(2))
+        refused = answered(core, 2)
+        assert_equal ["failed", "no class registered for factory `runner_later_op`", true],
+                     refused.values_at(:outcome, :error, :non_retryable)
       ensure
         runner.stop
         runner.drain
       end
+    end
+  end
+
+  def answered(core, token)
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 5
+    loop do
+      found = core.completed.find { |result| result[:token] == token }
+      return found if found
+      raise "token #{token} was never answered" if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+
+      Thread.pass
     end
   end
 

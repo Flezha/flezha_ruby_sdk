@@ -66,6 +66,7 @@ module Flezha
       @classes[spec.factory_id] = RegisteredClass.new(spec)
     end
 
+    def remove(factory_id) = @classes.delete(factory_id)
     def get(factory_id) = @classes[factory_id]
     def all = @classes.values
     def empty? = @classes.empty?

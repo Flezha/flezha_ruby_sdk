@@ -27,9 +27,6 @@ module Flezha
   # threads that `fork(2)` does not carry, and `Core#guard!` raises naming that
   # rule rather than letting a child serve nothing.
   class Runner
-    # What a healthy runner has to drain in after standard input closes.
-    STDIN_EOF_GRACE_MS = 5_000
-
     attr_reader :namespace
 
     def initialize(namespace)
@@ -46,7 +43,8 @@ module Flezha
       @teardown = []
     end
 
-    # Register a relay class, short form or full.
+    # Register a relay class, short form or full. After start the class is
+    # declared at once: the executor serves it and the controller learns of it.
     def register_factory(klass)
       # A tasklet is registered by the relay that wires it.
       unless klass.is_a?(Class) && klass < Relay
@@ -54,21 +52,24 @@ module Flezha
       end
 
       klass.check_declaration!
+      Graph.declare(klass.spec, @core, @registry) if @core
       @classes << klass
       self
     end
 
-    # Undo a registration made before the runner starts — the inverse of
-    # {#register_factory}, taking what it took.
-    #
-    # After start it refuses: a started Ruby runner serves its declarations
-    # from a registry the executor already holds, and it cannot stop serving
-    # one. Saying so is what makes the call honest rather than ignored.
+    # Undo a registration — the inverse of {#register_factory}, taking what it
+    # took. After start the core refuses a class with live instances on this
+    # runner; otherwise the executor stops serving it and the controller
+    # learns of it.
     def unregister_factory(klass)
       factory = klass.respond_to?(:factory_id) && klass.factory_id || klass.to_s
-      raise Error.new("runtime.factory_in_service", module: klass.to_s) if @core
-      raise Error.new("runtime.class_not_registered", factory: factory) unless @classes.delete(klass)
+      raise Error.new("runtime.class_not_registered", factory: factory) unless @classes.include?(klass)
 
+      if @core
+        @core.undeclare_class(factory)
+        @registry.remove(factory)
+      end
+      @classes.delete(klass)
       self
     end
 
@@ -250,7 +251,7 @@ module Flezha
     # a runner as an Erlang Port and stops it by closing the port, which is this
     # process's standard input.
     def observe_shutdown
-      @core.watch_stdin_eof(STDIN_EOF_GRACE_MS) unless $stdin.tty?
+      @core.watch_stdin_eof unless $stdin.tty?
     end
 
     # YJIT is on by default because handler bodies are the one thing the GVL

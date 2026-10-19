@@ -243,6 +243,11 @@ module Flezha
         record(:declare)
       end
 
+      def undeclare_class(factory_id) = record([:undeclare, factory_id])
+
+      # Queue one more activation, as a controller binding a relay would.
+      def offer(activation) = @pending.push(activation)
+
       # A fake derives nothing: the verdict is the core's, and a test that
       # wants one drives a real context. This answers the empty derivation so
       # a host's declare-then-serve order stays observable here.
