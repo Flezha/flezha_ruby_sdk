@@ -49,6 +49,9 @@ class ConcurrencyTest < Minitest::Test
     with_env("FLEZHA_WORKER_POOL_SIZE" => nil) do
       assert_equal Etc.nprocessors, Flezha::Executor.base_size
     end
+    with_env("FLEZHA_WORKER_POOL_SIZE" => "0") do
+      assert_equal Etc.nprocessors, Flezha::Executor.base_size, "the core answers unset"
+    end
   end
 
   def test_the_user_sets_the_base_and_the_ceiling

@@ -258,17 +258,6 @@ class TaskletFormTest < Minitest::Test
     assert_equal [[1, stored]], calls
   end
 
-  def test_a_schema_floor_with_no_migration_method_is_refused
-    floor = tasklet("floor") do
-      schema_version 2
-      min_readable_schema_version 1
-    end
-    klass = relay("floor_op") { |c| c.input("in").into(floor).output("out") }
-
-    assert_equal ["topology.schema_floor_without_migration", { "tasklet" => "floor", "floor" => 1 }],
-                 refusal { Flezha::Graph.validate(klass.spec, nil) }.then { |e| [e.code, e.details] }
-  end
-
   # -- what no longer exists ---------------------------------------------------
 
   def test_a_retired_declaration_raises_naming_what_replaced_it
@@ -296,31 +285,12 @@ class TaskletFormTest < Minitest::Test
 
   # -- the cell mode is the wiring's ------------------------------------------
 
-  def test_key_by_alone_makes_a_tasklet_dynamic_with_a_cell_per_key
+  def test_key_by_alone_routes_a_cell_per_key
     counter = tasklet("counter")
     klass = relay("orders_op") { |c| c.input("orders").key_by { |o| o[:customer] }.into(counter).output("out") }
     keys = prepared(klass, ['{"customer":"ann"}', '{"customer":"bo"}'], want_keys: true).map { |a| a[:keys] }
 
-    assert_equal "dynamic", tasklet_record(klass, "counter")["cell_mode"]
     assert_equal [["ann"], ["bo"]], keys
-  end
-
-  def test_a_merge_keyed_by_key_by_makes_its_tasklet_dynamic
-    detector = tasklet("detector")
-    klass = relay("merge_op") do |c|
-      c.merge.from(c.input("ticks")) { |t| t }.from(c.input("quotes")) { |q| q }
-       .key_by { |v| v[:symbol] }.into(detector).output("out")
-    end
-
-    assert_equal "dynamic", tasklet_record(klass, "detector")["cell_mode"]
-  end
-
-  def test_one_class_takes_its_mode_from_each_wiring
-    shared = tasklet("shared")
-    keyed = relay("keyed_op") { |c| c.input("in").key_by(&:to_s).into(shared).output("out") }
-    single = relay("single_op") { |c| c.input("in").into(shared).output("out") }
-
-    assert_equal %w[dynamic single], [keyed, single].map { |klass| tasklet_record(klass, "shared")["cell_mode"] }
   end
 
   def test_a_static_key_set_fed_by_key_by_is_refused_by_the_core

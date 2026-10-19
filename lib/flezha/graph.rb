@@ -10,9 +10,7 @@ module Flezha
   #
   # The topology is judged in ONE place, `flz_core::host::register::check`:
   # this module records what the author declared, submits it, and the core's
-  # refusal reaches the author as the `Flezha::Error` it raises. What is refused here instead is
-  # what a record cannot carry: whether a Ruby class supplies the migration a
-  # schema floor needs, which the core cannot see.
+  # refusal reaches the author as the `Flezha::Error` it raises.
   module Graph
     # The Ruby SDK's byte in the core's `sdk_lang` allocation table.
     SDK_LANG_RUBY = 5
@@ -44,11 +42,7 @@ module Flezha
       core.declare_class(JSON.generate(to_host_class_decl(spec)))
     end
 
-    # The defects this SDK can see that the record cannot carry are refused
-    # first, so an author reads "supplies no migration" rather than a topology
-    # verdict about a record the class never wrote.
     def validate(spec, core)
-      check_tasklets(spec)
       derived = submit(spec, core)
       bind_edges(spec, derived)
       derived
@@ -70,24 +64,6 @@ module Flezha
         target = spec.channels[channel["index"]]
         target.consumers = channel["consumers"].map { |edge| target.chain_edges[edge["chain"]] }
       end
-    end
-
-    def check_tasklets(spec)
-      spec.tasklets.each { |node| check_schema(node) }
-    end
-
-    def check_schema(node)
-      definition = node.definition
-      floor = definition.min_readable_schema_version
-      return unless floor
-
-      running = definition.schema_version || 1
-      if floor > running
-        raise Error.new("topology.schema_floor_above_version", tasklet: node.name, floor: floor, version: running)
-      end
-      return unless floor < running && !definition.migrate_state? && !definition.migrate_change?
-
-      raise Error.new("topology.schema_floor_without_migration", tasklet: node.name, floor: floor)
     end
 
     # Drop the keys whose value is nil, so the JSON omits them.
@@ -112,46 +88,24 @@ module Flezha
       )
     end
 
-    # The nodes some chain reaches through a `key` link. The cell mode is the
-    # wiring's, so one tasklet can be keyed in one relay and single in
-    # another.
-    def keyed_nodes(spec)
-      spec.channels.flat_map(&:chains).each_with_object(Set.new) do |links, keyed|
-        key = false
-        links.each do |link|
-          case link["link"]
-          when "key" then key = true
-          when "into", "merge" then keyed << link["tasklet"] if key
-          end
-        end
-      end
-    end
-
-    def cell_mode(node, keyed)
-      if node.definition.cell_keys then "static"
-      elsif keyed.include?(node.index) then "dynamic"
-      else "single"
-      end
-    end
-
-    def tasklet_json(node, keyed)
+    def tasklet_json(node)
       definition = node.definition
       compact(
         "name" => node.name,
-        "cell_mode" => cell_mode(node, keyed),
         "cell_keys" => definition.cell_keys || [],
         "idle_ttl_ms" => definition.idle_ttl_ms,
         "max_cells" => definition.max_cells,
         "cells_for_overridden" => definition.cells_for?,
         "compensate_overridden" => definition.compensate?,
         "clock" => definition.clock.to_s,
-        "mailbox_capacity" => definition.mailbox_capacity || 1024,
+        "mailbox_capacity" => definition.mailbox_capacity,
         # A tasklet with no state journals nothing, so a logical clock over
         # it never advances. Ruby has no per-tasklet Change type; having a
         # state IS the same statement.
         "change_is_nochange" => !definition.stateful?,
         "schema_version" => definition.schema_version || 1,
-        "min_readable_schema_version" => definition.min_readable_schema_version
+        "min_readable_schema_version" => definition.min_readable_schema_version,
+        "migrates" => definition.migrate_state? || definition.migrate_change?
       )
     end
 
@@ -161,7 +115,6 @@ module Flezha
     # `test/fixtures/host_class_decl_keys.txt`, which this gem's own test
     # reads: a key the core learns that Ruby cannot spell fails that test.
     def to_host_class_decl(spec)
-      keyed = keyed_nodes(spec)
       compact(
         "factory_id" => spec.factory_id,
         "description" => spec.description,
@@ -173,7 +126,7 @@ module Flezha
         "change_format_id" => FORMAT_ID_MSGPACK,
         "compact_after_bytes" => spec.compact_after_bytes,
         "channels" => spec.channels.map { |channel| channel_json(channel) },
-        "tasklets" => spec.tasklets.map { |node| tasklet_json(node, keyed) }
+        "tasklets" => spec.tasklets.map { |node| tasklet_json(node) }
       )
     end
   end

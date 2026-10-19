@@ -41,9 +41,10 @@ class NativeTest < Minitest::Test
     exported = surface.map { |row| row.first.to_sym }
     # The ones the wrapper reaches other than by delegation: two are class
     # level (`create` negotiates the schema, `free` releases it),
-    # `native_surface` is this assertion's own subject and `error_document` is
-    # reached through `Core.error_document`.
-    wrapped = Flezha::Core::ENTRY_POINTS + %i[schema_version context_new context_free native_surface error_document]
+    # `native_surface` is this assertion's own subject, `error_document` is
+    # reached through `Core.error_document` and `knob` through `Env`.
+    wrapped = Flezha::Core::ENTRY_POINTS +
+              %i[schema_version context_new context_free native_surface error_document knob]
 
     assert_empty exported - wrapped, "the veneer exports entry points Core cannot reach"
     assert_empty wrapped - exported, "Core delegates to entry points the veneer does not export"

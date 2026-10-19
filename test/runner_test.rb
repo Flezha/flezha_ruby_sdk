@@ -458,8 +458,7 @@ class RunnerTest < Minitest::Test
     assert_equal %w[a b], definition.cell_keys
     assert_equal 8, definition.mailbox_capacity
     tasklet = decl(keyed)["tasklets"].first
-    assert_equal ["keyed_short", "static", 8, true],
-                 tasklet.values_at("name", "cell_mode", "mailbox_capacity", "cells_for_overridden")
+    assert_equal ["keyed_short", 8, true], tasklet.values_at("name", "mailbox_capacity", "cells_for_overridden")
   end
 
   def test_a_duplicate_factory_id_across_kinds_is_refused_by_name
