@@ -22,7 +22,6 @@
 
 require_relative "flezha/version"
 require_relative "flezha/errors"
-require_relative "flezha/env"
 require_relative "flezha/logger"
 require_relative "flezha/identity"
 require_relative "flezha/codec"
