@@ -44,4 +44,13 @@ module Flezha
   def self.log=(logger)
     Ractor.current[:flezha_logger] = logger
   end
+
+  NOTICE_LEVELS = { "info" => :info, "warn" => :warn }.freeze
+
+  # Write the core's notices, as `take_notices` answers them, through the SDK's
+  # logger; an error, and the local-mode banner (`always`), at `error`, which no
+  # level hides.
+  def self.log_notices(taken)
+    taken.each { |level, _target, text| log.public_send(NOTICE_LEVELS.fetch(level, :error), text) }
+  end
 end

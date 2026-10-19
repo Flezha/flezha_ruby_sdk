@@ -46,6 +46,56 @@ class LocalModeTest < Minitest::Test
 
   def setup
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
+    # Each run logs the core's local-mode banner; the notice tests assert it.
+    @log, @default_log = Flezha::TestSupport::CapturedLog.install
+  end
+
+  def teardown
+    Flezha.log = @default_log if @default_log
+  end
+
+  BANNER = "LOCAL MODE: state is held in memory and NOTHING is durable"
+
+  def test_the_banner_reaches_the_sdk_logger_at_error_which_no_level_hides
+    Flezha::LocalRelay.start(WordCount).close
+
+    assert_equal [[:error, BANNER]], @log.lines.map { |level, message| [level, message[0, BANNER.size]] }
+  end
+
+  FLAKY_ATTEMPTS = Queue.new
+
+  # Fails its first attempt, so the core retries it and says so.
+  class Flaky < Flezha::Tasklet
+    tasklet_name "flaky"
+    def run(value, ctx)
+      FLAKY_ATTEMPTS << value
+      raise "the first attempt fails" if FLAKY_ATTEMPTS.size == 1
+
+      ctx.emit(value)
+    end
+  end
+
+  class FlakyRelay < Flezha::Relay
+    factory_id "local_flaky_ruby"
+    channels { |c| c.input("in", codec: :text).into(Flaky).output("out") }
+  end
+
+  def test_a_retry_notice_reaches_the_sdk_logger
+    FLAKY_ATTEMPTS.clear
+    run = Flezha::LocalRelay.start(FlakyRelay)
+    begin
+      run.feed("in", "x")
+      run.run_until_idle(10_000)
+    ensure
+      run.close
+    end
+
+    retries = @log.lines.select { |_, message| message.start_with?("tasklet flaky") }
+    assert_equal 1, retries.size, @log.lines.inspect
+    level, message = retries.first
+    assert_equal :warn, level
+    assert message.start_with?("tasklet flaky attempt 1/3 failed (retrying in "), message
+    assert message.end_with?("the first attempt fails"), message
   end
 
   # The scenario every core runs: the lines to feed, and the output values.

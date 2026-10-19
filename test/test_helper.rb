@@ -178,6 +178,27 @@ module Flezha
     # — a test that wants the dispatcher's answer asserts `Dispatch.answer`,
     # and a test that wants the handout contract drives a real context. Both
     # blocking calls answer on a signal, so no test waits on a clock.
+    # A logger holding every line the SDK writes, as `[level, message]`, in
+    # place of the default one for as long as a test needs it.
+    class CapturedLog
+      def initialize
+        @lock = Mutex.new
+        @lines = []
+      end
+
+      %i[debug info warn error].each do |level|
+        define_method(level) { |message| @lock.synchronize { @lines << [level, message] } }
+      end
+
+      def lines = @lock.synchronize { @lines.dup }
+
+      # Capture the SDK's log until `restore` is called with the answer.
+      def self.install
+        captured = new
+        [captured, Flezha.log.tap { Flezha.log = captured }]
+      end
+    end
+
     class FakeCore
       attr_reader :events, :declarations, :completed, :abandoned, :polled, :spawn_requests,
                   :spawn_reads, :parts
@@ -242,6 +263,8 @@ module Flezha
         @lock.synchronize { @handed_out = true }
         activation
       end
+
+      def take_notices = []
 
       def wait_starvation(timeout_ms)
         @lock.synchronize do

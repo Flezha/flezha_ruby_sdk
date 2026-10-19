@@ -23,6 +23,16 @@ Flezha::TestSupport.require_test_app("fixtures")
 class LocalModeCapabilitiesTest < Minitest::Test
   def setup
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
+    @log, @default_log = Flezha::TestSupport::CapturedLog.install
+  end
+
+  # Each run logs the core's local-mode banner, and nothing else may be logged.
+  def teardown
+    return unless @default_log
+
+    Flezha.log = @default_log
+    banner = "LOCAL MODE: "
+    assert_empty(@log.lines.reject { |level, message| level == :error && message.start_with?(banner) })
   end
 
   def test_shorthand_a_short_form_is_built_and_run_with_no_controller

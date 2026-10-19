@@ -166,6 +166,7 @@ module Flezha
       undrained = @lock.synchronize { @workers.count(&:alive?) }
       Executor.report_undrained(undrained)
       @lock.synchronize { @workers.clear }
+      Flezha.log_notices(@core.take_notices)
       undrained
     end
 
@@ -204,6 +205,7 @@ module Flezha
     def supervise
       at_ceiling_logged = false
       until @stopping
+        Flezha.log_notices(@core.take_notices)
         case @core.wait_starvation(Executor::STARVATION_WAIT_MS)
         when 1
           grown = @lock.synchronize do
@@ -263,6 +265,8 @@ module Flezha
     def start
       @dispatcher = Thread.new { run_dispatcher }
       @dispatcher.name = "flezha-fibers"
+      @notices = Thread.new { write_notices }
+      @notices.name = "flezha-notices"
       @fetchers.times do |index|
         thread = Thread.new { run_fetcher }
         thread.name = "flezha-fetcher-#{index}"
@@ -289,12 +293,23 @@ module Flezha
       # scheduler runs its outstanding fibers to completion, and a fiber that
       # never returns would hold the drain open forever.
       @dispatcher&.join(Executor.remaining(deadline))
+      @notices&.join(Executor.remaining(deadline))
       undrained = [@dispatcher, *@threads].count { |thread| thread&.alive? }
       Executor.report_undrained(undrained)
+      Flezha.log_notices(@core.take_notices)
       undrained
     end
 
     private
+
+    # The core's notices, at the thread executor's supervisor's pace: this
+    # executor has no supervisor to wake.
+    def write_notices
+      until @stopping
+        Flezha.log_notices(@core.take_notices)
+        sleep(Executor::STARVATION_WAIT_MS / 1000.0)
+      end
+    end
 
     def run_fetcher
       Executor.fetch(@core, -> { @stopping }) do |activation|

@@ -49,6 +49,9 @@ module Flezha
     # before any controller connection is attempted.
     def self.create
       load_extension
+      # The first take starts holding the core's notices for this host's
+      # drains; anything an earlier context left is written now.
+      Flezha.log_notices(Native.take_notices)
       Native.context_new(ACTIVATION_SCHEMA_VERSION)
       new
     end
@@ -88,7 +91,7 @@ module Flezha
       declare_class check_class start poll wait_starvation complete abandon shutdown
       local_start local_on_sink local_feed local_next_output local_run_until_idle local_stop
       watch_stdin_eof spawn_request spawn_result part effect_begin effect_end effect_release
-      admin_call send_message relays monotonic_nanos last_error
+      admin_call send_message relays monotonic_nanos last_error take_notices
     ].freeze
 
     ENTRY_POINTS.each do |entry|
