@@ -90,6 +90,20 @@ class RunnerTest < Minitest::Test
     end
   end
 
+  # Nothing else takes the core's notices once a start has raised.
+  def test_a_failed_start_writes_what_the_core_said_while_connecting
+    core = Flezha::TestSupport::FakeCore.new
+    def core.start(_namespace) = raise(Flezha::Error.new("runtime.connect_unconfirmed"))
+    def core.take_notices = [["warn", "flz_core::control_unit", "Connection attempt 1 failed: no socket"]]
+    runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay)
+
+    _out, err = capture_io do
+      Process.stub(:warmup, nil) { assert_raises(Flezha::Error) { runner.boot(core: core) } }
+    end
+
+    assert_includes err, "[flezha] Connection attempt 1 failed: no socket"
+  end
+
   def test_a_runner_with_no_class_is_refused
     runner = Flezha::Runner.new("test-ns")
 

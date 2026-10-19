@@ -162,7 +162,14 @@ module Flezha
         previous = Signal.trap(signal, "SYSTEM_DEFAULT")
         Signal.trap(signal, previous) unless previous == "DEFAULT"
       end
-      @core.start(@namespace)
+      begin
+        @core.start(@namespace)
+      rescue StandardError
+        # The core holds what it said while connecting until a take; no
+        # supervisor is left to take it.
+        Flezha.log_notices(@core.take_notices)
+        raise
+      end
       observe_shutdown
 
       @executor = build_executor
