@@ -45,20 +45,28 @@ class ConcurrencyTest < Minitest::Test
     previous.each { |key, value| ENV[key] = value }
   end
 
+  # The policy one context's pool opens with; a context holds one pool.
+  def pool_opened(default_base)
+    Flezha::Native.context_new(Flezha::ACTIVATION_SCHEMA_VERSION)
+    policy = Flezha::Native.pool_open(default_base)
+    refused = assert_raises(Flezha::Error) { Flezha::Native.pool_open(default_base) }
+    assert_equal "runtime.runner_already_running", refused.code
+    policy[0, 2]
+  ensure
+    Flezha::Native.context_free
+  end
+
   # The core's governor reads both knobs by the one rule, over this host's default.
   def test_the_pool_is_sized_by_the_core_over_this_hosts_default
     skip "needs the compiled veneer" unless Flezha::TestSupport.native?
 
-    Flezha::Native.context_new(Flezha::ACTIVATION_SCHEMA_VERSION)
     with_env("FLEZHA_WORKER_POOL_SIZE" => "3", "FLEZHA_WORKER_POOL_MAX" => "7") do
-      assert_equal [3, 7], Flezha::Native.pool_open(4)[0, 2]
+      assert_equal [3, 7], pool_opened(4)
     end
     with_env("FLEZHA_WORKER_POOL_SIZE" => "0", "FLEZHA_WORKER_POOL_MAX" => "2") do
-      assert_equal [4, 4], Flezha::Native.pool_open(4)[0, 2],
+      assert_equal [4, 4], pool_opened(4),
                    "an unparsed base is unset, and a ceiling under the floor would retire the pool"
     end
-  ensure
-    Flezha::Native.context_free if Flezha::TestSupport.native?
   end
 
   # -- the governor decides, this host spawns -------------------------------
