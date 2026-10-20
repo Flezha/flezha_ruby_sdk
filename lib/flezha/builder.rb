@@ -35,10 +35,11 @@ module Flezha
   # output's value), and `schema` and `description` an entry's own.
   #
   # `chain_edges` runs parallel to `chains`: the closures each sequence closed
-  # on, at the position the core reads that sequence at. `consumers` is filled
-  # from the derived declaration — the core says which chains became edges.
+  # on, at the position the core reads that sequence at. `consumers` and
+  # `derived_kind` are filled from the derived declaration — the core says
+  # which chains became edges and what kind the channel is.
   ChannelSpec = Struct.new(
-    :index, :name, :kind, :producer, :consumers, :chains, :chain_edges, :overflow,
+    :index, :name, :kind, :derived_kind, :producer, :consumers, :chains, :chain_edges, :overflow,
     :retry_max, :retry_backoff_ms, :keyed, :sink, :decode, :sink_encode, :call,
     :codec, :schema, :description,
     keyword_init: true

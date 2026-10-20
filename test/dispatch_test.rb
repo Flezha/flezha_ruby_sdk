@@ -235,6 +235,21 @@ class DispatchTest < Minitest::Test
     assert_equal [["edge", 1, 0, "3"]], outputs
   end
 
+  class CallingSteps < Flezha::Relay
+    factory_id "calling_steps"
+    run steps: { each: :per_input }
+    channels do |c|
+      c.input("in", codec: :text).into(Passer).named("ask")
+       .call("pricing", deadline_ms: 1_000, codec: :text).into(Passer)
+    end
+  end
+
+  def test_a_steps_terminal_ending_in_a_call_hands_the_core_no_edge_output
+    effect, = answer_on(CallingSteps, items: [input_item("3")])[:effects]
+
+    assert_equal [%w[plugin ask]], effect[:outputs].map { |o| [o[:target], o[:plugin_channel]] }
+  end
+
   class FailsAfterCompleting < Flezha::Tasklet
     tasklet_name "fails_after_completing"
 

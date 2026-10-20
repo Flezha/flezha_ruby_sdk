@@ -63,6 +63,7 @@ module Flezha
       derived["channels"].each do |channel|
         target = spec.channels[channel["index"]]
         target.consumers = channel["consumers"].map { |edge| target.chain_edges[edge["chain"]] }
+        target.derived_kind = channel["kind"]
       end
     end
 

@@ -265,11 +265,12 @@ module Flezha
     end
 
     def release(channel, value, key, metadata)
-      # In steps a value rides the edge path to its first consumer, and an
-      # inter-tasklet terminal's value to the core as the pass's handoff (a
-      # chained loop's carry); a plugin-bound terminal releases nothing there.
+      # In steps a value rides the edge path to its first consumer, and a
+      # terminal the core derived inter-tasklet hands it to the core as the
+      # pass's handoff (a chained loop's carry); any other releases nothing.
       if @spec.runs_in_steps?
-        consumer = channel.consumers.first&.tasklet || handoff_producer(channel)
+        consumer = channel.consumers.first&.tasklet
+        consumer ||= channel.producer if channel.derived_kind == "inter_task"
         @outputs << steps_output(channel, consumer, value) if consumer
       else
         channel.consumers.each do |edge|
@@ -291,12 +292,6 @@ module Flezha
           payload: call.encode.call(request).b
         }
       end
-    end
-
-    # The producer of an inter-tasklet channel nothing consumes; the core reads
-    # no consumer for a terminal's handoff.
-    def handoff_producer(channel)
-      channel.producer if channel.kind == :inter_task && channel.sink.nil? && channel.call.nil?
     end
 
     def steps_output(channel, consumer, value)

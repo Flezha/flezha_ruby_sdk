@@ -17,6 +17,8 @@
 #   calling tasklet.
 # - `call_tool_session`: a durable per-input session calling `pricing` from a
 #   turn and reading the outcome as its next turn.
+# - `call_orders_steps`: `call_orders` as a durable per-input session, so
+#   `order_ask`'s channel ends only in the call.
 # - `orders`: the relay_api fixture, a described JSON entry `place` answering
 #   through `placed` and a text entry `audit` no output answers.
 #
@@ -84,6 +86,13 @@ module Fixtures
        .call("pricing", deadline_ms: RelayCall::DEADLINE_MS, answer_channel: "quotes", codec: :text)
        .into(OrderPriced).output("priced")
     end
+  end
+
+  class CallOrdersSteps < CallOrders
+    factory_id "call_orders_steps"
+    run steps: { each: :per_input }
+    durable FIXTURE_DURABLE
+    max_duration_ms 600_000
   end
 
   class AgentTurn < Flezha::Tasklet
@@ -182,5 +191,5 @@ module Fixtures
     end
   end
 
-  CALLS = [CallPricing, CallOrders, CallAgent, CallGateway, CallToolSession, Orders].freeze
+  CALLS = [CallPricing, CallOrders, CallAgent, CallGateway, CallToolSession, CallOrdersSteps, Orders].freeze
 end
