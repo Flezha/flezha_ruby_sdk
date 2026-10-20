@@ -454,6 +454,38 @@ module Fixtures
     end
   end
 
+  # -- timer_churn ----------------------------------------------------------
+  #
+  # The bench factory of `mix bench --shape timer`: each input arms a 1 ms
+  # processing-time timer and cancels the one the previous input armed; the
+  # firing emits `fired:<at>`.
+
+  class TimerChurn < Flezha::Tasklet
+    tasklet_name "timer_churn_tasklet"
+    def init_state(_cell_key) = { last: 0 }
+    def apply_change(state, change) = state[:last] = change[:armed]
+
+    def run(input, ctx)
+      at = ctx.timer_after(1)
+      last = ctx.state[:last]
+      ctx.cancel_timer(:processing_time, last) if last != 0 && last != at
+      ctx.change({ armed: at })
+      ctx.emit(input)
+    end
+
+    def on_timer(firing, ctx)
+      ctx.emit("fired:#{firing[:scheduled_at]}")
+    end
+  end
+
+  class TimerChurnRelay < Flezha::Relay
+    factory_id "timer_churn"
+    channels do |c|
+      c.input("input", codec: :text).into(TimerChurn)
+       .output("echo")
+    end
+  end
+
   # The persisted-state family, in declaration order.
   STATE = [
     BenchKeyedNoPersistRelay, StoreInputRelay, StatefulCounterRelay,
