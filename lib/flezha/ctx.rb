@@ -21,7 +21,7 @@ module Flezha
 
     attr_reader :changes, :outputs, :timers, :cell_key, :replay
 
-    def initialize(spec:, node:, outgoing:, relay:, cell_key:, change_seq:,
+    def initialize(spec:, node:, outgoing:, registered:, address:, cell_key:, change_seq:,
                    now:, replay:, state:, bridge:, token:, offset: nil, item: nil, compensating: false)
       @token = token
       # The index of the work item this invocation runs within its activation,
@@ -35,7 +35,9 @@ module Flezha
       @spec = spec
       @node = node
       @outgoing = outgoing
-      @relay = relay
+      # Where the identity bytes the core handed for this cell are kept.
+      @registered = registered
+      @address = address
       @cell_key = cell_key
       @change_seq = change_seq
       @now = now
@@ -60,9 +62,7 @@ module Flezha
 
     # A replay-stable identifier, distinct per invocation within the cell.
     def stable_id
-      # Lazily, because most invocations never ask and the identity is the one
-      # part of the derivation that costs an allocation.
-      @identity ||= Identity.cell_identity(@relay, @node.name, @cell_key.to_s)
+      @identity ||= @registered.identity_of(@address)
       id = Identity.stable_id(@identity, @change_seq, @ordinal)
       @ordinal += 1
       id

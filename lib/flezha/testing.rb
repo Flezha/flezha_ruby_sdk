@@ -83,6 +83,8 @@ module Flezha
         # is the state a runner would hold.
         @registered = RegisteredClass.new(@spec)
         @address = RegisteredClass.address(@target, @node)
+        # No core runs here, so the harness names the cell's identity itself.
+        @registered.keep_identity(@address, "#{relay}/#{@node.name}/#{cell_key}".b)
         @deps = DispatchDeps.new(registry: nil, bridge: self)
         @log = []
         @change_seq = 0

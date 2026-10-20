@@ -250,9 +250,9 @@ class TestingTest < Minitest::Test
     end
   end
 
-  def test_an_identity_part_over_its_length_is_refused_naming_it
-    error = assert_raises(Flezha::Error) { Flezha::Identity.cell_identity("op", "t" * 256, nil) }
-    assert_equal ["runtime.identity_too_long", "tasklet name", 255],
-                 [error.code, error.details["part"], error.details["limit"]]
+  def test_stable_id_matches_the_cross_language_vector
+    assert_equal "bbf81fd4955afd1724203700a240e822", Flezha::Identity.stable_id("instance/op/key".b, 42, 0)
+    assert_equal "bbf81fd4965afd1724203700a240e95d", Flezha::Identity.stable_id("instance/op/key".b, 42, 1)
+    assert_equal "15915375576d2f389a938dc3a9940c9d", Flezha::Identity.stable_id("".b, 0, 0)
   end
 end

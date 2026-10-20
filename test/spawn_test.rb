@@ -10,7 +10,7 @@ class SpawnTest < Minitest::Test
   FakeCore = Flezha::TestSupport::FakeCore
 
   def ctx(core, replay: false, offset: nil)
-    Flezha::Ctx.new(spec: nil, node: Flezha::TaskNode.new(0, "spawner"), outgoing: [], relay: "op",
+    Flezha::Ctx.new(spec: nil, node: Flezha::TaskNode.new(0, "spawner"), outgoing: [], registered: nil, address: nil,
                     cell_key: nil, change_seq: 0, now: 0, replay: replay, state: nil, bridge: core,
                     token: 7, offset: offset)
   end

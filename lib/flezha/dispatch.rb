@@ -18,6 +18,8 @@ module Flezha
         spec.channels.select { |channel| channel.producer == node.index }
       end
       @cells = {}
+      # The identity bytes the core hands with a cell's first activation.
+      @identities = {}
       # Cells of one class are touched from every worker thread, and the
       # core's per-cell exclusivity does not extend to this Hash: two
       # different cells of the same class run concurrently by design.
@@ -40,13 +42,18 @@ module Flezha
       @lock.synchronize { @cells[address] = state }
     end
 
+    def keep_identity(address, identity) = @lock.synchronize { @identities[address] = identity }
+    def identity_of(address) = @lock.synchronize { @identities.fetch(address) }
+
     # Drop a cell that left this runner, or every cell of its relay.
     def forget(address, whole_relay)
       @lock.synchronize do
-        if whole_relay
-          @cells.delete_if { |(relay, _, _), _| relay == address.first }
-        else
-          @cells.delete(address)
+        [@cells, @identities].each do |table|
+          if whole_relay
+            table.delete_if { |(relay, _, _), _| relay == address.first }
+          else
+            table.delete(address)
+          end
         end
       end
     end
@@ -152,6 +159,9 @@ module Flezha
                       "class `#{activation[:factory]}` has no tasklet at index " \
                       "#{activation[:tasklet]}", non_retryable: true)
       end
+      if activation[:cell_identity]
+        registered.keep_identity(RegisteredClass.address(activation, node), activation[:cell_identity])
+      end
 
       case activation[:kind]
       when :work then run_work(activation, registered, node, deps)
@@ -187,7 +197,7 @@ module Flezha
       address = RegisteredClass.address(activation, node)
       ctx = Ctx.new(
         spec: registered.spec, node: node, outgoing: registered.outgoing[node.index],
-        relay: activation[:relay], cell_key: activation[:cell_key],
+        registered: registered, address: address, cell_key: activation[:cell_key],
         change_seq: activation[:change_seq], now: now, replay: replay,
         state: registered.state_of(node, address), bridge: deps.bridge,
         token: activation[:token], offset: offset, item: item,
