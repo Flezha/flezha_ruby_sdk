@@ -127,7 +127,7 @@ class SpawnTest < Minitest::Test
     core = FakeCore.new(activations: [Flezha::TestSupport.activation(factory: "waiter_op", items: [item])],
                         spawns: [resolved("w1", "spawned")])
     deps = Flezha::TestSupport.deps(WaiterRelay, core)
-    executor = Flezha::FiberExecutor.new(core, deps, fetchers: 1).start
+    executor = Flezha::FiberExecutor.new(core, deps).start
     begin
       deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 5
       sleep(0.01) until core.completed.any? || Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline

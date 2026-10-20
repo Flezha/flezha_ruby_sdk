@@ -204,18 +204,25 @@ module Flezha
 
     class FakeCore
       attr_reader :events, :declarations, :completed, :abandoned, :polled, :spawn_requests,
-                  :spawn_reads, :parts
+                  :spawn_reads, :parts, :decisions
 
-      # `activations` are handed out in order; `starvations` is how many times
-      # `wait_starvation` reports one before it starts timing out; `hold` runs
-      # inside `complete`, which is where a test holds a worker without
-      # reaching through the dispatcher; `spawns` are what `spawn_result`
-      # answers in order, the core's JSON or nil for pending; `part_refusal`
-      # is the `Flezha::Error` every part raises.
-      def initialize(activations: [], starvations: 0, hold: nil, spawns: [], part_refusal: nil)
+      # `activations` are handed out in order; `base`, `retire_ms` and
+      # `drain_ms` are the pool policy `pool_open` answers, the poll timeout
+      # being the core's; `decisions` are what `pool_supervise` answers in turn,
+      # idle once none is left and stop after a shutdown; `hold` runs inside
+      # `complete`, which is where a test holds a worker without reaching
+      # through the dispatcher; `spawns` are what `spawn_result` answers in
+      # order, the core's JSON or nil for pending; `part_refusal` is the
+      # `Flezha::Error` every part raises. The pool's policy itself is the
+      # core's governor's, tested in the core.
+      def initialize(activations: [], base: 2, retire_ms: 30_000, drain_ms: 5_000, hold: nil, spawns: [],
+                     part_refusal: nil)
         @pending = Thread::Queue.new
         activations.each { |activation| @pending.push(activation) }
-        @starvations = starvations
+        @policy = [base, base * 10, 250, retire_ms, drain_ms]
+        @decisions = Thread::Queue.new
+        @seats_left = 0
+        @notices = []
         @hold = hold
         @spawns = spawns.dup
         @resolved = {}
@@ -232,7 +239,6 @@ module Flezha
         # timing the join, not the order.
         @polled = Thread::Queue.new
         @lock = Mutex.new
-        @starved = ConditionVariable.new
         @stopping = false
         @handed_out = false
       end
@@ -272,20 +278,20 @@ module Flezha
         activation
       end
 
-      def take_notices = []
+      def take_notices = @lock.synchronize { @notices.slice!(0..) }
+      def notice(line) = @lock.synchronize { @notices << line }
 
-      def wait_starvation(timeout_ms)
-        @lock.synchronize do
-          next 2 if @stopping
-          next take_starvation if @starvations.positive?
+      def pool_open(_default_base) = @policy.dup
 
-          @starved.wait(@lock, timeout_ms / 1000.0)
-          next 2 if @stopping
-          next take_starvation if @starvations.positive?
+      def pool_supervise
+        answer = @decisions.pop(timeout: 0.02)
+        return answer if answer
 
-          0
-        end
+        stopping? ? 2 : 0
       end
+
+      def pool_left = @lock.synchronize { @seats_left += 1 }
+      def seats_left = @lock.synchronize { @seats_left }
 
       def complete(result)
         @hold&.call
@@ -327,10 +333,7 @@ module Flezha
       # Wake every blocked call: a shutdown a test has to wait out is a sleep
       # wearing a signal's name.
       def shutdown
-        @lock.synchronize do
-          @stopping = true
-          @starved.broadcast
-        end
+        @lock.synchronize { @stopping = true }
         @pending.close
       end
 
@@ -359,12 +362,6 @@ module Flezha
 
       def stopping? = @lock.synchronize { @stopping }
       def record(event) = @lock.synchronize { @events << event }
-
-      # Called with the lock held.
-      def take_starvation
-        @starvations -= 1
-        1
-      end
     end
   end
 end

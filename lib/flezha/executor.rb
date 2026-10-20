@@ -14,35 +14,11 @@ module Flezha
   # after its dispatch has returned, so ordering holds for any executor that
   # does not complete early. That invariant is this seam's entire contract.
   module Executor
-    # How long a worker parks in one `poll`.
-    #
-    # `flz_core_shutdown` wakes *every* poller, so the ABI has no per-thread
-    # wake and none is in scope to add. This value is therefore the documented
-    # upper bound on how quickly `Thread#kill`, `Interrupt` and runner close
-    # are observed: a stated bound, not an accident. It is Java's value, for
-    # the same reason.
-    POLL_TIMEOUT_MS = 250
-
-    # How long the supervisor parks in one starvation wait. Shorter than the
-    # poll timeout would only spin; longer would delay the first grown worker.
-    STARVATION_WAIT_MS = 250
-
-    # How long a drain has before the runner stops waiting for it.
-    #
-    # A handler that never returns holds its worker forever — the `wedge`
-    # fixture is exactly that, and so is any real handler that blocks on
-    # something that never answers. A drain that joined it unconditionally
-    # would never finish, and a runner stopped by closing its pipes would leak
-    # a process per wedge rather than exiting. So what is in flight gets this
-    # long, and then the runner goes away regardless: the alternative is not
-    # "no work is lost", it is "the runner never leaves".
-    DRAIN_TIMEOUT_S = 5.0
-
-    # Consecutive idle polls after which an above-base worker retires. At the
-    # poll timeout above this is two seconds of no work, which is long enough
-    # that a burst does not churn the pool and short enough that a spike does
-    # not leave threads parked for the life of the process.
-    IDLE_RETIREMENT_STREAK = 8
+    # What `pool_supervise` answers: spawn a base worker, stop, spawn a grown
+    # one; anything else is nothing to do this wait.
+    POOL_SPAWN_BASE = 1
+    POOL_STOP = 2
+    POOL_SPAWN_GROWN = 3
 
     module_function
 
@@ -51,29 +27,29 @@ module Flezha
     #
     # Both executors fetch, and the deferred Ractor one will too — so what a
     # timeout, an activation and a shutdown each mean lives here rather than in
-    # one correct copy per executor. The block is yielded each activation, and
-    # `nil` on a timeout, so a caller that retires on an idle streak can count
-    # them; answering `:stop` ends the loop, as does `stopping` answering true
-    # or the core saying it is shutting down.
-    def fetch(core, stopping)
+    # one correct copy per executor. The block is yielded each activation. The
+    # loop ends when `stopping` answers true, when the core says it is shutting
+    # down, and after `retire_ms` of timed-out polls when that is positive: the
+    # governor's retire time, for a grown worker.
+    def fetch(core, poll_ms, stopping, retire_ms = 0)
+      idle = 0
       until stopping.call
-        activation = core.poll(POLL_TIMEOUT_MS)
+        activation = core.poll(poll_ms)
         return :shutting_down if activation == :shutting_down
-        return :stopped if yield(activation) == :stop
+
+        if activation.nil?
+          idle += poll_ms
+          return :retired if retire_ms.positive? && idle >= retire_ms
+        else
+          idle = 0
+          yield activation
+        end
       end
       :stopped
     end
 
-    # The base pool size: the machine's processor count unless the user
-    # says otherwise. The same knob the Rust host reads, deliberately — this
-    # host is the Rust host's model, and a second vocabulary for the same
-    # decision is what makes a fleet hard to reason about.
-    def base_size
-      positive("FLEZHA_WORKER_POOL_SIZE", Etc.nprocessors)
-    end
-
-    # When a drain must be finished by.
-    def deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + DRAIN_TIMEOUT_S
+    # When a drain of `seconds` must be finished by.
+    def deadline(seconds) = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
 
     # How long is left of it, never negative — `Thread#join(0)` polls rather
     # than blocking, which is what a passed deadline should do.
@@ -84,51 +60,96 @@ module Flezha
     # Say what the drain did not finish. Silence here is the failure mode the
     # bound exists to avoid reintroducing: a runner that leaves without
     # reporting what it abandoned looks identical to one that drained.
-    def report_undrained(count)
+    def report_undrained(count, seconds)
       return if count.zero?
 
       Flezha.log.warn(
-        "#{count} activation(s) were still running after the #{DRAIN_TIMEOUT_S}s drain; the " \
+        "#{count} activation(s) were still running after the #{seconds}s drain; the " \
         "runner is exiting anyway. The core re-hands unanswered work on the next bind — find " \
         "the handler that does not return."
       )
     end
 
-    # The ceiling: ten times the base unless the user says otherwise, and
-    # never below the base — a ceiling under the floor would retire the pool
-    # the runner was told to keep.
-    def ceiling_size(base)
-      [positive("FLEZHA_WORKER_POOL_MAX", base * 10), base].max
-    end
+    # What both executors share: the core's pool governor sizes the pool over
+    # this machine's processor count, and its supervisor's answers are what
+    # this host spawns. A host only brings the threads.
+    module Pooled
+      attr_reader :base, :ceiling
 
-    # A count from the environment by the core's knob rule; `fallback` for anything else.
-    def positive(name, fallback)
-      Core.load_extension
-      Native.knob("positive", ENV.fetch(name, "")) || fallback
+      private
+
+      def open_pool(core)
+        @core = core
+        @base, @ceiling, @poll_ms, @retire_ms, drain_ms = core.pool_open(Etc.nprocessors)
+        @drain_s = drain_ms / 1000.0
+      end
+
+      # The base workers into the seats the governor reserved, then its supervisor.
+      def start_pool
+        @base.times { start_worker(false) }
+        @supervisor = Thread.new { supervise }
+        @supervisor.name = "flezha-supervisor"
+      end
+
+      # One governor answer per wait, at most a second apart, and the core's
+      # notices written on each, so an idle runner's notices still reach its log.
+      def supervise
+        until @stopping
+          answer = @core.pool_supervise
+          Flezha.log_notices(@core.take_notices)
+          break if answer == POOL_STOP || @stopping
+
+          start_worker(answer == POOL_SPAWN_GROWN) if [POOL_SPAWN_BASE, POOL_SPAWN_GROWN].include?(answer)
+        end
+      rescue StandardError => e
+        Flezha.log.error("the pool supervisor ended on #{e.class}: #{e.message}")
+      end
+
+      # A seat the governor reserved; a thread that cannot start gives it back.
+      def start_worker(grown)
+        spawn_member(grown)
+      rescue ThreadError => e
+        @core.pool_left
+        Flezha.log.warn("could not start a worker thread: #{e.message}")
+      end
+
+      # A worker that dispatches on itself: the thread executor's every worker,
+      # and a grown seat under either, because a parked completion needs a
+      # thread and a stalled scheduler cannot supply one.
+      def run_worker(grown)
+        Executor.fetch(@core, @poll_ms, -> { @stopping }, grown ? @retire_ms : 0) do |activation|
+          Dispatch.dispatch(activation, @core, @deps)
+        end
+      rescue StandardError => e
+        # A worker that dies silently is a pool that shrinks with no report;
+        # the governor replaces it, but only this line says why it left.
+        Flezha.log.error("a worker thread ended on #{e.class}: #{e.message}")
+      ensure
+        @core.pool_left
+      end
     end
   end
 
   # The default executor: a base pool of Ruby threads each looping
-  # `poll -> dispatch -> complete` on itself, plus one supervisor parked in
-  # `wait_starvation` that grows the pool on an observation.
+  # `poll -> dispatch -> complete` on itself, plus the core pool governor's
+  # supervisor, whose answers grow the pool under starvation and restore it
+  # when a worker left.
   #
   # This is the Rust host's model rather than Java's hand-off, and the reason
   # is the reason behind both shipped hosts: Java hands off because a parked
   # virtual thread costs a stack and nothing else — which is also exactly why
-  # Java never starves and never calls `wait_starvation`. An MRI thread is a
+  # Java's fetchers never wait on user code. An MRI thread is a
   # real OS thread with a real stack, so hand-off would buy nothing and cost a
   # thread per activation up to the core's in-flight cap.
   #
   # Concurrency is bounded by the core's `FLEZHA_MAX_INFLIGHT_ACTIVATIONS`,
   # never by the pool size. The pool is a servicing detail.
   class ThreadExecutor
-    attr_reader :base, :ceiling
+    include Executor::Pooled
 
-    def initialize(core, deps, base: nil, ceiling: nil)
-      @core = core
+    def initialize(core, deps)
+      open_pool(core)
       @deps = deps
-      @base = base || Executor.base_size
-      @ceiling = ceiling || Executor.ceiling_size(@base)
       @workers = []
       @supervisor = nil
       @lock = Mutex.new
@@ -142,9 +163,7 @@ module Flezha
     def size = @lock.synchronize { @workers.count(&:alive?) }
 
     def start
-      @lock.synchronize { @base.times { spawn_worker(above_base: false) } }
-      @supervisor = Thread.new { supervise }
-      @supervisor.name = "flezha-starvation"
+      start_pool
       self
     end
 
@@ -161,16 +180,16 @@ module Flezha
     # that reports the core shutting down, which the core reports only once
     # the shutdown sequence has shipped every Cell's state through these
     # same workers; a worker inside a handler finishes it, completes it, and
-    # only then observes it. Bounded by `DRAIN_TIMEOUT_S` — a handler that
-    # never returns must not keep the runner alive forever — and the flag is
-    # raised after the join so a worker spawned late still leaves.
+    # only then observes it. Bounded by the governor's drain bound — a handler
+    # that never returns must not keep the runner alive forever — and the flag
+    # is raised after the join so a worker spawned late still leaves.
     def stop
-      deadline = Executor.deadline
+      deadline = Executor.deadline(@drain_s)
       @lock.synchronize { @workers.dup }.each { |worker| worker.join(Executor.remaining(deadline)) }
       @stopping = true
       @supervisor&.join(Executor.remaining(deadline))
       undrained = @lock.synchronize { @workers.count(&:alive?) }
-      Executor.report_undrained(undrained)
+      Executor.report_undrained(undrained, @drain_s)
       @lock.synchronize { @workers.clear }
       Flezha.log_notices(@core.take_notices)
       undrained
@@ -178,63 +197,13 @@ module Flezha
 
     private
 
-    # One worker. `above_base` workers retire after an idle streak; base
-    # workers never do, so the pool the user asked for stays up.
-    def spawn_worker(above_base:)
-      worker = Thread.new { run_worker(above_base) }
-      worker.name = "flezha-worker-#{@workers.size}"
-      @workers << worker
-      worker
-    end
-
-    def run_worker(above_base)
-      idle = 0
-      Executor.fetch(@core, -> { @stopping }) do |activation|
-        if activation.nil?
-          idle += 1
-          next :stop if above_base && idle >= Executor::IDLE_RETIREMENT_STREAK
-        else
-          idle = 0
-          Dispatch.dispatch(activation, @core, @deps)
-        end
+    def spawn_member(grown)
+      @lock.synchronize do
+        @workers.select!(&:alive?)
+        worker = Thread.new { run_worker(grown) }
+        worker.name = "flezha-worker-#{@workers.size}"
+        @workers << worker
       end
-    rescue StandardError => e
-      # A worker that dies silently is a pool that shrinks with no report; the
-      # supervisor grows it back only if the core starves, which it will not
-      # while the remaining workers keep up.
-      Flezha.log.error("a worker thread ended on #{e.class}: #{e.message}")
-    end
-
-    # The supervisor: parked in the core's starvation wait, which answers when
-    # work is queued and no thread is inside `poll`. One worker per
-    # observation, up to the ceiling.
-    def supervise
-      at_ceiling_logged = false
-      until @stopping
-        Flezha.log_notices(@core.take_notices)
-        case @core.wait_starvation(Executor::STARVATION_WAIT_MS)
-        when 1
-          grown = @lock.synchronize do
-            next false if @workers.count(&:alive?) >= @ceiling
-
-            spawn_worker(above_base: true)
-            true
-          end
-          if grown
-            at_ceiling_logged = false
-          elsif !at_ceiling_logged
-            Flezha.log.warn(
-              "the core is starving and the worker pool is at its ceiling of #{@ceiling}; " \
-              "raise FLEZHA_WORKER_POOL_MAX, or find what is holding the handlers"
-            )
-            at_ceiling_logged = true
-          end
-        when 2
-          break
-        end
-      end
-    rescue StandardError => e
-      Flezha.log.error("the starvation supervisor ended on #{e.class}: #{e.message}")
     end
   end
 
@@ -250,15 +219,16 @@ module Flezha
   # ABI accepts a completion from any thread, and the ordering guarantee is the
   # core's handout, not this executor's.
   class FiberExecutor
+    include Executor::Pooled
+
     # The queue depth between the fetchers and the fibers. Bounded so a fetcher
     # cannot run arbitrarily far ahead of the handlers; the core's in-flight
     # cap bounds the total either way.
     QUEUE_DEPTH = 64
 
-    def initialize(core, deps, fetchers: nil, scheduler: nil)
-      @core = core
+    def initialize(core, deps, scheduler: nil)
+      open_pool(core)
       @deps = deps
-      @fetchers = fetchers || Executor.base_size
       @scheduler = scheduler
       @queue = Thread::SizedQueue.new(QUEUE_DEPTH)
       @threads = []
@@ -271,13 +241,7 @@ module Flezha
     def start
       @dispatcher = Thread.new { run_dispatcher }
       @dispatcher.name = "flezha-fibers"
-      @notices = Thread.new { write_notices }
-      @notices.name = "flezha-notices"
-      @fetchers.times do |index|
-        thread = Thread.new { run_fetcher }
-        thread.name = "flezha-fetcher-#{index}"
-        @threads << thread
-      end
+      start_pool
       self
     end
 
@@ -289,9 +253,10 @@ module Flezha
     # The fetchers leave on the core's word, as the thread executor's workers
     # do; the flag is raised after their join.
     def stop
-      deadline = Executor.deadline
-      @threads.each { |thread| thread.join(Executor.remaining(deadline)) }
+      deadline = Executor.deadline(@drain_s)
+      @threads.dup.each { |thread| thread.join(Executor.remaining(deadline)) }
       @stopping = true
+      @supervisor&.join(Executor.remaining(deadline))
       # Closing the queue is what ends the dispatcher: a scheduler-aware pop
       # answers nil on a closed queue rather than parking forever.
       @queue.close
@@ -299,32 +264,31 @@ module Flezha
       # scheduler runs its outstanding fibers to completion, and a fiber that
       # never returns would hold the drain open forever.
       @dispatcher&.join(Executor.remaining(deadline))
-      @notices&.join(Executor.remaining(deadline))
       undrained = [@dispatcher, *@threads].count { |thread| thread&.alive? }
-      Executor.report_undrained(undrained)
+      Executor.report_undrained(undrained, @drain_s)
       Flezha.log_notices(@core.take_notices)
       undrained
     end
 
     private
 
-    # The core's notices, at the thread executor's supervisor's pace: this
-    # executor has no supervisor to wake.
-    def write_notices
-      until @stopping
-        Flezha.log_notices(@core.take_notices)
-        sleep(Executor::STARVATION_WAIT_MS / 1000.0)
-      end
+    # A fetcher for a base seat; a grown seat is a worker that dispatches on
+    # itself, since a scheduler stalled in a parked completion cannot rescue itself.
+    def spawn_member(grown)
+      @threads.select!(&:alive?)
+      thread = Thread.new { grown ? run_worker(true) : run_fetcher }
+      thread.name = "flezha-fetcher-#{@threads.size}"
+      @threads << thread
     end
 
     def run_fetcher
-      Executor.fetch(@core, -> { @stopping }) do |activation|
-        @queue.push(activation) if activation
-      end
+      Executor.fetch(@core, @poll_ms, -> { @stopping }) { |activation| @queue.push(activation) }
     rescue ClosedQueueError
       nil
     rescue StandardError => e
       Flezha.log.error("a fetcher thread ended on #{e.class}: #{e.message}")
+    ensure
+      @core.pool_left
     end
 
     # The pop runs in a scheduled fiber, so a quiet queue yields to the event

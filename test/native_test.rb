@@ -76,14 +76,15 @@ class NativeTest < Minitest::Test
     Flezha::Native.context_free
   end
 
-  def test_the_starvation_wait_releases_the_gvl_too
+  def test_the_pool_supervisor_releases_the_gvl_too
     Flezha::Native.context_new(Flezha::ACTIVATION_SCHEMA_VERSION)
+    Flezha::Native.pool_open(1)
     ticks = 0
     running = true
     ticker = Thread.new { ticks += 1 while running }
 
-    parked = Thread.new { Flezha::Native.wait_starvation(300) }
-    assert_equal 0, parked.value, "the wait timed out rather than observing starvation"
+    parked = Thread.new { Flezha::Native.pool_supervise }
+    assert_equal 0, parked.value, "an idle pool's supervisor answers idle within its wait"
 
     running = false
     ticker.join
@@ -97,11 +98,12 @@ class NativeTest < Minitest::Test
   # per-thread wake, so a bounded poll is what makes a runner close observable.
   def test_a_poll_returns_within_its_timeout
     Flezha::Native.context_new(Flezha::ACTIVATION_SCHEMA_VERSION)
+    poll_ms = Flezha::Native.pool_open(1)[2]
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    Flezha::Native.poll(Flezha::Executor::POLL_TIMEOUT_MS)
+    Flezha::Native.poll(poll_ms)
     elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
-    assert_operator elapsed, :<, (Flezha::Executor::POLL_TIMEOUT_MS / 1000.0) * 3
+    assert_operator elapsed, :<, (poll_ms / 1000.0) * 3
   ensure
     Flezha::Native.context_free
   end

@@ -2,10 +2,10 @@
 
 require_relative "test_helper"
 
-# The concurrency requirements as behaviour, not prose: pool growth under
-# blocked handlers, retirement afterwards, the GVL released around a blocking
-# core call, a refused post-fork call, and identical ordering under both
-# executors.
+# The concurrency requirements as behaviour, not prose: the pool the core's
+# governor asks for, grown seats retiring afterwards, a dead worker replaced,
+# the GVL released around a blocking core call, a refused post-fork call, and
+# identical ordering under both executors.
 class ConcurrencyTest < Minitest::Test
   class Echo < Flezha::Tasklet
     tasklet_name "echo"
@@ -45,78 +45,96 @@ class ConcurrencyTest < Minitest::Test
     previous.each { |key, value| ENV[key] = value }
   end
 
-  def test_the_base_pool_defaults_to_the_processor_count
-    with_env("FLEZHA_WORKER_POOL_SIZE" => nil) do
-      assert_equal Etc.nprocessors, Flezha::Executor.base_size
-    end
-    with_env("FLEZHA_WORKER_POOL_SIZE" => "0") do
-      assert_equal Etc.nprocessors, Flezha::Executor.base_size, "the core answers unset"
-    end
-  end
+  # The core's governor reads both knobs by the one rule, over this host's default.
+  def test_the_pool_is_sized_by_the_core_over_this_hosts_default
+    skip "needs the compiled veneer" unless Flezha::TestSupport.native?
 
-  def test_the_user_sets_the_base_and_the_ceiling
+    Flezha::Native.context_new(Flezha::ACTIVATION_SCHEMA_VERSION)
     with_env("FLEZHA_WORKER_POOL_SIZE" => "3", "FLEZHA_WORKER_POOL_MAX" => "7") do
-      assert_equal 3, Flezha::Executor.base_size
-      assert_equal 7, Flezha::Executor.ceiling_size(3)
+      assert_equal [3, 7], Flezha::Native.pool_open(4)[0, 2]
     end
+    with_env("FLEZHA_WORKER_POOL_SIZE" => "0", "FLEZHA_WORKER_POOL_MAX" => "2") do
+      assert_equal [4, 4], Flezha::Native.pool_open(4)[0, 2],
+                   "an unparsed base is unset, and a ceiling under the floor would retire the pool"
+    end
+  ensure
+    Flezha::Native.context_free if Flezha::TestSupport.native?
   end
 
-  def test_the_ceiling_defaults_to_ten_times_the_base_and_never_falls_below_it
-    with_env("FLEZHA_WORKER_POOL_MAX" => nil) do
-      assert_equal 40, Flezha::Executor.ceiling_size(4)
-    end
-    with_env("FLEZHA_WORKER_POOL_MAX" => "2") do
-      assert_equal 5, Flezha::Executor.ceiling_size(5), "a ceiling under the floor would " \
-                                                        "retire the pool the user asked for"
-    end
-  end
-
-  # -- growth and retirement ------------------------------------------------
+  # -- the governor decides, this host spawns -------------------------------
 
   def test_a_workload_that_never_starves_runs_on_the_base_pool
     core = Flezha::TestSupport::FakeCore.new(activations: Array.new(4) { |i| activation(i, "x") })
-    executor = Flezha::ThreadExecutor.new(core, deps(core), base: 2, ceiling: 8).start
+    executor = Flezha::ThreadExecutor.new(core, deps(core)).start
     begin
       assert wait_until { core.completed.size == 4 }
-      assert_equal 2, executor.size, "no worker is started without a starvation observation"
+      assert_equal 2, executor.size, "no worker is started that the governor did not ask for"
     ensure
       core.shutdown
       executor.stop
     end
   end
 
-  def test_blocked_handlers_buy_threads_up_to_the_ceiling
+  def test_a_grown_seat_serves_and_retires_once_the_work_ends
     release = Thread::Queue.new
     core = Flezha::TestSupport::FakeCore.new(
-      activations: Array.new(6) { |i| activation(i, "x") },
-      starvations: 10, hold: -> { release.pop }
+      activations: Array.new(6) { |i| activation(i, "x") }, base: 1, retire_ms: 500,
+      hold: -> { release.pop }
     )
-    _, stderr = capture_io do
-      executor = Flezha::ThreadExecutor.new(core, deps(core), base: 1, ceiling: 3).start
-      begin
-        assert wait_until { executor.size == 3 }, "the supervisor grows the pool on an observation"
-        assert_equal 3, executor.size, "and never past the ceiling"
-      ensure
-        6.times { release.push(:go) }
-        core.shutdown
-        executor.stop
-      end
-    end
-    # Whether an observation lands at the ceiling before the shutdown is timing.
-    stderr.each_line do |line|
-      assert_match(/\A\[flezha\] the core is starving and the worker pool is at its ceiling of 3; /, line)
+    executor = Flezha::ThreadExecutor.new(core, deps(core)).start
+    begin
+      2.times { core.decisions.push(Flezha::Executor::POOL_SPAWN_GROWN) }
+      assert wait_until { executor.size == 3 }, "each grown seat is a worker"
+      6.times { release.push(:go) }
+      assert wait_until { core.completed.size == 6 }
+      # Two timed-out polls of the core's 250 ms are the 500 ms retire time.
+      assert wait_until { executor.size == 1 }, "the grown workers retire and the base stays"
+      assert_equal 2, core.seats_left, "every retired worker gives its seat back"
+    ensure
+      core.shutdown
+      executor.stop
     end
   end
 
-  def test_grown_workers_retire_when_the_work_ends
-    core = Flezha::TestSupport::FakeCore.new(starvations: 4)
-    executor = Flezha::ThreadExecutor.new(core, deps(core), base: 1, ceiling: 5).start
+  # A worker that dies gives its seat back; the governor's base answer is what
+  # replaces it, and the replacement serves.
+  def test_a_base_seat_replaces_a_worker_that_died
+    dies_once = Class.new(Flezha::TestSupport::FakeCore) do
+      def poll(timeout_ms)
+        raise "the worker's poll broke" unless @died
+
+        super
+      ensure
+        @died = true
+      end
+    end
+    core = dies_once.new(base: 1)
+    log, previous = Flezha::TestSupport::CapturedLog.install
+    executor = Flezha::ThreadExecutor.new(core, deps(core)).start
     begin
-      assert wait_until { executor.size > 1 }, "the pool grows first"
-      # The grown workers see nothing but timeouts from here, so they retire on
-      # the idle streak while the base worker stays.
-      assert wait_until(timeout: 20) { executor.size == 1 }
+      assert wait_until { core.seats_left == 1 && executor.size.zero? }, "the dead worker's seat is back"
+      core.decisions.push(Flezha::Executor::POOL_SPAWN_BASE)
+      core.offer(activation(1, "x"))
+      assert wait_until { core.completed.size == 1 }, "the replacement serves"
+      assert(log.lines.any? { |level, line| level == :error && line.include?("the worker's poll broke") })
     ensure
+      Flezha.log = previous
+      core.shutdown
+      executor.stop
+    end
+  end
+
+  # An idle runner still writes what the core said: the supervisor drains the
+  # notices on every answer, idle ones included.
+  def test_an_idle_runner_writes_the_cores_notices_on_each_supervisor_answer
+    core = Flezha::TestSupport::FakeCore.new(base: 1)
+    log, previous = Flezha::TestSupport::CapturedLog.install
+    executor = Flezha::ThreadExecutor.new(core, deps(core)).start
+    begin
+      core.notice(["warn", "flz_core::control_unit", "Connection attempt 2 failed"])
+      assert wait_until(timeout: 2) { log.lines.any? { |_, line| line.include?("Connection attempt 2 failed") } }
+    ensure
+      Flezha.log = previous
       core.shutdown
       executor.stop
     end
@@ -128,13 +146,13 @@ class ConcurrencyTest < Minitest::Test
     answers = {}
     %i[threads fibers].each do |kind|
       core = Flezha::TestSupport::FakeCore.new(
-        activations: Array.new(8) { |i| activation(i, "item-#{i}") }
+        activations: Array.new(8) { |i| activation(i, "item-#{i}") }, base: 3
       )
       executor =
         if kind == :threads
-          Flezha::ThreadExecutor.new(core, deps(core), base: 3, ceiling: 6)
+          Flezha::ThreadExecutor.new(core, deps(core))
         else
-          Flezha::FiberExecutor.new(core, deps(core), fetchers: 3)
+          Flezha::FiberExecutor.new(core, deps(core))
         end
       executor.start
       begin
@@ -177,12 +195,10 @@ class ConcurrencyTest < Minitest::Test
   def test_an_activation_is_completed_only_after_its_dispatch_returns
     ORDER.clear
     core = Flezha::TestSupport::FakeCore.new(
-      activations: [activation(1, "x").merge(factory: "recorder_op")],
+      activations: [activation(1, "x").merge(factory: "recorder_op")], base: 1,
       hold: -> { ORDER_LOCK.synchronize { ORDER << :completed } }
     )
-    executor = Flezha::ThreadExecutor.new(
-      core, Flezha::TestSupport.deps(RecorderRelay, core), base: 1, ceiling: 1
-    ).start
+    executor = Flezha::ThreadExecutor.new(core, Flezha::TestSupport.deps(RecorderRelay, core)).start
     begin
       assert wait_until { ORDER.size == 2 }
       assert_equal %i[dispatched completed], ORDER
@@ -212,8 +228,8 @@ class ConcurrencyTest < Minitest::Test
   # One activation and then a quiet queue: the handler that yielded must be
   # resumed by the scheduler, not by the next activation or the executor's stop.
   def test_a_handler_that_yields_is_resumed_while_the_queue_is_quiet
-    core = Flezha::TestSupport::FakeCore.new(activations: [activation(1, "x").merge(factory: "napper_op")])
-    executor = Flezha::FiberExecutor.new(core, Flezha::TestSupport.deps(NapperRelay, core), fetchers: 1).start
+    core = Flezha::TestSupport::FakeCore.new(activations: [activation(1, "x").merge(factory: "napper_op")], base: 1)
+    executor = Flezha::FiberExecutor.new(core, Flezha::TestSupport.deps(NapperRelay, core)).start
     begin
       assert wait_until(timeout: 2) { core.completed.size == 1 },
              "a 10 ms sleep under the fiber executor was not resumed while the queue was quiet"
@@ -247,29 +263,27 @@ class ConcurrencyTest < Minitest::Test
   # namespace the next test wants.
   def test_a_handler_that_never_returns_does_not_hold_the_drain_open
     core = Flezha::TestSupport::FakeCore.new(
-      activations: [activation(1, "x").merge(factory: "never_returns_op")]
+      activations: [activation(1, "x").merge(factory: "never_returns_op")], base: 1, drain_ms: 300
     )
-    executor = Flezha::ThreadExecutor.new(core, never_returns_deps(core), base: 1, ceiling: 1).start
+    executor = Flezha::ThreadExecutor.new(core, never_returns_deps(core)).start
     assert wait_until { core.polled_once? }, "the worker picked the activation up"
 
     elapsed, stderr = timed_stop(core, executor)
 
-    assert_operator elapsed, :<, Flezha::Executor::DRAIN_TIMEOUT_S + 3,
-                    "the drain waited #{elapsed}s on a handler that never returns"
+    assert_operator elapsed, :<, 0.3 + 3, "the drain waited #{elapsed}s on a handler that never returns"
     assert_reports_one_undrained(stderr)
   end
 
   def test_the_same_bound_holds_under_the_fiber_executor
     core = Flezha::TestSupport::FakeCore.new(
-      activations: [activation(1, "x").merge(factory: "never_returns_op")]
+      activations: [activation(1, "x").merge(factory: "never_returns_op")], base: 1, drain_ms: 300
     )
-    executor = Flezha::FiberExecutor.new(core, never_returns_deps(core), fetchers: 1).start
+    executor = Flezha::FiberExecutor.new(core, never_returns_deps(core)).start
     assert wait_until { core.polled_once? }
 
     elapsed, stderr = timed_stop(core, executor)
 
-    assert_operator elapsed, :<, Flezha::Executor::DRAIN_TIMEOUT_S + 3,
-                    "the drain waited #{elapsed}s on a fiber that never returns"
+    assert_operator elapsed, :<, 0.3 + 3, "the drain waited #{elapsed}s on a fiber that never returns"
     assert_reports_one_undrained(stderr)
   end
 
@@ -283,7 +297,7 @@ class ConcurrencyTest < Minitest::Test
   end
 
   def assert_reports_one_undrained(stderr)
-    assert_equal ["[flezha] 1 activation(s) were still running after the #{Flezha::Executor::DRAIN_TIMEOUT_S}s drain; " \
+    assert_equal ["[flezha] 1 activation(s) were still running after the 0.3s drain; " \
                   "the runner is exiting anyway. The core re-hands unanswered work on the next bind — find the " \
                   "handler that does not return.\n"], stderr.lines
   end
