@@ -288,7 +288,8 @@ class TaskletFormTest < Minitest::Test
   def test_key_by_alone_routes_a_cell_per_key
     counter = tasklet("counter")
     klass = relay("orders_op") { |c| c.input("orders").key_by { |o| o[:customer] }.into(counter).output("out") }
-    keys = prepared(klass, ['{"customer":"ann"}', '{"customer":"bo"}'], want_keys: true).map { |a| a[:keys] }
+    keys = prepared(klass, ['{"customer":"ann"}', '{"customer":"bo"}'], want_keys: true)
+           .map { |a| Flezha::TestSupport.keys_answered(a) }
 
     assert_equal [["ann"], ["bo"]], keys
   end

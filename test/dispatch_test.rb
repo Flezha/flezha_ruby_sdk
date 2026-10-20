@@ -123,7 +123,7 @@ class DispatchTest < Minitest::Test
 
     assert_equal "prepared", result[:outcome]
     assert_equal 2, result[:prepared].size
-    assert_equal [[], []], result[:prepared].map { |a| a[:keys] },
+    assert_equal [[], []], result[:prepared].map { |a| Flezha::TestSupport.keys_answered(a) },
                  "a single-cell tasklet names no key"
   end
 
@@ -670,7 +670,7 @@ class DispatchTest < Minitest::Test
     request = { channel: 0, payloads: ["MSFT:1".b], want_keys: true, want_event_time: false }
     result = answer_on(MergeRelay, kind: :key_request, tasklet: 1, cell_key: "AAPL", key_request: request)
 
-    assert_equal [["MSFT"]], result[:prepared].map { |answer| answer[:keys] }
+    assert_equal [["MSFT"]], result[:prepared].map { |answer| Flezha::TestSupport.keys_answered(answer) }
   end
 
   # -- flat_map ---------------------------------------------------------------
@@ -719,7 +719,36 @@ class DispatchTest < Minitest::Test
     request = { channel: 0, payloads: ["a:1,b:2,c:3".b, "".b], want_keys: true, want_event_time: false }
     prepared = answer_on(KeyedFanRelay, kind: :key_request, key_request: request)[:prepared]
 
-    assert_equal [%w[a b c], []], prepared.map { |answer| answer[:keys] }
+    assert_equal [%w[a b c], []], prepared.map { |answer| Flezha::TestSupport.keys_answered(answer) }
+  end
+
+  class CountedFanRelay < Flezha::Relay
+    def self.decoded = (@decoded ||= [])
+
+    factory_id "counted_fan_op"
+    channels do |c|
+      decode = lambda do |raw|
+        CountedFanRelay.decoded << raw
+        raw.dup.force_encoding("UTF-8")
+      end
+      c.input("lines", decode: decode).flat_map { |line| line.split(",") }
+       .key_by { |value| value.split(":").first }.into(PassThrough).output("fanned")
+    end
+  end
+
+  # The crossing decodes the payload and runs the chain once; each Cell runs
+  # its own prepared values with neither the entry decoder nor the edge.
+  def test_a_keyed_entry_payload_is_decoded_and_transformed_once
+    CountedFanRelay.decoded.clear
+    request = { channel: 0, payloads: ["a:1,a:2,b:3".b], want_keys: true, want_event_time: false }
+    values = answer_on(CountedFanRelay, kind: :key_request, key_request: request)[:prepared][0][:values]
+    ran = values.group_by { |value| value[:keys].first }.to_h do |key, mine|
+      item = input_item("a:1,a:2,b:3", form: :prepared, values: mine.map { |value| value[:bytes] })
+      [key, answer_on(CountedFanRelay, cell_key: key, items: [item])[:effects][0][:outputs].map { |o| o[:payload] }]
+    end
+
+    assert_equal({ "a" => %w[a:1 a:2], "b" => %w[b:3] }, ran)
+    assert_equal ["a:1,a:2,b:3"], CountedFanRelay.decoded
   end
 
   class SplitKeyedRelay < Flezha::Relay
@@ -738,17 +767,7 @@ class DispatchTest < Minitest::Test
     request = { channel: 0, payloads: ["a:1".b, "drop".b], want_keys: true, want_event_time: false }
     prepared = answer_on(SplitKeyedRelay, kind: :key_request, key_request: request)[:prepared]
 
-    assert_equal [["a"], []], prepared.map { |answer| answer[:keys] }
-  end
-
-  # The crossing answered every key, so the payload reaches each Cell whole:
-  # each keeps only the values keyed to it.
-  def test_each_cell_a_fanned_payload_reaches_runs_only_its_own_values
-    outputs = %w[a b].map do |key|
-      answer_on(KeyedFanRelay, cell_key: key, items: [input_item("a:1,b:2,a:3")])[:effects][0][:outputs]
-    end
-
-    assert_equal [%w[a:1 a:3], %w[b:2]], outputs.map { |frames| frames.map { |o| o[:payload] } }
+    assert_equal [["a"], []], prepared.map { |answer| Flezha::TestSupport.keys_answered(answer) }
   end
 
   class StaticFanLabel < PassThrough
@@ -765,15 +784,14 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  # The same on a static consumer, where `cells_for` names the Cells: a
-  # value naming both reaches both, and one naming none reaches neither.
-  def test_each_static_cell_a_fanned_payload_reaches_runs_only_its_own_values
-    outputs = %w[a b].map do |key|
-      answer_on(StaticFanRelay, cell_key: key,
-                                items: [input_item("a:1,b:2,both:9,none:0,a:3")])[:effects][0][:outputs]
-    end
+  # On a static consumer `cells_for` names the Cells: a value naming both
+  # reaches both, and one naming none reaches neither.
+  def test_a_static_fan_answers_each_value_with_the_cells_its_router_names
+    request = { channel: 0, payloads: ["a:1,b:2,both:9,none:0".b], want_keys: true, want_event_time: false }
+    values = answer_on(StaticFanRelay, kind: :key_request, key_request: request)[:prepared][0][:values]
 
-    assert_equal [%w[a:1 both:9 a:3], %w[b:2 both:9]], outputs.map { |frames| frames.map { |o| o[:payload] } }
+    assert_equal [[%w[a], "a:1"], [%w[b], "b:2"], [%w[a b], "both:9"], [[], "none:0"]],
+                 values.map { |value| [value[:keys], Flezha::Codec.decode(value[:bytes])] }
   end
 
   def test_an_emit_through_a_fan_releases_one_keyed_frame_per_value

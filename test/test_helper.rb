@@ -165,6 +165,9 @@ module Flezha
         factory: factory, kind: :work }.merge(extra)
     end
 
+    # Every Cell key a prepare answer's values name, in answer order.
+    def self.keys_answered(answer) = answer[:values].flat_map { |value| value[:keys] }
+
     # One input item on the first channel, as the core hands an entry payload.
     def self.input_item(payload, **extra)
       { kind: :input, channel: 0, payload: payload.b, metadata: [], replay: false,

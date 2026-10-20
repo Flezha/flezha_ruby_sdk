@@ -124,17 +124,11 @@ module Flezha
       [non_retryable?(error) ? "non_retryable" : "retryable", error_message(error)]
     end
 
-    # A payload as the handler sees it: the entry channel's decoder, or the
-    # class codec for a payload between tasklets, then its transforms in
-    # declaration order. Empty when a filter rejected it, several values when
-    # a flat_map fanned it.
-    #
-    # One function for the two places a payload crosses in — an input item, and
-    # a payload at the prepare crossing — so a filter cannot mean one thing on
-    # one path and another on the other.
-    def values_of(channel, edge, payload)
-      decoded = channel&.decode ? channel.decode.call(payload) : Codec.decode(payload)
-      Flezha.apply_transforms(edge&.transforms || [], decoded)
+    # A payload as its channel reads it: the entry channel's decoder, or the
+    # class codec for a payload between tasklets. The one decoder for an input
+    # item and for a payload at the prepare crossing.
+    def decoded(channel, payload)
+      channel&.decode ? channel.decode.call(payload) : Codec.decode(payload)
     end
 
     # The channel's edge that feeds `node`, or nil when it feeds none.
@@ -259,24 +253,14 @@ module Flezha
         return nil
       end
 
-      channel = registered.spec.channels[item[:channel] || 0]
-      # This node's own edge off the channel: a transform chain declared before
-      # one `into` belongs to that consumer and to no other. It runs only on a
-      # payload the core marks untransformed: a flow producer already ran it,
-      # and running it again would compose the chain with itself.
-      edge = item[:form] == :untransformed ? edge_into(channel, node.index) : nil
-      # The entrance (the entry channel's decoder and the entry edge's
-      # transforms) is where a message the relay cannot read is told
-      # apart from a handler that fails on one it can.
       values =
-        begin
-          values_of(channel, edge, item[:payload] || "".b)
-        rescue StandardError => e
-          raise unless channel&.kind == :entry
-
-          raise UnreadableMessage, e
+        if item[:form] == :prepared
+          # The prepare crossing decoded a keyed payload and ran this node's
+          # edge already; each value comes encoded as a value between tasklets.
+          Array(item[:values]).map { |bytes| Codec.decode(bytes) }
+        else
+          entering(registered.spec.channels[item[:channel] || 0], node, item)
         end
-      values = values.select { |value| routes_to?(edge, definition, value, ctx.cell_key) } if edge
       # A filtered value reaches no handler and a fanned one reaches it once
       # per value. Either way the item is one effect, so its offset advances
       # once and nothing is retried. What `run` answers is not output: a value
@@ -285,21 +269,18 @@ module Flezha
       nil
     end
 
-    # Whether one value of an untransformed payload belongs to this Cell.
-    # The crossing answered the keys of every value, so a fanned payload
-    # reaches each Cell it named whole, and each keeps only its own values.
-    def routes_to?(edge, definition, value, cell_key)
-      keys = cell_key && keys_of(edge, definition, value)
-      keys.nil? || keys.include?(cell_key)
-    end
+    # An input payload as the handler sees it: decoded, then through this
+    # node's own edge off the channel when the core marks it untransformed: a
+    # flow producer already ran that edge, and running it again would compose
+    # the chain with itself. The entrance is where a message the relay cannot
+    # read is told apart from a handler that fails on one it can.
+    def entering(channel, node, item)
+      edge = item[:form] == :untransformed ? edge_into(channel, node.index) : nil
+      Flezha.apply_transforms(edge&.transforms || [], decoded(channel, item[:payload] || "".b))
+    rescue StandardError => e
+      raise unless channel&.kind == :entry
 
-    # The Cell keys one value routes to: its edge's key, else the tasklet's
-    # `cells_for`, else nil when neither names one. The prepare crossing
-    # and the delivery filter both read it, so they cannot disagree.
-    def keys_of(edge, definition, value)
-      if edge&.key_by then [edge.key_by.call(value).to_s]
-      elsif definition&.cells_for? then definition.cells_for(value).map(&:to_s)
-      end
+      raise UnreadableMessage, e
     end
 
     def restore_fold(activation, registered, node)
@@ -331,36 +312,40 @@ module Flezha
       return failed(activation[:token], "a key request carried no payloads", non_retryable: true) unless request
 
       channel = registered.spec.channels[request[:channel]]
-      # The crossing answers one key set for the whole payload, which the core
-      # hands every keyed consumer, so it reads the first keyed consumer's edge:
-      # an unkeyed one's filter must not drop the key.
-      edges = channel&.consumers || []
-      definition_of = ->(e) { registered.spec.tasklets[e.tasklet]&.definition }
-      edge = edges.find { |e| e.key_by || definition_of.(e)&.cells_for? } || edges.first
-      definition = edge && definition_of.(edge)
-
       answers = request[:payloads].map do |payload|
-        begin
-          values = values_of(channel, edge, payload)
-          # A filtered payload answers no key. For a dynamic consumer that is
-          # what tells the core not to route it at all — the drop happens
-          # before a cell is minted rather than inside one.
-          next { keys: [] } if values.empty?
-
-          # A fanned payload answers every value's key, once each.
-          keys = request[:want_keys] ? values.flat_map { |value| keys_of(edge, definition, value) || [] }.uniq : []
-          event_time =
-            request[:want_event_time] && definition&.event_time? ? definition.event_time_of(values.first) : nil
-          { keys: keys, event_time: event_time }
-        rescue StandardError => e
-          # A per-payload refusal enters the input channel's retry ladder; it
-          # is not a failure of the crossing, whose other payloads still have
-          # answers.
-          { error: error_message(e), non_retryable: non_retryable?(e) }
-        end
+        prepared(registered, channel, request, decoded(channel, payload))
+      rescue StandardError => e
+        # A per-payload refusal enters the input channel's retry ladder; it
+        # is not a failure of the crossing, whose other payloads still have
+        # answers.
+        { error: error_message(e), non_retryable: non_retryable?(e) }
       end
 
       { token: activation[:token], outcome: "prepared", prepared: answers }
+    end
+
+    # One decoded payload's answer: every value each keyed consumer's own edge
+    # yields, with the Cells it names, and the event time the first timed
+    # consumer reads off its first value. A payload its chains filter answers
+    # no value, so the core mints no Cell for it.
+    def prepared(registered, channel, request, value)
+      event_time = nil
+      values = (channel&.consumers || []).flat_map do |edge|
+        definition = registered.spec.tasklets[edge.tasklet].definition
+        keyed = request[:want_keys] && (edge.key_by || definition.cells_for?)
+        timed = request[:want_event_time] && event_time.nil? && definition.event_time?
+        next [] unless keyed || timed
+
+        yielded = Flezha.apply_transforms(edge.transforms, value)
+        event_time = definition.event_time_of(yielded.first) if timed && !yielded.empty?
+        next [] unless keyed
+
+        yielded.map do |v|
+          keys = edge.key_by ? [edge.key_by.call(v).to_s] : definition.cells_for(v).map(&:to_s)
+          { consumer: edge.tasklet, keys: keys, bytes: Codec.encode(v) }
+        end
+      end
+      { values: values, event_time: event_time }
     end
 
     def compensate(activation, registered, node, deps)
