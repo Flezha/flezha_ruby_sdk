@@ -69,7 +69,7 @@ class EffectTest < Minitest::Test
     channels { |c| c.input("in", codec: :text).into(Asks).output("out", codec: :json) }
   end
 
-  def harness(tasklet) = Flezha::Testing::Harness.new(tasklet)
+  def harness(tasklet) = Flezha::Testing::TaskletTestHarness.new(tasklet)
 
   def test_a_live_input_runs_the_block_and_a_replay_is_served_its_result
     harness = harness(Asks)

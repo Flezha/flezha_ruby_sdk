@@ -346,7 +346,7 @@ class DispatchTest < Minitest::Test
       def run(_input, ctx) = ctx.complete(Float::NAN)
     end
 
-    error = assert_raises(Flezha::Error) { Flezha::Testing::Harness.new(klass).feed("x") }
+    error = assert_raises(Flezha::Error) { Flezha::Testing::TaskletTestHarness.new(klass).feed("x") }
 
     assert_equal ["runtime.value_not_json", "tasklet 'completes_with_nan'", "Float"],
                  [error.code, error.details["owner"], error.details["type"]]

@@ -67,7 +67,7 @@ class AuthoringTest < Minitest::Test
       def run(input, ctx) = ctx.emit(input.upcase)
     end
 
-    assert_equal ["A"], Flezha::Testing::Harness.new(upcase).feed("a").outputs
+    assert_equal ["A"], Flezha::Testing::TaskletTestHarness.new(upcase).feed("a").outputs
   end
 
   def test_a_fold_with_no_state_to_fold_into_is_refused

@@ -297,12 +297,12 @@ class RunnerTest < Minitest::Test
   end
 
   def test_the_generated_tasklet_runs_the_class_s_run_body_and_journals_its_changes
-    harness = Flezha::Testing::Harness.new(Fixtures::SugarStateOnly.tasklet)
+    harness = Flezha::Testing::TaskletTestHarness.new(Fixtures::SugarStateOnly.tasklet)
     harness.feed("one")
     harness.feed("two")
 
     assert_equal({ seen: %w[one two] }, harness.state)
-    harness.replay_equals!
+    harness.replay_equals
   end
 
   def test_a_channels_body_still_declares_a_full_form

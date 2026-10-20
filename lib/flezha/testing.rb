@@ -14,7 +14,7 @@ module Flezha
   # The harness is not a second implementation of the dispatcher: it drives
   # `Dispatch.invoke` — the same function every activation kind that reaches a
   # handler goes through — over a one-tasklet `RegisteredClass`, and
-  # `replay_equals!` folds through `State.fold_restore`, the function a real
+  # `replay_equals` folds through `State.fold_restore`, the function a real
   # restore calls. So what it proves is what the runner does, rather than
   # something that agrees with it.
   module Testing
@@ -52,17 +52,115 @@ module Flezha
     # One input's effect results, by `[name, ordinal]`, and the invocation's
     # count of each name and the call whose block is running.
     Effects = Struct.new(:kept, :replaying, :ordinals, :running)
+    private_constant :Effects
 
     # What one invocation produced.
     Outcome = Struct.new(:outputs, :changes, :timers, keyword_init: true)
 
-    BASE32 = [*"a".."z", *"2".."7"].freeze
+    # The core bridge a `Ctx` asks, answered as the core would for one
+    # tasklet with no controller behind it.
+    class FakeCore
+      BASE32 = [*"a".."z", *"2".."7"].freeze
+
+      # Answers by handle, until the invocation that made them ends, as the
+      # core releases them.
+      attr_reader :spawns
+
+      def initialize(tasklet)
+        @tasklet = tasklet
+        @spawns = {}
+        @spawn_count = 0
+        # Each live input's effect results, in order, and how many replays ran.
+        @kept = []
+        @replays = 0
+        @effects = Effects.new({}, false, {}, nil)
+      end
+
+      # Serve the next input: a live one keeps its results, the n-th replay
+      # reads what the n-th live input kept.
+      def begin_input(replay)
+        if replay
+          @effects = Effects.new(@kept[@replays] || {}, true, {}, nil)
+          @replays += 1
+        else
+          @effects = Effects.new({}, false, {}, nil)
+          @kept << @effects.kept
+        end
+      end
+
+      # A replay must ask for every result its live input kept.
+      def finish_input
+        unasked = @effects.kept.each_key.find { |name, ordinal| ordinal >= @effects.ordinals.fetch(name, 0) }
+        raise EffectReplayMismatch.new(@tasklet, unasked.first, "was never asked for") if @effects.replaying && unasked
+      end
+
+      # A harness has no controller, so a spawn resolves at once to what one
+      # would have answered: spawned under the given id or a generated-looking
+      # one, or skipped on a replay.
+      def spawn_request(_token, factory_id, id, _payload, _if_running, replay, _offset)
+        id = generated_id(factory_id) if id.empty? && !replay
+        outcome = replay ? "skipped_on_replay" : "spawned"
+        handle = @spawn_count += 1
+        @spawns[handle] = JSON.generate({ "id" => id, "outcome" => outcome })
+        handle
+      end
+
+      def spawn_result(handle, _timeout_ms)
+        @spawns.fetch(handle) { raise Error.new("runtime.spawn_handle_released", handle: handle) }
+      end
+
+      # No controller and no listener, so the part, already encoded, goes
+      # nowhere.
+      def part(_token, _item, _payload) = nil
+
+      # The core's answer to a begun `ctx.effect`, over this input's results:
+      # the kept one, or run the block (on a live input only).
+      def effect_begin(_token, _item, name)
+        raise Error.new("effect.bad_name", name: name.inspect) if name.empty? || name.bytesize > MAX_EFFECT_NAME
+
+        effects = @effects
+        raise Error.new("effect.nested", name: name) if effects.running
+
+        ordinal = effects.ordinals.fetch(name, 0)
+        effects.ordinals[name] = ordinal + 1
+        key = [name, ordinal]
+        return [:kept, effects.kept[key]] if effects.kept.key?(key)
+        raise EffectReplayMismatch.new(@tasklet, name, "ran its block") if effects.replaying
+
+        effects.running = key
+        [:run, nil]
+      end
+
+      # Keep a live input's result, as the controller does.
+      def effect_end(_token, _item, payload)
+        effects = @effects
+        raise "an end follows a begin that runs" unless effects.running
+
+        effects.kept[effects.running] = payload.b
+        effects.running = nil
+        nil
+      end
+
+      def effect_release(_token, _item)
+        @effects.running = nil
+      end
+
+      private
+
+      # The controller's shape: the factory id trimmed so the whole id fits the
+      # 32-byte limit, then 16 base32 characters.
+      def generated_id(factory_id)
+        prefix = factory_id.byteslice(0, 15).scrub("").sub(/[-_]+\z/, "")
+        "#{prefix}-#{SecureRandom.alphanumeric(16, chars: BASE32)}"
+      end
+    end
+    private_constant :FakeCore
 
     # A `ctx.effect` keeps its result on a live `feed`; the n-th
     # `feed(..., replay: true)` replays the n-th live input and is served what
     # it kept, and raises `EffectReplayMismatch` when a block runs there or a
     # kept result is never asked for.
-    class Harness
+    class TaskletTestHarness
       attr_reader :log
 
       def initialize(tasklet_class, cell_key: nil, relay: "harness")
@@ -75,7 +173,7 @@ module Flezha
         # to go. A tasklet under test emits to be observed, not to be routed,
         # and the output names MessagePack so `outputs` reports exactly the value
         # a handler emitted.
-        builder = Builder.new("<harness>")
+        builder = ChannelBuilder.new("<harness>")
         builder.input("in").into(tasklet_class).output("out", codec: :msgpack)
         @node = builder.tasklets.first
         @spec = ClassSpec.new(factory_id: "<harness>", tasklets: builder.tasklets, channels: builder.channels)
@@ -85,17 +183,10 @@ module Flezha
         @address = RegisteredClass.address(@target, @node)
         # No core runs here, so the harness names the cell's identity itself.
         @registered.keep_identity(@address, "#{relay}/#{@node.name}/#{cell_key}".b)
-        @deps = DispatchDeps.new(registry: nil, bridge: self)
+        @core = FakeCore.new(@definition.name)
+        @deps = DispatchDeps.new(registry: nil, bridge: @core)
         @log = []
         @change_seq = 0
-        # Answers by handle, until the invocation that made them ends, as the
-        # core releases them.
-        @spawns = {}
-        @spawn_count = 0
-        # Each live input's effect results, in order, and how many replays ran.
-        @kept_effects = []
-        @replays = 0
-        @effects = Effects.new({}, false, {}, nil)
       end
 
       # The cell's live state, as the dispatcher left it.
@@ -104,17 +195,9 @@ module Flezha
       # Run the tasklet against one input; `replay` replays the next live
       # input, in order.
       def feed(input, now: 0, replay: false)
-        if replay
-          @effects = Effects.new(@kept_effects[@replays] || {}, true, {}, nil)
-          @replays += 1
-        else
-          @effects = Effects.new({}, false, {}, nil)
-          @kept_effects << @effects.kept
-        end
+        @core.begin_input(replay)
         outcome = run(now, replay) { |ctx| invoke(input, ctx) }
-        unasked = @effects.kept.each_key.find { |name, ordinal| ordinal >= @effects.ordinals.fetch(name, 0) }
-        raise EffectReplayMismatch.new(@definition.name, unasked.first, "was never asked for") if replay && unasked
-
+        @core.finish_input
         outcome
       end
 
@@ -150,7 +233,7 @@ module Flezha
       # In this SDK that catches both failures at once: a handler that mutated
       # the state without recording a change, and an `apply_change` that is not
       # a pure fold. The SDKs whose state is guarded can only catch the second.
-      def replay_equals!
+      def replay_equals
         replayed = State.fold_restore(
           @definition, { changes: @log.map { |bytes| { bytes: bytes } } },
           @cell_key, @definition.name
@@ -158,57 +241,6 @@ module Flezha
         raise ReplayMismatch.new(@definition.name, state, replayed) unless replayed == state
 
         true
-      end
-
-      # The spawn bridge a `Ctx` asks. A harness has no controller, so a
-      # request resolves at once to what one would have answered: spawned
-      # under the given id or a generated-looking one, or skipped on a replay.
-      def spawn_request(_token, factory_id, id, _payload, _if_running, replay, _offset)
-        id = generated_id(factory_id) if id.empty? && !replay
-        outcome = replay ? "skipped_on_replay" : "spawned"
-        handle = @spawn_count += 1
-        @spawns[handle] = JSON.generate({ "id" => id, "outcome" => outcome })
-        handle
-      end
-
-      def spawn_result(handle, _timeout_ms)
-        @spawns.fetch(handle) { raise Error.new("runtime.spawn_handle_released", handle: handle) }
-      end
-
-      # The part bridge a `Ctx` asks. A harness has no controller and no
-      # listener, so the part, already encoded, goes nowhere.
-      def part(_token, _item, _payload) = nil
-
-      # The core's answer to a begun `ctx.effect`, over this input's results:
-      # the kept one, or run the block (on a live input only).
-      def effect_begin(_token, _item, name)
-        raise Error.new("effect.bad_name", name: name.inspect) if name.empty? || name.bytesize > MAX_EFFECT_NAME
-
-        effects = @effects
-        raise Error.new("effect.nested", name: name) if effects.running
-
-        ordinal = effects.ordinals.fetch(name, 0)
-        effects.ordinals[name] = ordinal + 1
-        key = [name, ordinal]
-        return [:kept, effects.kept[key]] if effects.kept.key?(key)
-        raise EffectReplayMismatch.new(@definition.name, name, "ran its block") if effects.replaying
-
-        effects.running = key
-        [:run, nil]
-      end
-
-      # Keep a live input's result, as the controller does.
-      def effect_end(_token, _item, payload)
-        effects = @effects
-        raise "an end follows a begin that runs" unless effects.running
-
-        effects.kept[effects.running] = payload.b
-        effects.running = nil
-        nil
-      end
-
-      def effect_release(_token, _item)
-        @effects.running = nil
       end
 
       private
@@ -219,7 +251,7 @@ module Flezha
         ctx = begin
           Dispatch.invoke(activation, @registered, @node, @deps, now, replay) { |c| yield(c) }
         ensure
-          @spawns.clear
+          @core.spawns.clear
         end
         record = ctx.send(:effect_record, nil)
         @log.concat(record[:changes])
@@ -233,24 +265,10 @@ module Flezha
 
       def invoke(input, ctx) = @definition.instance.run(input, ctx)
 
-      # The controller's shape: the factory id trimmed so the whole id fits the
-      # 32-byte limit, then 16 base32 characters.
-      def generated_id(factory_id)
-        prefix = factory_id.byteslice(0, 15).scrub("").sub(/[-_]+\z/, "")
-        "#{prefix}-#{SecureRandom.alphanumeric(16, chars: BASE32)}"
-      end
-
       def decode_change(bytes)
         codec = @definition.change_codec
         codec ? codec.decode(bytes) : Codec.decode(bytes)
       end
-    end
-
-    # Drive `tasklet_class` over `inputs` and assert the replay agrees.
-    def self.replay_equals?(tasklet_class, inputs, cell_key: nil)
-      harness = Harness.new(tasklet_class, cell_key: cell_key)
-      inputs.each { |input| harness.feed(input) }
-      harness.replay_equals!
     end
   end
 end

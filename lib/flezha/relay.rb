@@ -93,7 +93,7 @@ module Flezha
 
       def build_builder
         check_declaration!
-        builder = Builder.new(@factory_id)
+        builder = ChannelBuilder.new(@factory_id)
         short_form? ? wire_short_form(builder) : channels.call(builder)
         builder
       end

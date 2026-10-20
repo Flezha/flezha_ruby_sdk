@@ -16,6 +16,10 @@ class WireConstantsTest < Minitest::Test
     assert_equal row("flz_key", "key")[/\A[^.]*\./], Flezha::Ctx::RESERVED_PREFIX
   end
 
+  def test_the_harness_effect_name_bound_is_the_cores
+    assert_equal Integer(row("effect", "name_max_bytes")), Flezha::Testing::MAX_EFFECT_NAME
+  end
+
   private
 
   def row(table, name)

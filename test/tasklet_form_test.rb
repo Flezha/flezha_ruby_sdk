@@ -78,9 +78,9 @@ class TaskletFormTest < Minitest::Test
   end
 
   def test_a_renamed_class_keeps_its_state
-    before = Flezha::Testing::Harness.new(Totals)
+    before = Flezha::Testing::TaskletTestHarness.new(Totals)
     [3, 4].each { |value| before.feed(value) }
-    after = Flezha::Testing::Harness.new(RenamedTotals)
+    after = Flezha::Testing::TaskletTestHarness.new(RenamedTotals)
     after.restore(changes: before.log)
 
     assert_equal({ sum: 7 }, after.state)
@@ -186,8 +186,8 @@ class TaskletFormTest < Minitest::Test
   def test_the_initial_state_comes_from_init_state_with_the_cell_key
     keyed = tasklet("keyed_init") { def init_state(cell_key) = { key: cell_key } }
 
-    assert_equal({ key: "A" }, Flezha::Testing::Harness.new(keyed, cell_key: "A").state)
-    assert_equal({ key: nil }, Flezha::Testing::Harness.new(keyed).state)
+    assert_equal({ key: "A" }, Flezha::Testing::TaskletTestHarness.new(keyed, cell_key: "A").state)
+    assert_equal({ key: nil }, Flezha::Testing::TaskletTestHarness.new(keyed).state)
   end
 
   Cart = Struct.new(:items) do
@@ -202,8 +202,8 @@ class TaskletFormTest < Minitest::Test
       def init_state(_cell_key) = Cart.new(items: ["first"])
     end
 
-    assert_equal Cart.new, Flezha::Testing::Harness.new(typed).state
-    assert_equal Cart.new(items: ["first"]), Flezha::Testing::Harness.new(both).state
+    assert_equal Cart.new, Flezha::Testing::TaskletTestHarness.new(typed).state
+    assert_equal Cart.new(items: ["first"]), Flezha::Testing::TaskletTestHarness.new(both).state
     refute record(relay("typed_op") { |c| c.input("in").into(typed).output("out") })["tasklets"]
       .first["change_is_nochange"], "a state_type is a state"
   end
@@ -226,14 +226,14 @@ class TaskletFormTest < Minitest::Test
       def apply_change(state, change) = state[:events] << change
       def run(at, ctx) = ctx.change({ kind: "event", deadline: at })
     end
-    live = Flezha::Testing::Harness.new(deadlines)
+    live = Flezha::Testing::TaskletTestHarness.new(deadlines)
     live.feed(1_000)
-    restored = Flezha::Testing::Harness.new(deadlines)
+    restored = Flezha::Testing::TaskletTestHarness.new(deadlines)
     restored.restore(changes: live.log)
 
     assert_equal({ events: [{ kind: "event", deadline: 1_000 }] }, live.state)
     assert_equal live.state, restored.state
-    assert live.replay_equals!
+    assert live.replay_equals
   end
 
   # -- migrations --------------------------------------------------------------
@@ -321,7 +321,7 @@ class TaskletFormTest < Minitest::Test
       op = relay("#{klass.tasklet_name}_op") { |c| c.input("in", codec: :text).into(klass).output("out") }
       effect = work(op, "hi")
       assert_equal ["ok", []], [effect[:verdict], effect[:outputs]], klass.tasklet_name
-      assert_empty Flezha::Testing::Harness.new(klass).feed("hi").outputs, klass.tasklet_name
+      assert_empty Flezha::Testing::TaskletTestHarness.new(klass).feed("hi").outputs, klass.tasklet_name
     end
   end
 
@@ -336,7 +336,7 @@ class TaskletFormTest < Minitest::Test
     op = relay("both_ways_op") { |c| c.input("in", codec: :text).into(both).output("out") }
 
     assert_equal [["a", nil], ["b", "k"]], work(op, "x")[:outputs].map { |o| [o[:payload], o[:key]] }
-    assert_equal %w[a b], Flezha::Testing::Harness.new(both).feed("x").outputs
+    assert_equal %w[a b], Flezha::Testing::TaskletTestHarness.new(both).feed("x").outputs
   end
 
   # The text-codec scenario every dynamic SDK shares: the bytes the plugin
@@ -387,11 +387,11 @@ class TaskletFormTest < Minitest::Test
   end
 
   def test_a_short_form_with_init_state_and_no_output_keeps_its_state
-    harness = Flezha::Testing::Harness.new(Ticks.tasklet)
+    harness = Flezha::Testing::TaskletTestHarness.new(Ticks.tasklet)
     2.times { harness.feed("t") }
 
     assert_equal [%w[ticks entry]], record(Ticks)["channels"].map { |c| c.values_at("name", "kind") }
     assert_equal({ count: 2 }, harness.state)
-    assert harness.replay_equals!
+    assert harness.replay_equals
   end
 end

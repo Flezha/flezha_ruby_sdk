@@ -4,7 +4,7 @@ require_relative "codec"
 require_relative "tasklet"
 
 module Flezha
-  # The single-cell tasklet `Builder#route_latest` expands to. Its input is
+  # The single-cell tasklet `ChannelBuilder#route_latest` expands to. Its input is
   # what the merge's two mappings make of a value, `{ document: }` or
   # `{ traffic: key }`; the traffic item itself never reaches it.
   #

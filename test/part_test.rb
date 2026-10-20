@@ -57,7 +57,7 @@ class PartTest < Minitest::Test
   end
 
   def test_the_testing_harness_sends_a_part_nowhere
-    outcome = Flezha::Testing::Harness.new(Previewer).feed("a")
+    outcome = Flezha::Testing::TaskletTestHarness.new(Previewer).feed("a")
 
     assert_equal ["a"], outcome.outputs
   end

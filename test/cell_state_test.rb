@@ -98,7 +98,7 @@ class CellStateTest < Minitest::Test
   end
 
   def test_a_harness_restore_fills_the_cell_it_reads
-    harness = Flezha::Testing::Harness.new(Kept, relay: "order_a")
+    harness = Flezha::Testing::TaskletTestHarness.new(Kept, relay: "order_a")
     harness.restore(changes: [Flezha::Codec.encode("r")])
 
     assert_equal({ seen: %w[r] }, harness.state)

@@ -87,7 +87,7 @@ module Flezha
   end
 
   # The fluent channel builder a relay's `channels` block receives.
-  class Builder
+  class ChannelBuilder
     attr_reader :factory_id, :tasklets, :channels
 
     def initialize(factory_id)
@@ -115,7 +115,7 @@ module Flezha
       channel.decode = decode || Codec.channel_decoder(named, channel)
       channel.codec = api_codec(named, decode)
       @channels << channel
-      Edge.new(self, [:entry, channel], {})
+      Stream.new(self, [:entry, channel], {})
     end
 
     # The codec a channel names, refused when it is unknown or named beside
@@ -251,7 +251,7 @@ module Flezha
 
   # One edge under construction. Immutable: every fluent call answers a new
   # edge, so a shared prefix can be branched without the arms colliding.
-  class Edge
+  class Stream
     # The two links a fluent call adds. Frozen literals rather than a hash per
     # call: every `map` on every channel records the same one.
     TRANSFORM = { "link" => "transform" }.freeze
@@ -327,7 +327,7 @@ module Flezha
           tasklet: node.index, transforms: transforms, key_by: @pending[:key_by]
         )
       )
-      Edge.new(@builder, [:tasklet, node], {})
+      Stream.new(@builder, [:tasklet, node], {})
     end
     # `Merge` reaches it through `send`, as a friend of the builder.
     private :close_on
@@ -443,7 +443,7 @@ module Flezha
     # Applied now, as the reference applies it: an option no terminator follows
     # would otherwise be dropped. This call is why `channel` is protected.
     def with(**next_pending)
-      edge = Edge.new(@builder, @from, @pending.merge(next_pending))
+      edge = Stream.new(@builder, @from, @pending.merge(next_pending))
       edge.channel
       edge
     end
@@ -453,7 +453,7 @@ module Flezha
     # no `into(...)` closes is submitted rather than silently discarded.
     def relink(link, **next_pending)
       chain = @builder.link_chain(@from, @pending[:chain], link)
-      Edge.new(@builder, @from, @pending.merge(next_pending, { chain: chain }))
+      Stream.new(@builder, @from, @pending.merge(next_pending, { chain: chain }))
     end
 
     def apply_pending(channel)
@@ -498,7 +498,7 @@ module Flezha
       @sources.each do |source|
         @keys.reduce(source) { |edge, key| edge.key_by(&key) }.send(:close_on, node, link)
       end
-      Edge.new(@builder, [:tasklet, node], {})
+      Stream.new(@builder, [:tasklet, node], {})
     end
   end
 end
