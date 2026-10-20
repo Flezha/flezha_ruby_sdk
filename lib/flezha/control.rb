@@ -60,11 +60,13 @@ module Flezha
     # Disable the plugin `name`, stopping it wherever it runs.
     def disable_plugin(name) = call("PluginManager.disable", name, {})
 
-    # The relay ids running in this namespace.
-    def list_relays = call("Relay.list_relays")
+    # The relays in this namespace, one row each: its id, health, runner and
+    # node, and a partition group's width and members.
+    def list_relays = call("Relay.list")
 
-    # The plugins enabled in this namespace: name, provider, single, bound relays.
-    def list_plugins = call("PluginManager.list")
+    # The plugins enabled in this namespace, one row each: name, provider,
+    # single, bound relays and where it runs.
+    def list_plugins = call("PluginManager.enabled")
 
     # A relay's live state, and the change sequence it was read at. `cell` is
     # `<tasklet>[/<cell_key>]`: a tasklet's Cells, or one of them; nil reads

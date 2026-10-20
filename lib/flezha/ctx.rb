@@ -19,7 +19,7 @@ module Flezha
     # Metadata keys the runtime owns. A handler that sets one is refused.
     RESERVED_PREFIX = "flz."
 
-    attr_reader :changes, :outputs, :timers, :cell_key, :replay
+    attr_reader :cell_key, :replay
 
     def initialize(spec:, node:, outgoing:, registered:, address:, cell_key:, change_seq:,
                    now:, replay:, state:, bridge:, token:, offset: nil, item: nil, compensating: false)
@@ -121,11 +121,6 @@ module Flezha
       # any invocation, whatever the index.
       @bridge.part(@token, @item || 0, payload)
       nil
-    end
-
-    # Emit onto a named channel — the spelling for a tasklet with several.
-    def emit_to(channel, value, key: nil, metadata: nil)
-      emit(value, key: key, channel: channel, metadata: metadata)
     end
 
     # Register a processing-time timer `ms` from `now`. Answers its time.
@@ -230,7 +225,10 @@ module Flezha
       end
     end
 
-    # The effect record for this item, as the core folds it.
+    private
+
+    # The effect record for this item, as the core folds it. The dispatcher
+    # and the test harness read it through `send`, as friends of the context.
     def effect_record(consumed_offset)
       {
         verdict: "ok",
@@ -243,8 +241,6 @@ module Flezha
         complete: @completion
       }
     end
-
-    private
 
     # An `effect.*` refusal is non-retryable, but for `effect.not_recorded`: a
     # call that could not be kept is the one worth running again.

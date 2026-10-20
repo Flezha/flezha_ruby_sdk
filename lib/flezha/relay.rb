@@ -113,7 +113,6 @@ module Flezha
         ClassSpec.new(
           factory_id: @factory_id, description: description, max_duration_ms: max_duration_ms,
           run: Flezha.tree_json(run), durable: Flezha.tree_json(durable),
-          compact_after_bytes: builder.compact_after_bytes_value,
           tasklets: builder.tasklets, channels: builder.channels
         )
       end

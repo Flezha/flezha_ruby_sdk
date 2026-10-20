@@ -126,7 +126,7 @@ module Flezha
         "sdk_lang" => SDK_LANG_RUBY,
         "sdk_version" => SDK_VERSION,
         "change_format_id" => FORMAT_ID_MSGPACK,
-        "compact_after_bytes" => spec.compact_after_bytes,
+        "compact_after_bytes" => spec.tasklets.filter_map { |node| node.definition.compact_after_bytes }.min,
         "channels" => spec.channels.map { |channel| channel_json(channel) },
         "tasklets" => spec.tasklets.map { |node| tasklet_json(node) }
       )

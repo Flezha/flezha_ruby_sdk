@@ -55,7 +55,7 @@ class ControlTest < Minitest::Test
       ["PluginManager.bind", ["writer", { "relay_id" => "my_other", "hooks" => ["on_output"], "channel" => "in" }]],
       ["PluginManager.unbind", ["writer", { "relay_id" => "my_echo" }]],
       ["PluginManager.disable", ["writer", {}]],
-      ["PluginManager.list", []]
+      ["PluginManager.enabled", []]
     ], calls
   end
 

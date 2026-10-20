@@ -18,6 +18,7 @@ class DeclKeysTest < Minitest::Test
     tasklet_name "entry"
     mailbox_capacity 8
     max_timers_per_cell 16
+    compact_after_bytes 4_096
     schema_version 3
     min_readable_schema_version 1
     def migrate_state(_from, bytes) = Flezha::Codec.decode(bytes)
@@ -52,7 +53,6 @@ class DeclKeysTest < Minitest::Test
     durable local: { sleep_after: 2_000 }
     max_duration_ms 60_000
     channels do |c|
-      c.compact_after_bytes(4_096)
       edge = c.input("input").into(Entry)
       edge.named("hop").key_by { |value| value.to_s }.retry_max(5).retry_backoff_ms(50)
           .into(Downstream)

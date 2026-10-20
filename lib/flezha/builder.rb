@@ -48,7 +48,7 @@ module Flezha
   # Everything the graph knows about one declared class.
   # `run` and `durable` are the tree's JSON as written, `nil` when unwritten.
   ClassSpec = Struct.new(
-    :factory_id, :description, :max_duration_ms, :run, :durable, :compact_after_bytes,
+    :factory_id, :description, :max_duration_ms, :run, :durable,
     :tasklets, :channels,
     keyword_init: true
   ) do
@@ -88,7 +88,7 @@ module Flezha
 
   # The fluent channel builder a relay's `channels` block receives.
   class Builder
-    attr_reader :factory_id, :tasklets, :channels, :compact_after_bytes_value
+    attr_reader :factory_id, :tasklets, :channels
 
     def initialize(factory_id)
       @factory_id = factory_id
@@ -98,11 +98,6 @@ module Flezha
       # order. Recorded, never judged: the core reads them and answers.
       @chains = []
       @merge_groups = 0
-    end
-
-    def compact_after_bytes(bytes)
-      @compact_after_bytes_value = bytes
-      self
     end
 
     # Declare a controller-fed entry channel. `decode` turns the wire bytes
@@ -334,6 +329,8 @@ module Flezha
       )
       Edge.new(@builder, [:tasklet, node], {})
     end
+    # `Merge` reaches it through `send`, as a friend of the builder.
+    private :close_on
 
     # Terminate this edge's channel on the plugin layer, and answer the edge.
     # A name written here IS the channel's name, everywhere one appears;
@@ -499,7 +496,7 @@ module Flezha
       # The key rides each source's chain after its mapping; a second `key_by`
       # is one more link, which the core refuses as it would on one edge.
       @sources.each do |source|
-        @keys.reduce(source) { |edge, key| edge.key_by(&key) }.close_on(node, link)
+        @keys.reduce(source) { |edge, key| edge.key_by(&key) }.send(:close_on, node, link)
       end
       Edge.new(@builder, [:tasklet, node], {})
     end

@@ -22,9 +22,9 @@ class RunnerTest < Minitest::Test
     runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> { core.events << :warmup }) do
-        runner.boot(core: core)
+        runner.start(core: core)
         core.polled.pop
-        runner.drain
+        runner.close
       end
     end
     [core.events, core]
@@ -54,9 +54,9 @@ class RunnerTest < Minitest::Test
     runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay).register_factory(second)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> { core.events << :warmup }) do
-        runner.boot(core: core)
+        runner.start(core: core)
         core.polled.pop
-        runner.drain
+        runner.close
       end
     end
 
@@ -65,27 +65,27 @@ class RunnerTest < Minitest::Test
                     "both declarations reach the core before any activation is polled"
   end
 
-  def test_the_core_is_released_on_drain
+  def test_the_core_is_released_on_close
     events, = boot_recording
 
     assert_equal :free, events.last
   end
 
-  def test_await_termination_waits_for_a_stop_then_drains
+  def test_await_termination_waits_for_a_close
     core = Flezha::TestSupport::FakeCore.new
     runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay)
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> { core.events << :warmup }) do
-        runner.boot(core: core)
+        runner.start(core: core)
         core.polled.pop
         waiter = Thread.new { runner.await_termination }
         Thread.pass until waiter.status == "sleep" || !waiter.alive?
-        runner.stop
+        runner.close
 
         assert_same runner, waiter.value
         assert_equal :free, core.events.last
       ensure
-        runner.drain unless core.events.last == :free
+        runner.close unless core.events.last == :free
       end
     end
   end
@@ -98,7 +98,7 @@ class RunnerTest < Minitest::Test
     runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay)
 
     _out, err = capture_io do
-      Process.stub(:warmup, nil) { assert_raises(Flezha::Error) { runner.boot(core: core) } }
+      Process.stub(:warmup, nil) { assert_raises(Flezha::Error) { runner.start(core: core) } }
     end
 
     assert_includes err, "[flezha] Connection attempt 1 failed: no socket"
@@ -107,7 +107,7 @@ class RunnerTest < Minitest::Test
   def test_a_runner_with_no_class_is_refused
     runner = Flezha::Runner.new("test-ns")
 
-    error = assert_raises(Flezha::Error) { runner.boot(core: Flezha::TestSupport::FakeCore.new) }
+    error = assert_raises(Flezha::Error) { runner.start(core: Flezha::TestSupport::FakeCore.new) }
     assert_equal "runtime.no_relays", error.code
   end
 
@@ -115,7 +115,7 @@ class RunnerTest < Minitest::Test
     runner = Flezha::Runner.new("test-ns").register_factory(EchoRelay).executor(:ractors)
 
     Flezha::TestSupport.without_a_terminal do
-      error = assert_raises(Flezha::Error) { runner.boot(core: Flezha::TestSupport::FakeCore.new) }
+      error = assert_raises(Flezha::Error) { runner.start(core: Flezha::TestSupport::FakeCore.new) }
       assert_equal ["usage.unknown_word", "ractors", %w[threads fibers]],
                    [error.code, error.details["value"], error.details["allowed"]]
     end
@@ -338,7 +338,7 @@ class RunnerTest < Minitest::Test
     end
     Flezha::TestSupport.without_a_terminal do
       Process.stub(:warmup, -> {}) do
-        runner.boot(core: core)
+        runner.start(core: core)
         runner.register_factory(LaterRelay)
         assert_includes core.declarations.map { |json| JSON.parse(json)["factory_id"] }, "runner_later_op"
 
@@ -355,8 +355,7 @@ class RunnerTest < Minitest::Test
         assert_equal ["failed", "no class registered for factory `runner_later_op`", true],
                      refused.values_at(:outcome, :error, :non_retryable)
       ensure
-        runner.stop
-        runner.drain
+        runner.close
       end
     end
   end

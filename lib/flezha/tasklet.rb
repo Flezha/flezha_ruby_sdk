@@ -45,6 +45,7 @@ module Flezha
   class Definition
     attr_reader :name, :cell_keys, :idle_ttl_ms, :max_cells, :clock,
                 :mailbox_capacity, :max_timers_per_cell, :schema_version, :min_readable_schema_version,
+                :compact_after_bytes,
                 :state_type, :state_codec, :change_codec, :instance
 
     # Read straight off the class rather than through a mirrored option hash:
@@ -62,6 +63,7 @@ module Flezha
       @max_timers_per_cell = klass.max_timers_per_cell
       @schema_version = klass.schema_version
       @min_readable_schema_version = klass.min_readable_schema_version
+      @compact_after_bytes = klass.compact_after_bytes
       @state_type = klass.state_type
       @state_codec = klass.state_codec
       @change_codec = klass.change_codec
@@ -104,7 +106,8 @@ module Flezha
     # The scalar declarations. Each is read by its bare name and written by
     # naming a value: `max_cells` answers, `max_cells 100` declares.
     SCALARS = %i[mailbox_capacity schema_version min_readable_schema_version
-                 state_codec change_codec max_cells max_timers_per_cell].freeze
+                 state_codec change_codec max_cells max_timers_per_cell
+                 compact_after_bytes].freeze
     # Written by the declarations below, which check their value or write
     # more than one variable; named so a subclass inherits them.
     WRITTEN = %i[cell_keys idle_ttl_seconds state_type change_type].freeze

@@ -116,7 +116,7 @@ module Flezha
     #
     # `Runner#observe_shutdown` asks `$stdin.tty?`, so a suite run by hand and
     # the same suite under CI, a pipe or a log redirect take different paths
-    # through `boot`. Pinning the answer means both drive the one the harness
+    # through `start`. Pinning the answer means both drive the one the harness
     # uses, where the core is asked to watch for end of file.
     def self.without_a_terminal(&) = $stdin.stub(:tty?, false, &)
 

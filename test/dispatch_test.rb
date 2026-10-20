@@ -412,9 +412,9 @@ class DispatchTest < Minitest::Test
 
     def run(input, ctx)
       if input == "spoof"
-        ctx.emit_to("keyed_out", "v", metadata: { "flz.seq" => "999.0" })
+        ctx.emit("v", channel: "keyed_out", metadata: { "flz.seq" => "999.0" })
       else
-        ctx.emit_to("keyed_out", "k", metadata: { "user" => "meta" })
+        ctx.emit("k", channel: "keyed_out", metadata: { "user" => "meta" })
       end
       nil
     end

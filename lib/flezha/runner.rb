@@ -40,6 +40,7 @@ module Flezha
       @yjit = nil
       @stopped = Thread::Queue.new
       @stopping = false
+      @closing = Mutex.new
       @teardown = []
     end
 
@@ -142,7 +143,7 @@ module Flezha
     # Separate from `run` so a host with its own supervision tree can own the
     # waiting, and so the startup ORDER is a thing a test can observe rather
     # than a comment.
-    def boot(core: nil)
+    def start(core: nil)
       jit = resolve_yjit
 
       # Before anything else: a native library built against a different
@@ -182,38 +183,46 @@ module Flezha
       self
     end
 
-    # Declare, warm up, connect and serve until shutdown: `boot`, then
+    # Declare, warm up, connect and serve until shutdown: `start`, then
     # `await_termination`.
     def run(core: nil)
-      boot(core: core)
+      start(core: core)
       await_termination
     end
 
-    # Wait for shutdown, then drain. A host that called `boot` can work between
-    # the two, making control calls for one, and still stop the way `run` does.
+    # Wait for shutdown, then close. A host that called `start` can work
+    # between the two, making control calls for one, and still stop the way
+    # `run` does.
     def await_termination
-      # Blocks here: the queue is pushed by `stop`, from a signal handler, the
-      # stdin watcher, or the core's own shutdown.
       @stopped.pop
-      drain
+      close
       self
     end
 
-    # Stop fetching and drain what is in flight.
+    # Stop fetching, drain what is in flight, release the core and wake every
+    # thread in `await_termination`. Idempotent: the waiter it wakes finds the
+    # core already released. Not for a trap handler, since it takes a lock.
+    def close
+      @closing.synchronize { release_core }
+      stop
+      nil
+    end
+
+    private
+
+    # Wakes `await_termination`. Trap-safe: a queue push and no lock.
     def stop
       return if @stopping
 
       @stopping = true
       @stopped.push(:stop)
-      nil
     end
 
-    # Stop fetching, drain what is in flight, and release the core.
-    # `await_termination` calls it when the wait ends; a host that owns the
-    # waiting calls it itself.
-    def drain
+    def release_core
+      return unless @core
+
       Flezha.log.info("draining")
-      @core&.shutdown
+      @core.shutdown
       undrained = @executor ? @executor.stop : 0
       @teardown.each(&:call)
       @teardown.clear
@@ -222,11 +231,9 @@ module Flezha
       # call the core; freeing the context under it would be a use-after-free
       # in native code. The process is on its way out either way, so the
       # kernel reclaims what this skips.
-      @core&.free if undrained.zero?
+      @core.free if undrained.zero?
       @core = nil
     end
-
-    private
 
     def declare_all
       # The verdict before the registration: the core judges the record and

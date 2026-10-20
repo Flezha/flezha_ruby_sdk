@@ -221,12 +221,13 @@ module Flezha
         ensure
           @spawns.clear
         end
-        @log.concat(ctx.changes)
-        @change_seq += ctx.changes.size
+        record = ctx.send(:effect_record, nil)
+        @log.concat(record[:changes])
+        @change_seq += record[:changes].size
         Outcome.new(
-          outputs: ctx.outputs.map { |o| Codec.decode(o[:payload]) },
-          changes: ctx.changes.map { |bytes| decode_change(bytes) },
-          timers: ctx.timers
+          outputs: record[:outputs].map { |o| Codec.decode(o[:payload]) },
+          changes: record[:changes].map { |bytes| decode_change(bytes) },
+          timers: record[:timers]
         )
       end
 

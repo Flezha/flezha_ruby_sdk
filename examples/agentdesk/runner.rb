@@ -14,6 +14,6 @@ $stdout.sync = true
 runner = Flezha.create_runner("agents")
                .register_factory(AgentRelay)
                .register_factory(GatewayRelay)
-               .boot
+               .start
 
 runner.await_termination
