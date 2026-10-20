@@ -165,10 +165,10 @@ module Flezha
         factory: factory, kind: :work }.merge(extra)
     end
 
-    # One input item on the first channel.
+    # One input item on the first channel, as the core hands an entry payload.
     def self.input_item(payload, **extra)
       { kind: :input, channel: 0, payload: payload.b, metadata: [], replay: false,
-        now: 100 }.merge(extra)
+        now: 100, form: :untransformed }.merge(extra)
     end
 
     # The peer at the poll boundary: a source of activations with no

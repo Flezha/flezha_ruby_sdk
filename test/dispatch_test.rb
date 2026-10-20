@@ -531,17 +531,28 @@ class DispatchTest < Minitest::Test
   # producer already applied the edge, so delivery applies nothing; a steps relay
   # stage released the value raw, so delivery is the one application.
 
-  def delivered(relay, tasklet, payload)
+  # What the handoff consumer is handed for `[payload, form]` items.
+  def delivered(relay, tasklet, *items)
     DELIVERED.clear
-    result = answer_on(relay, tasklet: tasklet, cell_key: "ek", items: [input_item(payload, channel: 1)])
-    assert_equal "ok", result[:effects][0][:verdict]
+    items = items.map { |payload, form| input_item(payload, channel: 1, form: form) }
+    result = answer_on(relay, tasklet: tasklet, cell_key: "ek", items: items)
+    assert(result[:effects].all? { |effect| effect[:verdict] == "ok" })
     DELIVERED.dup
   end
 
   def test_a_flow_inter_task_edge_applies_its_map_exactly_once
     mapped = emit_arm_outputs(StepsEmitFlowRelay)[0][:payload]
 
-    assert_equal [11], delivered(StepsEmitFlowRelay, 1, mapped)
+    assert_equal [11], delivered(StepsEmitFlowRelay, 1, [mapped, :transformed])
+  end
+
+  # The consumer applies its edge to what the core marks untransformed only,
+  # whatever the relay's run: an entry payload and a steps release arrive so,
+  # a stream producer's output arrives transformed.
+  def test_the_input_form_comes_from_the_core
+    value = Flezha::Codec.encode(10)
+
+    assert_equal [11, 10], delivered(StepsEmitFlowRelay, 1, [value, :untransformed], [value, :transformed])
   end
 
   def test_a_steps_consumer_applies_its_own_edge_exactly_once_at_delivery
@@ -549,8 +560,8 @@ class DispatchTest < Minitest::Test
 
     # One released value reaches BOTH children — the driver's fan-out — and
     # each evaluates its own edge here.
-    assert_equal [11], delivered(StepsEmitRelay, 1, released)
-    assert_equal [10], delivered(StepsEmitRelay, 2, released)
+    assert_equal [11], delivered(StepsEmitRelay, 1, [released, :untransformed])
+    assert_equal [10], delivered(StepsEmitRelay, 2, [released, :untransformed])
   end
 
   # An entry naming no codec reads JSON, so plain text fails its decode: the
@@ -647,7 +658,7 @@ class DispatchTest < Minitest::Test
     items = [
       input_item("AAPL:1", channel: 0, consumed_offset: 1),
       input_item("AAPL:2", channel: 0, consumed_offset: 2),
-      input_item(released.first[:payload], channel: 2, consumed_offset: 1)
+      input_item(released.first[:payload], channel: 2, consumed_offset: 1, form: :transformed)
     ]
     effects = answer_on(MergeRelay, tasklet: 1, cell_key: "AAPL", items: items)[:effects]
 

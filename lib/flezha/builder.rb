@@ -56,8 +56,8 @@ module Flezha
     #
     # A steps stage releases ONE value per emit and the driver fans it out
     # to every consumer itself, so each consumer edge (its transforms and its
-    # key) belongs to the consumer. The producer and the consumer read this one
-    # predicate, so they cannot disagree about which side applies the edge.
+    # key) belongs to the consumer, which applies it on the input the core
+    # marks untransformed.
     def runs_in_steps? = ClassSpec.branch(run) == "steps"
 
     # The branch a tree setting names: its bare name, or its one key.
