@@ -105,7 +105,9 @@ class PartTest < Minitest::Test
 
   private
 
+  # The local run's outputs; the core's local-mode banner is the one line it logs.
   def released(relay, inputs, channel: "answer")
+    log, default_log = Flezha::TestSupport::CapturedLog.install
     outputs = []
     run = Flezha::LocalRelay.start(relay)
     begin
@@ -114,7 +116,9 @@ class PartTest < Minitest::Test
       run.run_until_idle(20_000)
     ensure
       run.close
+      Flezha.log = default_log
     end
+    assert_equal [[:error, "LOCAL MODE: "]], log.lines.map { |level, message| [level, message[0, 12]] }
     outputs
   end
 end

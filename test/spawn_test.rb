@@ -125,7 +125,7 @@ class SpawnTest < Minitest::Test
   def test_a_wait_returns_under_the_fiber_executor
     item = Flezha::TestSupport.input_item("p")
     core = FakeCore.new(activations: [Flezha::TestSupport.activation(factory: "waiter_op", items: [item])],
-                        spawns: [nil, resolved("w1", "spawned")])
+                        spawns: [resolved("w1", "spawned")])
     deps = Flezha::TestSupport.deps(WaiterRelay, core)
     executor = Flezha::FiberExecutor.new(core, deps, fetchers: 1).start
     begin

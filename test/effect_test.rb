@@ -132,6 +132,7 @@ class EffectTest < Minitest::Test
     skip "needs the compiled veneer (rake compile)" unless Flezha::TestSupport.native?
 
     released = []
+    log, default_log = Flezha::TestSupport::CapturedLog.install
     run = Flezha::LocalRelay.start(EffectLocal)
     begin
       run.on_output("out") { |output| released << JSON.parse(output.payload) }
@@ -140,7 +141,10 @@ class EffectTest < Minitest::Test
       run.run_until_idle(20_000)
     ensure
       run.close
+      Flezha.log = default_log
     end
+    # The core's local-mode banner is the one line the run logs.
+    assert_equal [[:error, "LOCAL MODE: "]], log.lines.map { |level, message| [level, message[0, 12]] }
 
     assert_equal 2, CALLS["local-q"], "nothing re-runs a local input, so nothing is kept"
     assert_equal [{ "answer" => "local-q", "call" => 1 }, { "answer" => "local-q", "call" => 2 }], released
