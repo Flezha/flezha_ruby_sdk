@@ -12,9 +12,7 @@ class WireConstantsTest < Minitest::Test
     assert_equal Integer(row("schema_version", "activation")), Flezha::ACTIVATION_SCHEMA_VERSION
   end
 
-  def test_the_output_stamps_and_the_reserved_prefix_are_the_fixture_keys
-    assert_equal [row("flz_key", "cell"), row("flz_key", "seq"), row("flz_key", "key")],
-                 [Flezha::Ctx::CELL_STAMP, Flezha::Ctx::SEQ_STAMP, Flezha::Ctx::KEY_STAMP]
+  def test_the_reserved_prefix_is_the_fixture_keys
     assert_equal row("flz_key", "key")[/\A[^.]*\./], Flezha::Ctx::RESERVED_PREFIX
   end
 

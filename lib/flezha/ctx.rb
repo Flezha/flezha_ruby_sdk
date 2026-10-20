@@ -18,10 +18,6 @@ module Flezha
   class Ctx
     # Metadata keys the runtime owns. A handler that sets one is refused.
     RESERVED_PREFIX = "flz."
-    # The identity stamps a keyed plugin output carries when no effect record does.
-    CELL_STAMP = "flz.cell"
-    SEQ_STAMP = "flz.seq"
-    KEY_STAMP = "flz.key"
 
     attr_reader :changes, :outputs, :timers, :cell_key, :replay
 
@@ -52,7 +48,6 @@ module Flezha
       @checkpointed = false
       @completion = nil
       @ordinal = 0
-      @emit_ordinal = 0
       @identity = nil
     end
 
@@ -341,7 +336,6 @@ module Flezha
       end
 
       pairs = meta_list(metadata)
-      stamp_identity(pairs, channel, resolved)
       # An encoder's string carries whatever encoding it was built in, so it is
       # copied into bytes; `String#b` copies even when the encoding matches.
       payload = channel.sink_encode.call(value).b
@@ -349,23 +343,6 @@ module Flezha
         target: "plugin", channel: nil, consumer: nil, plugin_channel: channel.name,
         key: resolved, event_time: nil, metadata: pairs, payload: payload
       }
-    end
-
-    # Output identity for one plugin frame, appended after the user's metadata.
-    # Written only when the class records no effects: under the tier, and for a
-    # durable steps relay, the controller derives the identity from the durable
-    # effect record, and a second answer here would contradict it. The ordinal
-    # advances on every plugin output, stamped or not, so hosts of one topology
-    # agree on the sequence.
-    def stamp_identity(pairs, channel, key)
-      if channel.keyed && !@spec.records_effects?
-        pairs.push(
-          [CELL_STAMP, "#{@relay}/#{@node.name}/#{@cell_key}"],
-          [SEQ_STAMP, "#{@change_seq}.#{@emit_ordinal}"],
-          [KEY_STAMP, key.to_s]
-        )
-      end
-      @emit_ordinal += 1
     end
 
     def meta_list(metadata)

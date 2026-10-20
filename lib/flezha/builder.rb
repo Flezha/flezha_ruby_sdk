@@ -60,17 +60,6 @@ module Flezha
     # predicate, so they cannot disagree about which side applies the edge.
     def runs_in_steps? = ClassSpec.branch(run) == "steps"
 
-    # Whether an instance keeps its work anywhere: `durable` is not `false`.
-    def keeps_work? = ClassSpec.branch(durable) != "false"
-
-    # Whether each invocation's output rides one effect record the controller
-    # stamps at flush: under the effectively-once tier, and for a durable
-    # steps relay, whose stage commit names the record.
-    def records_effects?
-      exactly = run.is_a?(Hash) && run["flow"].is_a?(Hash) ? run["flow"]["exactly"] : nil
-      ClassSpec.branch(exactly) == "effectively_once" || (runs_in_steps? && keeps_work?)
-    end
-
     # The branch a tree setting names: its bare name, or its one key.
     def self.branch(tree)
       return "false" if tree == false

@@ -387,19 +387,16 @@ class DispatchTest < Minitest::Test
   ensure
     Flezha.log = previous
   end
-  # --- output identity stamps -----------------------------------------------
+  # --- a keyed plugin output ------------------------------------------------
   #
-  # One invocation, several emits: the per-emit ordinal is the half a
-  # single-emit assertion cannot see, and the e2e golden checks stamp NAMES only.
+  # The core stamps a keyed output's identity at settle; the host hands it the
+  # key and the user's metadata only.
 
   class StampEmitter < Flezha::Tasklet
     tasklet_name "stamp_emitter"
 
     def run(input, ctx)
-      if input == "twice"
-        ctx.emit_to("keyed_out", "a")
-        ctx.emit_to("keyed_out", "b")
-      elsif input == "spoof"
+      if input == "spoof"
         ctx.emit_to("keyed_out", "v", metadata: { "flz.seq" => "999.0" })
       else
         ctx.emit_to("keyed_out", "k", metadata: { "user" => "meta" })
@@ -408,8 +405,6 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  # One keyed plugin channel: the topology every SDK can express, and where the
-  # per-emit ordinal has to be right.
   class StampRelay < Flezha::Relay
     factory_id "stamp_op"
     channels do |c|
@@ -421,68 +416,15 @@ class DispatchTest < Minitest::Test
     end
   end
 
-  class PlainEmitter < Flezha::Tasklet
-    tasklet_name "plain_emitter"
-
-    def run(_input, ctx)
-      ctx.emit_to("plain_out", "p")
-      nil
-    end
+  def stamp_answer(payload)
+    answer_on(StampRelay, cell_key: "ek", change_seq: 5, items: [input_item(payload)])
   end
 
-  # A tasklet owns ONE output channel, so a keyed and a non-keyed plugin
-  # channel are two tasklets. The unkeyed one carries no stamps at all.
-  class MixedStampRelay < Flezha::Relay
-    factory_id "mixed_stamp_op"
-    channels do |c|
-      c.input("input", decode: ->(b) { b.dup.force_encoding("UTF-8") })
-       .key_by { |_v| "ek" }
-       .branch(
-         ->(edge) { edge.into(PlainEmitter).output("plain_out", encode: ->(v) { v.to_s.b }) },
-         lambda { |edge|
-           edge.into(StampEmitter).keyed
-               .output("keyed_out", encode: ->(v) { v.to_s.b })
-         }
-       )
-    end
-  end
+  def test_a_keyed_plugin_output_carries_its_key_and_the_users_metadata_only
+    keyed, = stamp_answer("meta")[:effects][0][:outputs]
 
-  def stamp_answer(payload, relay: StampRelay, items: nil)
-    answer_on(relay, cell_key: "ek", change_seq: 5, items: items || [input_item(payload)])
-  end
-
-  def meta_of(output) = output[:metadata].to_h
-
-  def test_a_keyed_plugin_emit_carries_the_stamps_and_the_ordinal_advances_per_emit
-    outputs = stamp_answer("twice")[:effects][0][:outputs]
-
-    assert_equal 2, outputs.size
-    assert_equal({ "flz.cell" => "op-1/stamp_emitter/ek", "flz.seq" => "5.0",
-                   "flz.key" => "ek" }, meta_of(outputs[0]))
-    assert_equal({ "flz.cell" => "op-1/stamp_emitter/ek", "flz.seq" => "5.1",
-                   "flz.key" => "ek" }, meta_of(outputs[1]))
-  end
-
-  def test_a_non_keyed_plugin_emit_carries_no_stamps
-    plain, = stamp_answer("mixed", relay: MixedStampRelay)[:effects][0][:outputs]
-
-    assert_equal "plain_out", plain[:plugin_channel]
-    assert_empty plain[:metadata]
-  end
-
-  def test_user_metadata_rides_a_keyed_plugin_frame_with_the_stamps_after_it
-    keyed, = stamp_answer("mixed")[:effects][0][:outputs]
-
-    assert_equal "keyed_out", keyed[:plugin_channel]
-    assert_equal({ "user" => "meta", "flz.cell" => "op-1/stamp_emitter/ek",
-                   "flz.seq" => "5.0", "flz.key" => "ek" }, meta_of(keyed))
-  end
-
-  def test_a_fresh_work_item_restarts_the_emit_ordinal
-    result = stamp_answer(nil, items: [input_item("twice"), input_item("twice")])
-
-    assert_equal [%w[5.0 5.1], %w[5.0 5.1]],
-                 result[:effects].map { |e| e[:outputs].map { |o| meta_of(o)["flz.seq"] } }
+    assert_equal "ek", keyed[:key]
+    assert_equal({ "user" => "meta" }, keyed[:metadata].to_h)
   end
 
   def test_a_spoofed_stamp_is_refused_before_any_output
