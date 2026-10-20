@@ -17,6 +17,7 @@ class DeclKeysTest < Minitest::Test
   class Entry < Flezha::Tasklet
     tasklet_name "entry"
     mailbox_capacity 8
+    max_timers_per_cell 16
     schema_version 3
     min_readable_schema_version 1
     def migrate_state(_from, bytes) = Flezha::Codec.decode(bytes)

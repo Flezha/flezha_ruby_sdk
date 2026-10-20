@@ -99,6 +99,7 @@ module Flezha
         "compensate_overridden" => definition.compensate?,
         "clock" => definition.clock.to_s,
         "mailbox_capacity" => definition.mailbox_capacity,
+        "max_timers_per_cell" => definition.max_timers_per_cell,
         # A tasklet with no state journals nothing, so a logical clock over
         # it never advances. Ruby has no per-tasklet Change type; having a
         # state IS the same statement.

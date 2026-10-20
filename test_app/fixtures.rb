@@ -763,7 +763,7 @@ module Fixtures
     StaticCellRelay, SugarStaticCellRelay, MixedRelay,
     HybridChannelRelay,
     MergedInputRelay, TransformChainRelay, CellStressRelay, *STATE,
-    CandleRelay, PoisonProbeRelay, WedgeProbeRelay, SessionTimeoutRelay, *BOUNDED_MAILBOX,
+    CandleRelay, PoisonProbeRelay, WedgeProbeRelay, SessionTimeoutRelay, TimerCapRelay, *BOUNDED_MAILBOX,
     PartitionPassRelay, DynamicCellRelay, SpawnRequesterRelay,
     SpawnHoldRequesterRelay, SpawnOnceRequesterRelay,
     CallEcho, CallDownstream, CallSplit

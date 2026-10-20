@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # Fixtures whose subject is persisted Cell state: the keyed upsert the bench
-# shares, and the counter and resume twins — the same partition as
+# shares, the counter and resume twins and the timer cap — the same partition as
 # test/apps/python_runner/fixtures_state.py and the reference's state.rs.
 
 require "flezha"
@@ -419,6 +419,38 @@ module Fixtures
     channels do |c|
       c.input("input", codec: :text).into(EvolvingCartV2)
        .output("total")
+    end
+  end
+
+  # -- timer_cap ------------------------------------------------------------
+  #
+  # The core's refusal of a Cell's timers when the item settles (`cell_timers`):
+  # past the cap of two pending timers, or an event-time timer under a tasklet
+  # whose clock is not event time. `event` asks for the event-time timer, a
+  # number `n` for a processing-time one `n` hours ahead; the change follows.
+
+  class TimerCap < Flezha::Tasklet
+    tasklet_name "timer_cap_tasklet"
+    max_timers_per_cell 2
+    def init_state(_cell_key) = { touched: [] }
+    def apply_change(state, change) = state[:touched] << change[:touched]
+
+    def run(input, ctx)
+      if input == "event"
+        ctx.timer_at_event_time(1)
+      else
+        ctx.timer_after(Integer(input) * 3_600_000)
+      end
+      ctx.change({ touched: input })
+      nil
+    end
+  end
+
+  class TimerCapRelay < Flezha::Relay
+    factory_id "timer_cap"
+    channels do |c|
+      c.input("input", codec: :text).into(TimerCap)
+       .output("kafka")
     end
   end
 
