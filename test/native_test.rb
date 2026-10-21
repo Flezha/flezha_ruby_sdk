@@ -3,7 +3,7 @@
 require_relative "test_helper"
 
 # The compiled veneer, driven from Ruby. What the Rust-side arm of
-# `flz_core_ffi/tests/abi_scenario.rs` cannot see: that the extension loads
+# `crates/flz_core_ffi/tests/abi_scenario.rs` cannot see: that the extension loads
 # under this Ruby, that the exception classes are the ones a host rescues, and
 # that a blocking call really does let other Ruby threads run.
 class NativeTest < Minitest::Test

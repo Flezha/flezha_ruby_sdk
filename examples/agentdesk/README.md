@@ -109,7 +109,7 @@ the Ruby that builds it, which is why the image runs the same Ruby. Build the
 controller's image from the repository root:
 
 ```sh
-docker build -f docker/prod/Dockerfile.controller -t flezha/flezha:0.1.0 .
+docker build -f deploy/docker/prod/Dockerfile.controller -t flezha/flezha:0.1.0 .
 ```
 
 Then, in this folder, put the gem into `vendor/cache` before `bundle cache`, which
