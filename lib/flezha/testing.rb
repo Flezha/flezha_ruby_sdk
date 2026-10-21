@@ -196,7 +196,7 @@ module Flezha
       # input, in order.
       def feed(input, now: 0, replay: false)
         @core.begin_input(replay)
-        outcome = run(now, replay) { |ctx| invoke(input, ctx) }
+        outcome = run(now, replay) { |ctx| @definition.instance.run(input, ctx) }
         @core.finish_input
         outcome
       end
@@ -216,15 +216,7 @@ module Flezha
       # Rebuild the state the way a restore does, from a snapshot and a change
       # log — the same call the dispatcher answers `restore_fold` with.
       def restore(snapshot: nil, changes: [])
-        @registered.set_state(
-          @address,
-          State.fold_restore(
-            @definition,
-            { snapshot: snapshot && { bytes: snapshot },
-              changes: changes.map { |bytes| { bytes: bytes } } },
-            @cell_key, @definition.name
-          )
-        )
+        @registered.set_state(@address, fold(snapshot, changes))
       end
 
       # Fold every recorded change into a fresh initial state and require the
@@ -234,10 +226,7 @@ module Flezha
       # the state without recording a change, and an `apply_change` that is not
       # a pure fold. The SDKs whose state is guarded can only catch the second.
       def replay_equals
-        replayed = State.fold_restore(
-          @definition, { changes: @log.map { |bytes| { bytes: bytes } } },
-          @cell_key, @definition.name
-        )
+        replayed = fold(nil, @log)
         raise ReplayMismatch.new(@definition.name, state, replayed) unless replayed == state
 
         true
@@ -263,7 +252,13 @@ module Flezha
         )
       end
 
-      def invoke(input, ctx) = @definition.instance.run(input, ctx)
+      def fold(snapshot, changes)
+        State.fold_restore(
+          @definition,
+          { snapshot: snapshot && { bytes: snapshot }, changes: changes.map { |bytes| { bytes: bytes } } },
+          @cell_key, @definition.name
+        )
+      end
 
       def decode_change(bytes)
         codec = @definition.change_codec
