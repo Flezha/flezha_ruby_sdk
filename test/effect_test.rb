@@ -124,7 +124,7 @@ class EffectTest < Minitest::Test
 
   def test_a_result_the_controller_kept_first_is_what_the_call_answers
     harness = harness(Asks)
-    harness.define_singleton_method(:effect_end) { |*| '{"answer":"first"}' }
+    harness.instance_variable_get(:@core).define_singleton_method(:effect_end) { |*| '{"answer":"first"}' }
     assert_equal [{ answer: "first" }], harness.feed("first-q").outputs
   end
 
