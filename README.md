@@ -1,7 +1,7 @@
 # flezha
 
 The Flezha Ruby SDK, a poll host over `flz_core`, the runner kernel the Rust,
-Java, Node, Python, PHP and Elixir SDKs also drive. The kernel owns transport,
+Java, Node, Python, PHP, Elixir and Go SDKs also drive. The kernel owns transport,
 ordering, per-cell exclusivity, durability, retries, timers, credit, routing
 and steps runs. This gem brings the authoring surface, the MessagePack codec
 and a thread host that releases the GVL around every blocking core call.
