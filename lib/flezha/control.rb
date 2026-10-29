@@ -60,8 +60,9 @@ module Flezha
     # Disable the plugin `name`, stopping it wherever it runs.
     def disable_plugin(name) = call("PluginManager.disable", name, {})
 
-    # The relays in this namespace, one row each: its id, health, runner and
-    # node, and a partition group's width and members.
+    # The relays in this namespace across the cluster: `rows`, one row each
+    # (its id, health, runner and node, and a partition group's width and
+    # members), and `unreachable`, the controllers that did not answer.
     def list_relays = call("Relay.list")
 
     # The plugins enabled in this namespace, one row each: name, provider,
