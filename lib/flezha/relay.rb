@@ -25,9 +25,11 @@ module Flezha
     SHORT_FORM_ONLY = (SHORT_FORM_KEYS + TaskletSettings::NAMES).freeze
     # The class settings, the tree's own data: `run :steps`,
     # `run steps: { each: :per_input }`, `durable false`,
-    # `durable local: { sleep_after: 2_000 }`. Either form takes them; the core
-    # reads the tree when the class registers and refuses a misplaced setting
-    # by name.
+    # `durable local: { sleep_after: 2_000 }`. A finished instance keeps
+    # nothing unless the level sets `keep_finished` to hours, or to `true` for
+    # the controller's window (72 hours by default), so `flz relay info` can
+    # still show its Cells and result. Either form takes them; the core reads
+    # the tree when the class registers and refuses a misplaced setting by name.
     setting :run, :durable, :max_duration_ms, :description
     # `factory_id` is deliberately NOT inherited: two relays cannot share
     # one, and a subclass silently taking its parent's would be refused by the

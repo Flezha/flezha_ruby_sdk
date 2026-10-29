@@ -395,8 +395,9 @@ class AuthoringTest < Minitest::Test
       Flezha::Graph.to_host_class_decl(klass.spec)["durable"]
     end
 
-    assert_equal [nil, false, { "local" => { "sleep_after" => false } }],
-                 [durable.call, durable.call(false), durable.call({ local: { sleep_after: false } })]
+    assert_equal [nil, false, { "local" => { "sleep_after" => false } }, { "remote" => { "keep_finished" => 24 } }],
+                 [durable.call, durable.call(false), durable.call({ local: { sleep_after: false } }),
+                  durable.call({ remote: { keep_finished: 24 } })]
   end
 
   def test_a_value_outside_its_choice_is_refused_at_registration
