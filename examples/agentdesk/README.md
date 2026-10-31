@@ -100,7 +100,7 @@ be built. From the SDK's folder, `../..`, with Ruby 4.0, build a gem for this pl
 pointed at your checkout's core, since the core has no release tag yet either:
 
 ```sh
-RB_SYS_EXTRA_CARGO_ARGS="--offline --config \"patch.'https://github.com/flezha/flezha'.flz_core_ffi.path='$PWD/../../flz_core_ffi'\"" \
+RB_SYS_EXTRA_CARGO_ARGS="--offline --config \"patch.'https://github.com/flezha/flezha'.flz_core_ffi.path='$PWD/../../crates/flz_core_ffi'\"" \
   rake native gem
 ```
 
