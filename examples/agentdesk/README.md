@@ -95,9 +95,10 @@ builds the images and deploys `k8s/agentdesk.yaml` on k3s.
 
 ## Building from a checkout
 
-The gem is not on RubyGems yet, and the controller's image `flezha/flezha:0.1.0` has to
-be built. From the SDK's folder, `../..`, with Ruby 4.0, build a gem for this platform,
-pointed at your checkout's core, since the core has no release tag yet either:
+The controller's image `flezha/flezha:0.1.0` has to be built. To run the project against
+a Flezha checkout instead of the published gem, first build a gem for this platform from
+the SDK's folder, `../..`, with Ruby 4.0, pointed at your checkout's core rather than the
+released one:
 
 ```sh
 RB_SYS_EXTRA_CARGO_ARGS="--offline --config \"patch.'https://github.com/flezha/flezha'.flz_core_ffi.path='$PWD/../../crates/flz_core_ffi'\"" \
@@ -119,8 +120,6 @@ finds it there:
 mkdir -p vendor/cache && cp ../../pkg/flezha-0.1.0-*.gem vendor/cache/
 bundle cache
 ```
-
-Once the gem is published, the step goes away.
 
 ## Where to go next
 
