@@ -95,7 +95,9 @@ builds the images and deploys `k8s/agentdesk.yaml` on k3s.
 
 ## Building from a checkout
 
-The controller's image `flezha/flezha:0.1.0` has to be built. To run the project against
+Docker pulls the controller's image `flezha/flezha:0.1.0` from Docker Hub; the
+commands below build it from the checkout instead.
+To run the project against
 a Flezha checkout instead of the published gem, first build a gem for this platform from
 the SDK's folder, `../..`, with Ruby 4.0, pointed at your checkout's core rather than the
 released one:
