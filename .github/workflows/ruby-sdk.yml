@@ -24,8 +24,8 @@ env:
   # The core release every tier is proven against. It decides the fake
   # controller and the contract set; `ext/flz_core_ffi/Cargo.toml` names the
   # same tag for the library.
-  CORE_VERSION: "0.1.0"
-  CORE_RELEASE: https://github.com/flezha/flezha/releases/download/v0.1.0
+  CORE_VERSION: "0.1.1"
+  CORE_RELEASE: https://github.com/flezha/flezha/releases/download/v0.1.1
 
 jobs:
   # Unit, local mode and smoke, at both ends of the support window. 3.3 is the

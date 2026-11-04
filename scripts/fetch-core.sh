@@ -8,7 +8,7 @@
 # before its digest matches. The native library is not among them: it links the
 # Ruby it runs in, so it is built from the wrapper crate (`rake compile`).
 #
-#   scripts/fetch-core.sh --from <dir|url> [--version 0.1.0]
+#   scripts/fetch-core.sh --from <dir|url> [--version 0.1.1]
 #
 # `--from` is a staged release directory (what `scripts/build-dist.sh
 # --stage-release` writes in the core's tree) or the URL a GitHub release
@@ -19,7 +19,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 FROM=""
-VERSION="0.1.0"
+VERSION="0.1.1"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --from)    FROM="$2"; shift 2 ;;

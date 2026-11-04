@@ -20,7 +20,7 @@ deployment, so a defect specific to it is likely to be found by its users first.
 gem install flezha
 ```
 
-or `gem "flezha", "0.1.0"` in a `Gemfile`. To work on the SDK itself, build and
+or `gem "flezha", "0.1.1"` in a `Gemfile`. To work on the SDK itself, build and
 install it from a checkout as
 [`examples/echo`](examples/echo/README.md#building-from-a-checkout) shows.
 
